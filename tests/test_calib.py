@@ -7,12 +7,16 @@ from .conftest import mild_perspective, render_board
 
 def test_tag_corners_mm_geometry(cfg):
     tc = cfg.tag_corners_mm()
-    # Tag 0 sits inside the top-left corner behind the margin.
-    assert np.allclose(tc[0][0], [10, 10])
-    assert np.allclose(tc[0][2], [50, 50])
-    # Tag 2 sits inside the bottom-right corner.
-    assert np.allclose(tc[2][2], [606 - 10, 703 - 10])
-    assert np.allclose(tc[2][0], [606 - 50, 703 - 50])
+    # Tag 0 sits outside the top-left corner, one margin away, off the board.
+    assert np.allclose(tc[0][2], [-5, -5])
+    assert np.allclose(tc[0][0], [-45, -45])
+    # Tag 2 sits outside the bottom-right corner.
+    assert np.allclose(tc[2][0], [606 + 5, 703 + 5])
+    assert np.allclose(tc[2][2], [606 + 45, 703 + 45])
+    # No tag covers the play area.
+    for quad in tc.values():
+        inside = (quad[:, 0] > 0) & (quad[:, 0] < 606) & (quad[:, 1] > 0) & (quad[:, 1] < 703)
+        assert not inside.any()
 
 
 def test_detects_four_tags_flat(cfg):

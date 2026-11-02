@@ -18,7 +18,7 @@ def make_config(**over) -> BoardConfig:
         height_mm=703.0,
         tag_ids=(0, 1, 2, 3),
         tag_size_mm=40.0,
-        tag_margin_mm=10.0,
+        tag_margin_mm=5.0,
         drift_tolerance_mm=2.0,
         lost_after_frames=3,
         settle_frames=5,
@@ -27,8 +27,12 @@ def make_config(**over) -> BoardConfig:
     return BoardConfig(**base)
 
 
-def render_board(cfg: BoardConfig, px_per_mm: float = 2.0, border_mm: float = 60.0, H: np.ndarray | None = None, shift_px: tuple[float, float] = (0.0, 0.0)):
-    """Top-down synthetic board with the four tag cards.
+def render_board(cfg: BoardConfig, px_per_mm: float = 2.0, border_mm: float = 80.0, H: np.ndarray | None = None, shift_px: tuple[float, float] = (0.0, 0.0), guide_mm: float = 40.0):
+    """Top-down synthetic board resting on the four square tag cards.
+
+    Each card is a white square: the tag in the outer quadrant, diagonal to
+    its board corner, and the board corner on the inner quadrant, as printed
+    by tools/make_tags.py. The L lines stay visible just outside the board edges.
 
     Returns (bgr image, function mm -> px) for the final image, after the
     optional homography H (3x3, acts on the flat image) and pixel shift.
@@ -41,25 +45,27 @@ def render_board(cfg: BoardConfig, px_per_mm: float = 2.0, border_mm: float = 60
     def mm2px_flat(p):
         return np.asarray(p, dtype=np.float64) * px_per_mm + o
 
-    bx0, by0 = mm2px_flat((0, 0)).astype(int)
-    bx1, by1 = mm2px_flat((cfg.width_mm, cfg.height_mm)).astype(int)
-    img[by0:by1, bx0:bx1] = BOARD_GRAY
+    def fill(a_mm, b_mm, value):
+        a, b = mm2px_flat(a_mm), mm2px_flat(b_mm)
+        x0, x1 = sorted((int(round(a[0])), int(round(b[0]))))
+        y0, y1 = sorted((int(round(a[1])), int(round(b[1]))))
+        img[y0:y1, x0:x1] = value
 
     dictionary = cv2.aruco.getPredefinedDictionary(cv2.aruco.DICT_APRILTAG_36h11)
     card = cfg.tag_size_mm + 2 * cfg.tag_margin_mm
     for k, (tag_id, corner) in enumerate(zip(cfg.tag_ids, cfg.board_corners_mm())):
         inward = np.array([[1, 1], [-1, 1], [-1, -1], [1, -1]][k])
-        a = mm2px_flat(corner)
-        b = mm2px_flat(corner + inward * card)
-        x0, x1 = sorted((int(round(a[0])), int(round(b[0]))))
-        y0, y1 = sorted((int(round(a[1])), int(round(b[1]))))
-        img[y0:y1, x0:x1] = 255
+        ix, iy = inward
+        fill(corner - inward * card, corner + inward * guide_mm, 255)
+        fill(corner, corner + np.array([ix * guide_mm, -iy * 0.8]), 0)
+        fill(corner, corner + np.array([-ix * 0.8, iy * guide_mm]), 0)
         tc = cfg.tag_corners_mm()[tag_id]
         t0 = mm2px_flat(tc[0]).round().astype(int)
         t2 = mm2px_flat(tc[2]).round().astype(int)
         side = t2[0] - t0[0]
         marker = cv2.aruco.generateImageMarker(dictionary, tag_id, 8 * 16)
         img[t0[1] : t0[1] + side, t0[0] : t0[0] + side] = cv2.resize(marker, (side, side), interpolation=cv2.INTER_NEAREST)
+    fill((0, 0), (cfg.width_mm, cfg.height_mm), BOARD_GRAY)  # board lies on top of the cards
 
     T = np.array([[1, 0, shift_px[0]], [0, 1, shift_px[1]], [0, 0, 1]], dtype=np.float64)
     M = T @ (H if H is not None else np.eye(3))

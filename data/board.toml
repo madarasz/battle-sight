@@ -7,14 +7,17 @@ width_mm = 606.0
 height_mm = 703.0
 
 [tags]
-# AprilTag 36h11. One tag card at each board corner.
+# AprilTag 36h11. One tag card at each board corner, on the table outside the board.
 # Card = black tag square + white margin on every side.
-# The card's outer corner sits on the board corner, card edges flush with board edges.
+# The card is a square under the board corner. The tag sits in its outer quadrant,
+# diagonal to the corner. The board corner rests on the inner quadrant, on a printed L.
+# The tag's inner margin corner is the board corner. Nothing covers the play area.
 # ids: tag id for corner 0..3 = top-left, top-right, bottom-right, bottom-left
 # (as seen from the camera, with the board origin corner at top-left).
 ids = [0, 1, 2, 3]
 size_mm = 40.0     # black square outer edge
-margin_mm = 10.0   # white margin around the black square
+margin_mm = 5.0    # white quiet zone around the black square, at least 1 module (size_mm / 8)
+guide_mm = 40.0    # L arm length, the card part under the board (print sheet only)
 
 [drift]
 tolerance_mm = 2.0      # warn when a tag moved more than this from the reference

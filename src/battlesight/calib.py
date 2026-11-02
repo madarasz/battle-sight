@@ -68,8 +68,10 @@ class TagDetector:
 def board_corners_px(cfg: BoardConfig, obs: dict[int, TagObs]) -> dict[int, np.ndarray]:
     """Board corner pixel positions derived from the detected tags.
 
-    Corner k of the board is corner k of tag k, pushed outward by the white
-    margin along both tag edges. Returns {corner_index: (2,) array}.
+    Tag k lies outside the board, diagonal to board corner k. Its own corner
+    nearest the board is corner k + 2 (TL tag corner for the BR board corner,
+    and so on). Push that corner away from the tag by the white margin along
+    both tag edges. Returns {corner_index: (2,) array}.
     """
     ratio = cfg.tag_margin_mm / cfg.tag_size_mm
     out: dict[int, np.ndarray] = {}
@@ -78,9 +80,10 @@ def board_corners_px(cfg: BoardConfig, obs: dict[int, TagObs]) -> dict[int, np.n
         if k is None:
             continue
         c = tag.corners
-        e_next = c[(k + 1) % 4] - c[k]
-        e_prev = c[(k + 3) % 4] - c[k]
-        out[k] = c[k] - (e_next + e_prev) * ratio
+        j = (k + 2) % 4
+        e_next = c[(j + 1) % 4] - c[j]
+        e_prev = c[(j + 3) % 4] - c[j]
+        out[k] = c[j] - (e_next + e_prev) * ratio
     return out
 
 

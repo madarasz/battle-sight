@@ -17,18 +17,28 @@ board, a window with the video and measurement overlays. See `specs/plan.md`.
 uv run tools/make_tags.py
 ```
 
-Writes `data/tags/corner_tags.pdf` (A4). Print at 100%, no "fit to page".
-Measure the 100 mm ruler on the print. Cut on the grey lines.
+Writes `data/tags/corner_tags.pdf` (A4, all four cards on one page). Print at
+100%, no "fit to page". Measure the 100 mm ruler on the print. Cut on the grey lines.
 
-Place each card so that:
+Each card is a 90 mm square. The tag sits in the outer quadrant. A black L
+in the inner quadrant marks the board corner. The 5 mm white margin around
+the tag is the quiet zone the detector needs. Do not trim it.
 
-- the corner with the black triangle sits on the board corner,
-- the two card edges run flush with the two board edges,
-- "TOP" points toward the top edge of the board (away from you, if the origin
-  corner is at your top-left on screen).
+1. Put each card on the table at its board corner.
+2. Rest the board corner on the card. Both board edges touch the inner side
+   of the black L. Both lines stay fully visible, with no white gap between
+   line and board. A covered line means the board is too far out, a white
+   gap means it is too far in.
 
-Card id 0 = top-left, 1 = top-right, 2 = bottom-right, 3 = bottom-left, as
-seen on screen. Tape the cards down. A moved card looks like a moved board.
+The card lies under the board, so nothing covers the play area. The tag sits
+diagonally outside the board corner, and the tag's inner margin corner is
+the board corner. The label beside the tag tells which corner: id 0 =
+top-left, 1 = top-right, 2 = bottom-right, 3 = bottom-left, as seen on screen.
+
+The app measures from the cards, not the board. The board's weight holds
+the cards, so a bumped board usually drags its cards with it (warning). If
+the board slides over a still card, there is no warning: lift the corner
+and put it back against the L.
 
 ### Camera
 

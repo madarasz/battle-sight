@@ -63,15 +63,17 @@ class BoardConfig:
     def tag_corners_mm(self) -> dict[int, np.ndarray]:
         """Black-square corners of every tag in board coordinates.
 
-        Returns {tag_id: (4, 2) array} with the tag's own corner order
-        TL, TR, BR, BL, as the tag lies upright on the board.
+        Each card lies outside the board, diagonal to its corner: the card's
+        inner corner touches the board corner, and the tag sits one margin
+        further out. Returns {tag_id: (4, 2) array} with the tag's own corner
+        order TL, TR, BR, BL, as the tag lies upright next to the board.
         """
         out: dict[int, np.ndarray] = {}
         m, s = self.tag_margin_mm, self.tag_size_mm
         for k, (tag_id, corner) in enumerate(zip(self.tag_ids, self.board_corners_mm())):
             inward = _INWARD[k]
-            near = corner + inward * m
-            far = corner + inward * (m + s)
+            near = corner - inward * m
+            far = corner - inward * (m + s)
             x0, x1 = sorted((near[0], far[0]))
             y0, y1 = sorted((near[1], far[1]))
             out[tag_id] = np.array([[x0, y0], [x1, y0], [x1, y1], [x0, y1]], dtype=np.float64)
