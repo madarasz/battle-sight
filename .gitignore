@@ -9,4 +9,5 @@ data/snapshots/*.png
 data/snapshots/*.jpg
 data/tags/*
 !.gitkeep
+out/
 

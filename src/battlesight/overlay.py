@@ -72,12 +72,14 @@ def draw_board_corners(frame: np.ndarray, corners: dict[int, np.ndarray], refere
 
 
 def draw_banner(frame: np.ndarray, report: DriftReport, extra: str = "") -> None:
+    draw_text_banner(frame, report.summary(), _STATUS_COLOR[report.status], extra)
+
+
+def draw_text_banner(frame: np.ndarray, text: str, color: tuple[int, int, int], extra: str = "") -> None:
     s = _scale(frame)
     h = int(44 * s)
-    color = _STATUS_COLOR[report.status]
     cv2.rectangle(frame, (0, 0), (frame.shape[1], h), BLACK, -1)
     cv2.rectangle(frame, (0, 0), (int(12 * s), h), color, -1)
-    text = report.summary()
     cv2.putText(frame, text, (int(24 * s), int(30 * s)), cv2.FONT_HERSHEY_SIMPLEX, 0.8 * s, color, max(1, round(2 * s)), cv2.LINE_AA)
     if extra:
         (tw, _), _ = cv2.getTextSize(extra, cv2.FONT_HERSHEY_SIMPLEX, 0.6 * s, 1)

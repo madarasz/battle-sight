@@ -7,7 +7,20 @@ board, a window with the video and measurement overlays. See `specs/plan.md`.
 
 1. Install `uv` if missing: `curl -LsSf https://astral.sh/uv/install.sh | sh`
 2. In this folder: `uv sync` (creates `.venv` with Python 3.12, OpenCV, NumPy, Pillow).
-3. Run the tests: `uv run pytest`
+3. Run the unit tests: `uv run pytest`
+4. Run the photo tests: `uv run pytest -m photos`
+
+[docs/testing.md](docs/testing.md) tells about the two test sets and how to
+add a test photo.
+
+## Command line
+
+All modes run through the `battlesight` command. [docs/cli.md](docs/cli.md)
+gives all commands, options, exit codes, and the JSON report format.
+
+- `uv run battlesight corners`: live corner tracking from a camera.
+- `uv run battlesight image data/snapshots/tests`: run the analysis on saved
+  photos. Use it for tests and automation.
 
 ## Priority 1: board corners
 
@@ -72,8 +85,9 @@ Tolerances live in `data/board.toml`.
 ## Layout
 
 ```
-src/battlesight/   config.py camera.py calib.py overlay.py app.py
+src/battlesight/   config.py camera.py calib.py overlay.py pipeline.py app.py
 tools/             make_tags.py list_cameras.py
-tests/             synthetic-board tests, no camera needed
-data/              board.toml, tags/, snapshots/, calib/
+tests/             synthetic-board tests, test-photo tests, no camera needed
+data/              board.toml, tags/, snapshots/ (snapshots/tests/ = test photos), calib/
+docs/              cli.md testing.md
 ```
