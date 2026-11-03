@@ -21,15 +21,24 @@ default.
 
 | File | Tests |
 |---|---|
-| `tests/test_config.py` | Load of `data/board.toml`. Rejection of bad tag ids. |
+| `tests/test_camera.py` | Camera source parsing: device index, stream URL, file path. The stream reader keeps only the newest frame, waits for a new frame, and stops at the end of the stream. Camera settings file: defaults without a file, save and load for a device and a stream, command options override the file, `list_cameras.py` keeps the lens when it saves a new source. No camera or network needed. |
+| `tests/test_config.py` | Load of `data/board.toml`. Rejection of bad tag ids and bad grid sections. Grid lines for Tomb World sections and for a Volkus 1 in pitch. |
 | `tests/test_calib.py` | Tag corner geometry in mm. Tag detection (flat, perspective and blur, low pixel density, wrong tag ids). Board corner position. Drift monitor: reference lock, moved board, one moved tag, lost tag. |
-| `tests/test_pipeline.py` | Pipeline stages: a good board, a missing tag, skip of later stages after a failure, an error in a stage, an unknown stage name. The `image` command: exit codes 0, 1, 2, the JSON report, and the `--out` files. |
+| `tests/test_pipeline.py` | Pipeline stages: a good board, a missing tag, skip of later stages after a failure, an error in a stage, an unknown stage name. The `image` command: exit codes 0, 1, 2, the JSON report, the `--out` files, `--until corners`. |
+| `tests/test_rectify.py` | Board plane fit with an exact virtual camera: homography, camera position, board thickness correction, lens distortion. Top-down image of a rendered board: board edges, corner angles, printed grid lines, a board that slid over still cards, lens distortion removal. Stage report, failure on a bad fit, hint for swapped board width and height. Lens in the camera file: nominal lens and its focal length, calibrated lens at another scale, other aspect ratio. ChArUco lens calibration on virtual camera views, and the `calibrate` command (writes `[lens]`, keeps `[camera]`). |
 
 The unit tests use `render_board` in `tests/conftest.py`. It makes a top-down
-image of the board on the four tag cards, with an optional perspective and
-pixel shift. It also gives a function from board mm to image pixels. The
-tests use this function as the true position. Use this harness for new
-vision unit tests. Do not use camera captures in unit tests.
+image of the board on the four tag cards, with an optional perspective,
+pixel shift, and printed grid lines (`print_grid=True`). It also gives a
+function from board mm to image pixels. The tests use this function as the
+true position. `tomb_world_grid()` gives a test config with the Tomb World
+board size and its 7 x 6 printed sections. Use this harness for new vision
+unit tests. Do not use camera captures in unit tests.
+
+`tests/test_rectify.py` also uses a virtual pinhole camera
+(`cv2.projectPoints`). It projects the tag corners on the table and the
+board points on the play surface. This gives exact true positions for the
+thickness and distortion tests.
 
 ## Photo tests
 
@@ -61,8 +70,23 @@ For each photo:
 | `test_photo_passes_all_stages` | All pipeline stages pass. |
 | `test_photo_size_matches` | The image size after the EXIF rotation is the same as in the expected file. |
 | `test_corners_match_expected` | The found tag ids are the same as in the expected file. Each of the four board corners and each of the 16 tag corners is within the tolerance of its expected position. |
+| `test_rectify_match_expected` | The lens source is the same. 81 board points through the expected and the found homography are within `RECTIFY_TOL_MM` (1 mm). Each board edge offset and each printed grid line offset is within 1 mm of the expected value. |
+| `test_rectify_done_criteria` | The done test of priority 2 in `specs/plan.md`, with no expected file: all four board edges found and tilted less than `EDGE_ANGLE_TOL_DEG` (0.3 deg), board corners at 90 deg within `CORNER_ANGLE_TOL_DEG` (0.5 deg), each printed grid line found and within `GRID_TOL_MM` (3.5 mm) of its nominal place, neighbouring grid lines spaced right within `SPACING_TOL_MM` (1.5 mm). |
 
-The tolerance is `CORNER_TOL_MM = 1.0` mm in `tests/test_photos.py`. The test
+`GRID_TOL_MM` is large because it includes the card placement error: in the
+two test photos the board right edge is 2.5 to 3.3 mm inside the L on the
+cards, and the grid lines near it move with the board (largest line offset
+3.0 mm). The spacing test does
+not depend on the card placement. A 1.5 mm error over a 97 mm Tomb World
+section is 0.4 mm per inch. The plan allows 1 mm per inch. The test photos
+give at most 1.4 mm.
+
+A change of `board.thickness_mm` moves the fitted board plane (up to about
+1 mm at the board edge for each 1 mm of thickness at these camera heights).
+`test_rectify_match_expected` then fails. That is a correct change: make the
+expected files again ("Update an expected file" below).
+
+The corner tolerance is `CORNER_TOL_MM = 1.0` mm in `tests/test_photos.py`. The test
 changes the pixel distance to mm with the size of the tag at that corner
 (tag edge in pixels divided by `tags.size_mm`). Thus the same tolerance
 applies to photos with different resolutions and camera heights.
@@ -87,7 +111,10 @@ AssertionError: board corner 2 off by 1.68 mm (tolerance 1.0 mm)
    ```
 
 3. Open `out/<name>.overlay.jpg`. Make sure that each white cross is on its
-   board corner and each green outline is on its tag.
+   board corner and each green outline is on its tag. Open
+   `out/<name>.rectified.jpg`. Make sure that the board is upright, its
+   edges are on the cyan outline, and the yellow grid lines are on the
+   printed section lines.
 4. Copy the report to the expected file:
 
    ```

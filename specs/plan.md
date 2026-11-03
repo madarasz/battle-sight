@@ -1,6 +1,6 @@
 # Battle Sight: research and plan
 
-Status: priority 1 (board corners) built. Date: 2026-11-03.
+Status: priorities 1 (board corners) and 2 (undistort and rectify) done. Next: priority 3 (bases). Date: 2026-11-03.
 
 ## 1. Decisions made
 
@@ -11,6 +11,7 @@ Status: priority 1 (board corners) built. Date: 2026-11-03.
 | Camera | Xiaomi 13T phone, main lens (24 mm equiv.), 4K, fed to the Mac through Camo. Arm or tripod above board center. App must accept any camera source with enough pixels per mm. |
 | Display | Monitor or laptop next to table. One window: video with overlay, side panel. |
 | Board | MVP: Kill Team "Tomb World" board, 606 x 703 mm. Later: Volkus open board, 559 x 760 mm. |
+| Grid | Map dependent, from config. Tomb World: the 7 x 6 printed sections (97 mm) inside a 12 mm margin; an inch grid does not agree with its print. Volkus: 1 in grid. |
 | Board frame | One square AprilTag card under each board corner. The tag sits in the card's outer quadrant, diagonal to the corner. The board corner rests on the inner quadrant, both edges against a printed L that stays visible just outside the board, so the tag's inner margin corner is the board corner. Nothing covers the play area. Board coordinate origin is one corner. Grid offset is configurable. |
 | Geometry | All measurement is 2D in the board plane. No vantages, no heights. |
 | Walls | Not tracked, not measured. They block placement physically. No map overlay of wall layouts. |
@@ -28,7 +29,7 @@ Order from the owner. Each phase has a done test.
 | # | Priority | Approach | Done when |
 |---|---|---|---|
 | 1 | Find board corners | AprilTag 36h11 card under each corner, tag outside the board. Detect every frame. Warn when a tag is lost or moved. | Four corners found in every clean frame. Drift of a bumped board detected within a second. |
-| 2 | Undistort and rectify | One-time lens calibration. Per-frame homography from the 4 tags. Correct for the board thickness (tags lie on the table, play surface is higher). Warp to a top-down image at a fixed scale (mm per pixel). Optional 1 in grid overlay. | Board edges straight, corners at 90 deg. Grid lines land on the printed board grid across the whole board. Known 1 in distance measures 25.4 mm plus or minus 1 mm anywhere. |
+| 2 | Undistort and rectify | One-time lens calibration. Per-frame homography from the 4 tags. Correct for the board thickness (tags lie on the table, play surface is higher). Warp to a top-down image at a fixed scale (mm per pixel). Optional map grid overlay (Tomb World sections, Volkus 1 in). | Board edges straight, corners at 90 deg. Grid lines land on the printed board grid across the whole board. Known 1 in distance measures 25.4 mm plus or minus 1 mm anywhere. |
 | 3 | Find bases and positions | Detection is separate from identity. Background subtraction against an empty-board reference, then edge points, then circle fit with the known diameter set. Later: a YOLO segmentation model trained on base rims. | All bases found on a Tomb World board with walls. Center error under 2 mm. Correct diameter class. |
 | 4 | Identify operatives | Crop around each found base. DINOv2 embedding. Nearest neighbor in an enrolled gallery (10 to 20 photos per operative from this camera). User confirms or fixes with one click. Fixes feed the gallery. | 9 of 10 bases labeled right on first try. |
 | 5 | Rings and distances | Select operative. Hotkey picks N in 1 to 9. Draw circle with radius = base radius + N in. Select a second operative: draw and print rim-to-rim distance. | Ring and distance match a tape measure within 2 mm. |
@@ -102,8 +103,8 @@ battle-sight/
   specs/              # this plan, about-project, images
   src/battlesight/
     camera.py         # capture, reconnect
-    calib.py          # intrinsics, tag detection, homography, drift check
-    rectify.py        # warp to board mm space, grid
+    calib.py          # tag detection, drift check, lens model, ChArUco calibration
+    rectify.py        # homography, thickness correction, warp to board mm space, edge and grid checks
     circles.py        # background subtraction, known-radius circle fit (bases and tokens)
     ident.py          # embeddings, gallery, kNN
     doors.py          # hatchway and breach point rectangles, open/closed state
@@ -116,7 +117,7 @@ battle-sight/
     maps/             # clicked door positions per Tomb World layout
     sizes.toml        # base, token, door dimensions
   tools/
-    calibrate_camera.py
+    make_charuco.py   # print sheet for lens calibration (`battlesight calibrate`)
     make_tags.py      # print sheet for AprilTags
     enroll_operative.py
 ```
@@ -135,7 +136,8 @@ battle-sight/
 Resolved inside the phase that needs them.
 
 - Priority 1: tag size and print sheet done (40 mm tag, 5 mm margin = 1 module quiet zone, 90 mm square cards with a 40 mm L corner mark, all four on one A4 page). L length does not change accuracy: the board corner is the tag's inner margin corner at any card rotation. Install Camo, confirm 4K reaches OpenCV.
-- Priority 2: measure the Tomb World board thickness for `board.thickness_mm`.
+- Priority 2: done. Tomb World board thickness 1.0 mm (caliper), board size 703 x 606 mm confirmed. Width is the edge from tag 0 to tag 1.
+- Priority 2 results on the two test photos (nominal lens, thickness 1.0 mm): tag fit rms 1.0 mm, max 1.7 mm. Board edges tilt under 0.15 deg, corners 90 deg within 0.21 deg. Printed section lines within 3.1 mm of nominal (card placement: the board right edge is 2.5 to 3.3 mm inside the L), spacing of neighbouring lines within 1.4 mm over 97 mm (0.37 mm per inch).
 - Priority 3: whether the empty-board reference is enough or a trained base segmenter is needed. Decide after first tests on the real board.
 - Priority 7: door thickness in mm for config. Grid snap pitch (1 in, or half inch if walls sit between lines).
 - Later: roster format, wounds and statuses, live tracking, oval bases, Volkus board.

@@ -9,6 +9,7 @@ import pytest
 from battlesight.config import BoardConfig
 
 BOARD_GRAY = 70  # dark board, like Tomb World
+LINE_GRAY = 30  # printed grid lines on the board
 
 
 def make_config(**over) -> BoardConfig:
@@ -27,12 +28,14 @@ def make_config(**over) -> BoardConfig:
     return BoardConfig(**base)
 
 
-def render_board(cfg: BoardConfig, px_per_mm: float = 2.0, border_mm: float = 80.0, H: np.ndarray | None = None, shift_px: tuple[float, float] = (0.0, 0.0), guide_mm: float = 40.0):
+def render_board(cfg: BoardConfig, px_per_mm: float = 2.0, border_mm: float = 80.0, H: np.ndarray | None = None, shift_px: tuple[float, float] = (0.0, 0.0), guide_mm: float = 40.0, print_grid: bool = False):
     """Top-down synthetic board resting on the four square tag cards.
 
     Each card is a white square: the tag in the outer quadrant, diagonal to
     its board corner, and the board corner on the inner quadrant, as printed
     by tools/make_tags.py. The L lines stay visible just outside the board edges.
+    With `print_grid`, dark 1.5 mm lines at `cfg.grid_lines_mm()` are printed
+    on the board, like the Tomb World section lines.
 
     Returns (bgr image, function mm -> px) for the final image, after the
     optional homography H (3x3, acts on the flat image) and pixel shift.
@@ -66,6 +69,13 @@ def render_board(cfg: BoardConfig, px_per_mm: float = 2.0, border_mm: float = 80
         marker = cv2.aruco.generateImageMarker(dictionary, tag_id, 8 * 16)
         img[t0[1] : t0[1] + side, t0[0] : t0[0] + side] = cv2.resize(marker, (side, side), interpolation=cv2.INTER_NEAREST)
     fill((0, 0), (cfg.width_mm, cfg.height_mm), BOARD_GRAY)  # board lies on top of the cards
+    if print_grid:
+        xs, ys = cfg.grid_lines_mm()
+        m, lw = cfg.grid_margin_mm, 0.75
+        for x in xs:
+            fill((x - lw, m), (x + lw, cfg.height_mm - m), LINE_GRAY)
+        for y in ys:
+            fill((m, y - lw), (cfg.width_mm - m, y + lw), LINE_GRAY)
 
     T = np.array([[1, 0, shift_px[0]], [0, 1, shift_px[1]], [0, 0, 1]], dtype=np.float64)
     M = T @ (H if H is not None else np.eye(3))
@@ -80,10 +90,23 @@ def render_board(cfg: BoardConfig, px_per_mm: float = 2.0, border_mm: float = 80
     return cv2.cvtColor(img, cv2.COLOR_GRAY2BGR), mm2px
 
 
+def tomb_world_grid(**over) -> BoardConfig:
+    """Test config with the Tomb World printed grid: 7 x 6 sections, 12 mm margin."""
+    return make_config(width_mm=703.0, height_mm=606.0, grid_margin_mm=12.0, grid_sections=(7, 6), grid_printed=True, **over)
+
+
 def mild_perspective(w: int, h: int, amount: float = 0.04) -> np.ndarray:
     src = np.float32([[0, 0], [w, 0], [w, h], [0, h]])
     dst = np.float32([[w * amount, h * amount * 0.5], [w * (1 - amount * 0.5), 0], [w, h], [0, h * (1 - amount)]])
     return cv2.getPerspectiveTransform(src, dst).astype(np.float64)
+
+
+@pytest.fixture(autouse=True)
+def no_local_camera_file(tmp_path, monkeypatch):
+    """CLI tests must not read or write the machine-local data/camera.toml."""
+    import battlesight.app
+
+    monkeypatch.setattr(battlesight.app, "DEFAULT_CAMERA_FILE", tmp_path / "camera.toml")
 
 
 @pytest.fixture

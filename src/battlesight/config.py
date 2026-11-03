@@ -27,12 +27,31 @@ class BoardConfig:
     drift_tolerance_mm: float
     lost_after_frames: int
     settle_frames: int
+    # Play surface height above the table (the tag cards lie on the table).
+    thickness_mm: float = 0.0
+    # Grid: lines start `grid_margin_mm` in from each edge. With `grid_sections`
+    # (nx, ny) the space inside the margin splits into equal sections (Tomb
+    # World 7 x 6). Without it, lines repeat every `grid_pitch_mm` (Volkus 1 in).
+    grid_margin_mm: float = 0.0
+    grid_sections: tuple[int, int] | None = None
+    grid_pitch_mm: float = 25.4
+    grid_printed: bool = False  # the grid is printed on the board: rectify checks its lines
+    # Rectified top-down image.
+    rectify_px_per_mm: float = 2.0
+    rectify_margin_mm: float = 50.0
+    max_reproj_mm: float = 2.5  # rectify fails when the tag corner fit is worse
 
     @classmethod
     def load(cls, path: str | Path = DEFAULT_CONFIG) -> BoardConfig:
         with open(path, "rb") as fh:
             raw = tomllib.load(fh)
         board, tags, drift = raw["board"], raw["tags"], raw.get("drift", {})
+        grid, rect = raw.get("grid", {}), raw.get("rectify", {})
+        if "camera" in raw:
+            raise ValueError("[camera] moved from the board config to data/camera.toml (focal_35mm, lens calibration)")
+        sections = grid.get("sections")
+        if sections is not None and (len(sections) != 2 or min(sections) < 1):
+            raise ValueError("grid.sections must hold two positive counts [nx, ny]")
         ids = tuple(int(i) for i in tags["ids"])
         if len(ids) != 4 or len(set(ids)) != 4:
             raise ValueError("tags.ids must hold four distinct tag ids")
@@ -46,6 +65,14 @@ class BoardConfig:
             drift_tolerance_mm=float(drift.get("tolerance_mm", 2.0)),
             lost_after_frames=int(drift.get("lost_after_frames", 3)),
             settle_frames=int(drift.get("settle_frames", 10)),
+            thickness_mm=float(board.get("thickness_mm", 0.0)),
+            grid_margin_mm=float(grid.get("margin_mm", 0.0)),
+            grid_sections=None if sections is None else (int(sections[0]), int(sections[1])),
+            grid_pitch_mm=float(grid.get("pitch_mm", 25.4)),
+            grid_printed=bool(grid.get("printed", False)),
+            rectify_px_per_mm=float(rect.get("px_per_mm", 2.0)),
+            rectify_margin_mm=float(rect.get("margin_mm", 50.0)),
+            max_reproj_mm=float(rect.get("max_reproj_mm", 2.5)),
         )
 
     def corner_index(self, tag_id: int) -> int | None:
@@ -78,3 +105,18 @@ class BoardConfig:
             y0, y1 = sorted((near[1], far[1]))
             out[tag_id] = np.array([[x0, y0], [x1, y0], [x1, y1], [x0, y1]], dtype=np.float64)
         return out
+
+    def grid_lines_mm(self) -> tuple[np.ndarray, np.ndarray]:
+        """Grid line positions: (x of the vertical lines, y of the horizontal lines).
+
+        With sections, the lines include both margin lines. With a pitch, they
+        start at the margin and repeat up to the far margin.
+        """
+        m = self.grid_margin_mm
+        out = []
+        for i, size in enumerate((self.width_mm, self.height_mm)):
+            if self.grid_sections is not None:
+                out.append(np.linspace(m, size - m, self.grid_sections[i] + 1))
+            else:
+                out.append(np.arange(m, size - m + 1e-6, self.grid_pitch_mm))
+        return out[0], out[1]

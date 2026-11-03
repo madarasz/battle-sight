@@ -3,8 +3,13 @@
 
 [board]
 name = "Tomb World"
-width_mm = 606.0
-height_mm = 703.0
+# width = edge from corner 0 (top-left) to corner 1 (top-right), as the tags lie.
+# In the test photos tags 0 and 1 are on the long edge: width 703, height 606.
+width_mm = 703.0
+height_mm = 606.0
+# Play surface height above the table. The tag cards lie on the table, so the
+# rectify stage corrects for it with the camera pose. Measured with a caliper.
+thickness_mm = 1.0
 
 [tags]
 # AprilTag 36h11. One tag card at each board corner, on the table outside the board.
@@ -23,3 +28,20 @@ guide_mm = 40.0    # L arm length, the card part under the board (print sheet on
 tolerance_mm = 2.0      # warn when a tag moved more than this from the reference
 lost_after_frames = 3   # warn when a tag is missing for this many frames in a row
 settle_frames = 10      # frames with all tags visible and still before the reference locks
+
+[grid]
+# Overlay grid in board mm. Lines start margin_mm in from each edge.
+# Tomb World: 7 x 6 printed sections inside a 12 mm margin (97 mm sections).
+# Volkus: remove `sections` and set pitch_mm = 25.4 (1 in grid).
+margin_mm = 12.0
+sections = [7, 6]
+# pitch_mm = 25.4
+# The grid lines are printed on the board (Tomb World section lines). The
+# rectify stage then finds them in the top-down image and reports their
+# offsets: a check of the rectification that does not use the tags.
+printed = true
+
+[rectify]
+px_per_mm = 2.0       # scale of the top-down image
+margin_mm = 50.0      # table border around the board in the top-down image (shows the tags)
+max_reproj_mm = 2.5   # fail when a tag corner is further than this from the fitted board plane

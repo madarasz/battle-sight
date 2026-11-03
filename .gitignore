@@ -8,6 +8,8 @@ build/
 data/snapshots/*.png
 data/snapshots/*.jpg
 data/tags/*
+data/calib/*
 !.gitkeep
 out/
-
+.DS_Store
+data/camera.toml

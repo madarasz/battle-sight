@@ -25,8 +25,10 @@ from typing import Any
 
 import numpy as np
 
-from .calib import TagDetector, TagObs, board_corners_px
+from .calib import TagDetector, TagObs, board_corners_px, lens_for_frame
+from .camera import CameraSettings
 from .config import CORNER_NAMES, BoardConfig
+from . import rectify as rect
 
 SCHEMA_VERSION = 1
 
@@ -55,6 +57,7 @@ class Context:
     frame: np.ndarray
     cfg: BoardConfig
     cache: dict[str, Any]
+    camera: CameraSettings = field(default_factory=CameraSettings)  # lens for the rectify stage
     results: dict[str, StageResult] = field(default_factory=dict)
     scratch: dict[str, Any] = field(default_factory=dict)
 
@@ -90,6 +93,8 @@ class FrameResult:
 
 RunFn = Callable[[Context], StageResult]
 DrawFn = Callable[[np.ndarray, "FrameResult", BoardConfig], None]
+# Extra images of a stage (for example the top-down board), by name.
+ViewsFn = Callable[[np.ndarray, "FrameResult", BoardConfig], dict[str, np.ndarray]]
 
 
 @dataclass(frozen=True)
@@ -97,18 +102,20 @@ class Stage:
     name: str
     run: RunFn
     draw: DrawFn | None = None
+    views: ViewsFn | None = None
 
 
 STAGES: dict[str, Stage] = {}  # in run order
 
 
-def stage(name: str, draw: DrawFn | None = None) -> Callable[[RunFn], RunFn]:
-    """Register a stage. Stages run in the order they are registered."""
+def stage(name: str, draw: DrawFn | None = None, views: ViewsFn | None = None) -> Callable[[RunFn], RunFn]:
+    """Register a stage. Stages run in the order they are registered.
+    `draw` draws on the camera frame, `views` returns extra named images."""
 
     def deco(fn: RunFn) -> RunFn:
         if name in STAGES:
             raise ValueError(f"stage {name!r} already registered")
-        STAGES[name] = Stage(name, fn, draw)
+        STAGES[name] = Stage(name, fn, draw, views)
         return fn
 
     return deco
@@ -132,13 +139,14 @@ def select_stages(until: str | None = None) -> list[str]:
 class Pipeline:
     """Runs the selected stages on frames. Keeps the cache between frames."""
 
-    def __init__(self, cfg: BoardConfig, until: str | None = None):
+    def __init__(self, cfg: BoardConfig, until: str | None = None, camera: CameraSettings | None = None):
         self.cfg = cfg
+        self.camera = camera or CameraSettings()
         self.names = select_stages(until)
         self.cache: dict[str, Any] = {}
 
     def analyze(self, frame: np.ndarray, source: str = "") -> FrameResult:
-        ctx = Context(frame, self.cfg, self.cache)
+        ctx = Context(frame, self.cfg, self.cache, self.camera)
         failed = False
         for name in self.names:
             if failed:
@@ -167,10 +175,21 @@ class Pipeline:
         draw_text_banner(out, result.summary(), GREEN if result.ok else RED, f"{result.width}x{result.height}")
         return out
 
+    def views(self, frame: np.ndarray, result: FrameResult) -> dict[str, np.ndarray]:
+        """Extra images of the stages that passed, by name (for example "rectified")."""
+        out: dict[str, np.ndarray] = {}
+        for name, r in result.stages.items():
+            fn = STAGES[name].views
+            if fn is not None and r.ok:
+                out.update(fn(frame, result, self.cfg))
+        return out
 
-def analyze(frame: np.ndarray, cfg: BoardConfig, until: str | None = None, source: str = "") -> FrameResult:
+
+def analyze(
+    frame: np.ndarray, cfg: BoardConfig, until: str | None = None, source: str = "", camera: CameraSettings | None = None
+) -> FrameResult:
     """One-shot helper. Use `Pipeline` for many frames."""
-    return Pipeline(cfg, until).analyze(frame, source)
+    return Pipeline(cfg, until, camera).analyze(frame, source)
 
 
 def _round(a: np.ndarray, nd: int = 2) -> list:
@@ -208,3 +227,76 @@ def _corners(ctx: Context) -> StageResult:
     if missing:
         return StageResult(ok=False, message=f"{len(obs)}/4 tags, missing {missing}", data=data)
     return StageResult(ok=True, message="4/4 tags", data=data)
+
+
+# --- priority 2: undistort and rectify -----------------------------------------
+
+
+def _sig(a: np.ndarray, digits: int = 9) -> list:
+    """Round to significant digits: homography entries span many magnitudes."""
+    return [[float(f"{v:.{digits}g}") for v in row] for row in np.asarray(a, dtype=np.float64)]
+
+
+def _draw_rectify(frame: np.ndarray, result: FrameResult, cfg: BoardConfig) -> None:
+    from .overlay import draw_grid
+
+    view = result.scratch.get("view")
+    if view is not None:
+        draw_grid(frame, cfg, view.mm_to_px)
+
+
+def _views_rectify(frame: np.ndarray, result: FrameResult, cfg: BoardConfig) -> dict[str, np.ndarray]:
+    from .overlay import draw_grid
+
+    img = result.scratch.get("rectified")
+    if img is None:
+        return {}
+    img = img.copy()
+    draw_grid(img, cfg, lambda p: rect.mm_to_rect(cfg, p))
+    return {"rectified": img}
+
+
+def _edge_dict(e: rect.EdgeFit | None) -> dict | None:
+    if e is None:
+        return None
+    return {"offset_mm": round(e.offset_mm, 2), "angle_deg": round(e.angle_deg, 3), "n": e.n, "rms_mm": round(e.rms_mm, 2)}
+
+
+@stage("rectify", draw=_draw_rectify, views=_views_rectify)
+def _rectify(ctx: Context) -> StageResult:
+    cfg = ctx.cfg
+    h, w = ctx.frame.shape[:2]
+    lens = ctx.cache.get(("lens", w, h))
+    if lens is None:
+        lens = ctx.cache[("lens", w, h)] = lens_for_frame(ctx.camera, (w, h))
+    obs: dict[int, TagObs] = ctx.scratch["tags"]
+    view = rect.fit_view(cfg, obs, lens)
+    warped = rect.warp_board(ctx.frame, view, cfg)
+    ctx.scratch["view"] = view
+    ctx.scratch["rectified"] = warped
+
+    edges = rect.measure_edges(warped, cfg)
+    angles = rect.corner_angles_deg(edges)
+    grid = rect.measure_grid_lines(warped, cfg) if cfg.grid_printed else None
+    _, size = rect.rect_transform(cfg)
+    data = {
+        "lens": lens.to_dict(),
+        "H_mm_to_px": _sig(view.H),
+        "reproj_rms_mm": round(view.reproj_rms_mm, 3),
+        "reproj_max_mm": round(view.reproj_max_mm, 3),
+        "camera_mm": _round(view.camera_mm, 1),
+        "thickness_mm": cfg.thickness_mm,
+        "surface_scale": round(view.surface_scale, 6),
+        "board_corners_px": _round(view.mm_to_px(cfg.board_corners_mm())),
+        "rectified": {"px_per_mm": cfg.rectify_px_per_mm, "margin_mm": cfg.rectify_margin_mm, "size": list(size)},
+        "edges": {name: _edge_dict(e) for name, e in edges.items()},
+        "corner_angles_deg": [None if a is None else round(a, 3) for a in angles],
+        "grid_lines": None if grid is None else {k: [None if v is None else round(v, 2) for v in vals] for k, vals in grid.items()},
+    }
+    msg = f"fit rms {view.reproj_rms_mm:.2f} mm, max {view.reproj_max_mm:.2f} mm, {lens.source} lens"
+    if view.reproj_max_mm > cfg.max_reproj_mm:
+        hint = ""
+        if rect.swapped_fits_better(cfg, obs, lens, view):
+            hint = "; board width and height look swapped in the config"
+        return StageResult(ok=False, message=f"{msg} > {cfg.max_reproj_mm:g} mm{hint}", data=data)
+    return StageResult(ok=True, message=msg, data=data)

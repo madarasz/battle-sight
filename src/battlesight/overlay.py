@@ -91,3 +91,40 @@ def fit_to_width(frame: np.ndarray, width: int) -> np.ndarray:
         return frame
     scale = width / frame.shape[1]
     return cv2.resize(frame, (width, int(frame.shape[0] * scale)), interpolation=cv2.INTER_AREA)
+
+
+def grid_polylines_mm(cfg: BoardConfig, step_mm: float = 10.0) -> list[np.ndarray]:
+    """Grid lines and board outline as point lists in board mm. Each line is
+    sampled every `step_mm`, so it bends with lens distortion when drawn in the
+    camera frame."""
+    xs, ys = cfg.grid_lines_mm()
+    m, W, H = cfg.grid_margin_mm, cfg.width_mm, cfg.height_mm
+
+    def seg(a, b):
+        n = max(2, int(np.ceil(np.linalg.norm(np.subtract(b, a)) / step_mm)) + 1)
+        return np.linspace(a, b, n)
+
+    lines = [seg((x, m), (x, H - m)) for x in xs] + [seg((m, y), (W - m, y)) for y in ys]
+    return lines
+
+
+def board_outline_mm(cfg: BoardConfig, step_mm: float = 10.0) -> np.ndarray:
+    c = cfg.board_corners_mm()
+    pts = []
+    for k in range(4):
+        a, b = c[k], c[(k + 1) % 4]
+        n = max(2, int(np.ceil(np.linalg.norm(b - a) / step_mm)))
+        pts.append(np.linspace(a, b, n, endpoint=False))
+    return np.concatenate(pts)
+
+
+def draw_grid(frame: np.ndarray, cfg: BoardConfig, to_px, color: tuple[int, int, int] = YELLOW, outline: tuple[int, int, int] | None = CYAN) -> None:
+    """Draw the board grid (and outline) with `to_px`: board mm (N, 2) -> pixels (N, 2)."""
+    s = _scale(frame)
+    thick = max(1, round(1.5 * s))
+    for line in grid_polylines_mm(cfg):
+        pts = np.rint(to_px(line)).astype(np.int32).reshape(-1, 1, 2)
+        cv2.polylines(frame, [pts], False, color, thick, cv2.LINE_AA)
+    if outline is not None:
+        pts = np.rint(to_px(board_outline_mm(cfg))).astype(np.int32).reshape(-1, 1, 2)
+        cv2.polylines(frame, [pts], True, outline, thick, cv2.LINE_AA)

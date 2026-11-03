@@ -58,6 +58,7 @@ def test_later_stages_skip_after_failure(cfg, monkeypatch):
     assert not r.stages["corners"].ok
     assert r.stages["later"].skipped and calls == []
     assert select_stages("corners") == ["corners"]
+    assert select_stages("rectify") == ["corners", "rectify"]
 
 
 def test_stage_exception_becomes_failure(cfg, monkeypatch):
@@ -67,6 +68,16 @@ def test_stage_exception_becomes_failure(cfg, monkeypatch):
     monkeypatch.setitem(pipeline.STAGES, "corners", pipeline.Stage("corners", boom))
     r = analyze(np.zeros((10, 10, 3), np.uint8), cfg)
     assert not r.ok and "bad frame" in r.stages["corners"].message
+
+
+def test_cli_until_corners_skips_rectify(tmp_path, config_file, capsys):
+    img, _ = render_board(make_config())
+    p = tmp_path / "a.png"
+    cv2.imwrite(str(p), img)
+    assert main(["image", str(p), "--config", str(config_file), "--until", "corners", "--json", "-", "-q"]) == 0
+    report = json.loads(capsys.readouterr().out)
+    assert report["stages"] == ["corners"]
+    assert list(report["images"][0]["stages"]) == ["corners"]
 
 
 def test_unknown_stage_rejected():
@@ -90,9 +101,11 @@ def test_cli_image_ok(tmp_path, config_file, capsys):
     code = main(["image", str(shots), "--config", str(config_file), "--out", str(out), "--json", "-"])
     assert code == 0
     report = json.loads(capsys.readouterr().out)
-    assert report["ok"] and report["stages"] == ["corners"]
+    assert report["ok"] and report["stages"] == ["corners", "rectify"]
     assert report["images"][0]["stages"]["corners"]["ok"]
+    assert report["images"][0]["stages"]["rectify"]["ok"]
     assert (out / "a.overlay.jpg").is_file()
+    assert (out / "a.rectified.jpg").is_file()
     assert json.loads((out / "a.json").read_text())["ok"]
 
 
@@ -101,7 +114,9 @@ def test_cli_image_stage_failure_exit_1(tmp_path, config_file):
     cv2.imwrite(str(p), np.full((400, 400, 3), 160, np.uint8))
     report = tmp_path / "r.json"
     assert main(["image", str(p), "--config", str(config_file), "--json", str(report), "-q"]) == 1
-    assert json.loads(report.read_text())["images"][0]["stages"]["corners"]["data"]["missing"] == [0, 1, 2, 3]
+    stages = json.loads(report.read_text())["images"][0]["stages"]
+    assert stages["corners"]["data"]["missing"] == [0, 1, 2, 3]
+    assert stages["rectify"]["skipped"]
 
 
 def test_cli_image_bad_input_exit_2(tmp_path, config_file):

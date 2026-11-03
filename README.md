@@ -1,93 +1,121 @@
 # Battle Sight
 
-Augmented reality overlay for Warhammer 40k: Kill Team. A camera above the
-board, a window with the video and measurement overlays. See `specs/plan.md`.
+Battle Sight helps you measure in Warhammer 40k: Kill Team. A camera above
+the table looks down on the board. A window on your computer shows the live
+video with measurement lines on top of it: the map grid, and later the range
+rings and the distances between operatives.
 
-## Setup (macOS)
+## Work in Progress
 
-1. Install `uv` if missing: `curl -LsSf https://astral.sh/uv/install.sh | sh`
-2. In this folder: `uv sync` (creates `.venv` with Python 3.12, OpenCV, NumPy, Pillow).
-3. Run the unit tests: `uv run pytest`
-4. Run the photo tests: `uv run pytest -m photos`
+1. ✅ Board corners: AprilTag cards, drift warning
+2. ✅ Undistort and rectify: lens calibration, top-down board image, map grid
+3. ⏳ Bases: find round bases and their positions
+4. 🚧 Operative ID: name each base from a photo gallery
+5. 🚧 Rings and distances: range rings, rim-to-rim distance
+6. 🚧 Tokens: find tokens, list operatives in range
+7. 🚧 Doors: click hatchways once per map, draw 1 in and 2 in bands
 
-[docs/testing.md](docs/testing.md) tells about the two test sets and how to
-add a test photo.
+✅ done · ⏳ next · 🚧 not started
 
-## Command line
+## Setup
 
-All modes run through the `battlesight` command. [docs/cli.md](docs/cli.md)
-gives all commands, options, exit codes, and the JSON report format.
+You need a Mac, a camera above the board (the built-in camera for a test, or
+a phone through Camo), a printer, and scissors.
 
-- `uv run battlesight corners`: live corner tracking from a camera.
-- `uv run battlesight image data/snapshots/tests`: run the analysis on saved
-  photos. Use it for tests and automation.
+[docs/setup.md](docs/setup.md) gives all steps:
 
-## Priority 1: board corners
+1. Install the app.
+2. Print and cut the four corner cards.
+3. Put the cards and the board on the table.
+4. Connect the camera.
+5. Set your board and map.
+6. Calibrate the lens (optional).
 
-### Print the tags
+## How to use
 
+Open the Terminal app and go to the Battle Sight folder. Start one of the
+modes below. The app uses the camera that you saved in setup step 4
+(`tools/list_cameras.py`). To use another camera for one run, add
+`--source`, for example `--source 0` for the built-in camera.
+
+### Board view (for a game)
+
+```bash
+uv run battlesight rectify
 ```
-uv run tools/make_tags.py
-```
 
-Writes `data/tags/corner_tags.pdf` (A4, all four cards on one page). Print at
-100%, no "fit to page". Measure the 100 mm ruler on the print. Cut on the grey lines.
+The window shows the board from straight above, upright, with the map grid
+on it. The app removes the camera tilt and the lens distortion, so the
+grid lines sit on the printed lines of the board.
 
-Each card is a 90 mm square. The tag sits in the outer quadrant. A black L
-in the inner quadrant marks the board corner. The 5 mm white margin around
-the tag is the quiet zone the detector needs. Do not trim it.
+| Key | Action |
+|---|---|
+| `v` | Change between the top-down view and the camera view. |
+| `g` | Show or hide the grid. |
+| `r` | Lock the board position again, after you moved the board on purpose. |
+| `s` | Save a photo to `data/snapshots/`. |
+| `q` | Quit. |
 
-1. Put each card on the table at its board corner.
-2. Rest the board corner on the card. Both board edges touch the inner side
-   of the black L. Both lines stay fully visible, with no white gap between
-   line and board. A covered line means the board is too far out, a white
-   gap means it is too far in.
+### Corner check (to set up the table)
 
-The card lies under the board, so nothing covers the play area. The tag sits
-diagonally outside the board corner, and the tag's inner margin corner is
-the board corner. The label beside the tag tells which corner: id 0 =
-top-left, 1 = top-right, 2 = bottom-right, 3 = bottom-left, as seen on screen.
-
-The app measures from the cards, not the board. The board's weight holds
-the cards, so a bumped board usually drags its cards with it (warning). If
-the board slides over a still card, there is no warning: lift the corner
-and put it back against the L.
-
-### Camera
-
-Built-in camera for a first test:
-
-```
+```bash
 uv run battlesight corners
 ```
 
-Phone camera through Camo:
+The window shows the camera image and the four corner cards. Use this mode
+to put the camera and the board in position before a game.
 
-1. Install Camo on the Mac (reincubate.com/camo) and on the Xiaomi 13T. Connect by USB.
-2. In Camo on the Mac pick the main lens, 4K, lock focus and exposure.
-3. Find the camera index: `uv run tools/list_cameras.py`
-4. Run: `uv run battlesight corners --source 1 --width 3840 --height 2160`
+| Key | Action |
+|---|---|
+| `r` | Lock the board position again, after you moved the board on purpose. |
+| `s` | Save a photo to `data/snapshots/`. |
+| `q` | Quit. |
 
-macOS asks for camera permission for the terminal app on the first run.
+### Saved photos
 
-### What you see
-
-- Green outline and id on each tag. Cyan dot = the tag's own top-left corner.
-- White cross = computed board corner. Thin green quad joins the four corners.
-- Banner: yellow "locking reference" for the first 10 still frames, then
-  green "4 corners OK", yellow "BOARD MOVED" over 2 mm, red "TAG LOST".
-
-Keys: `q` quit, `r` re-lock the reference after you moved the board on purpose,
-`s` save a frame to `data/snapshots/`.
-
-Tolerances live in `data/board.toml`.
-
-## Layout
-
+```bash
+uv run battlesight image my-photo.jpg --show
 ```
-src/battlesight/   config.py camera.py calib.py overlay.py pipeline.py app.py
-tools/             make_tags.py list_cameras.py
-tests/             synthetic-board tests, test-photo tests, no camera needed
-data/              board.toml, tags/, snapshots/ (snapshots/tests/ = test photos), calib/
-docs/              cli.md testing.md
-```
+
+The app does the same analysis on a saved photo and shows the result.
+Use it to check a photo that you saved with `s`.
+
+## What you see
+
+The banner at the top tells the board status:
+
+| Banner | Meaning | What to do |
+|---|---|---|
+| Yellow "locking reference" | The app learns the board position. It takes about 10 frames. | Do not touch the board. |
+| Green "4 corners OK" | All four cards are visible. The board did not move. | Play. |
+| Yellow "BOARD MOVED" | A card moved more than 2 mm. | Put the board back, or press `r` if you moved it on purpose. |
+| Red "TAG LOST" | The camera cannot see a card. | Remove what covers the card (a hand, a model, a dice tray). |
+
+On the camera image:
+
+- Green outline and number on each card: the app found the card.
+- White cross: the board corner that the app calculated.
+- Thin green lines: the board outline between the four corners.
+- Yellow lines: the map grid.
+
+In the top-down view, the board is upright, the cards are in the corners of
+the image, and the grid sits on the printed lines.
+
+## Problems
+
+- **"BOARD MOVED" does not go away.** The board moved after the app locked
+  its position. Push the board back, or press `r` to lock the new position.
+- **The board slid but there is no warning.** The app measures from the
+  cards, not from the board. If the board slides over a card that stays
+  still, the app cannot see it. Lift the corner and put it back against the
+  black L of the card.
+- **Error that width and height are the wrong way round.** Change
+  `width_mm` and `height_mm` in `data/board.toml`. See
+  [docs/setup.md](docs/setup.md), step 5.
+- **The camera does not start.** Make sure that the Terminal app has camera
+  permission (System Settings > Privacy & Security > Camera). Find the
+  correct camera number with `uv run tools/list_cameras.py`. If Camo does
+  not show, or you use a Wi-Fi stream, see
+  [docs/setup.md](docs/setup.md), Troubleshooting.
+- **The grid does not sit on the printed lines.** Check the map settings
+  ([docs/setup.md](docs/setup.md), step 5). Then calibrate the lens (step 6).
