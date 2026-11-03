@@ -13,6 +13,7 @@ uv run battlesight --version
 |---|---|---|
 | `corners` | live camera | Track the four corner tags. Warn when a tag is lost or the board moved. |
 | `rectify` | live camera | Show the board top-down, with the map grid. |
+| `bases` | live camera | Find the operative bases on a key push (snapshot). Take the empty-board reference. |
 | `calibrate` | live camera or saved photos | Calibrate the lens with the ChArUco sheet. Write the `[lens]` table of `data/camera.toml`. |
 | `image` | saved photos | Run the analysis pipeline on photos. Write a JSON report and overlay images. Use it for tests and automation. |
 
@@ -80,6 +81,36 @@ Push `r` to lock the new position.
 The banner on the right tells which lens is in use: `calibrated` (from the
 `[lens]` table of `data/camera.toml`) or `nominal`.
 
+## `bases`: find the bases
+
+```
+uv run battlesight bases [--reference data/snapshots/empty_board.png]
+                         [--source 0] [--width 1920] [--height 1080] [--fps N]
+                         [--camera-file data/camera.toml]
+                         [--config data/board.toml] [--display-width 1600]
+```
+
+Snapshot mode (plan section 1, "Measure mode"): the command shows the live
+camera, and runs the full pipeline (`corners`, `rectify`, `bases`) on one
+frame when you push `space`. The result stays on the screen until the next
+`space`. The command prints each base to stdout: diameter class, centre in
+board mm, rim coverage.
+
+| Option | Default | Meaning |
+|---|---|---|
+| `--reference` | `data/snapshots/empty_board.png` | Empty-board reference. Loaded at start when the file exists. The `e` key writes it. Git ignores the file (`data/snapshots/*.png`). |
+
+The other options are the same as for `corners`.
+
+| Key | Action |
+|---|---|
+| `space` | Detect on the current frame. |
+| `e` | Use the current frame as the empty-board reference and write it to `--reference`. The frame must pass `corners` and `rectify`, else the command keeps the old reference and prints why. |
+| `c` | Clear the reference: single-frame mode. |
+| `v` | Change between the top-down view (`bases` view) and the camera view with all overlays. |
+| `s` | Save the current camera frame to `data/snapshots/`. |
+| `q`, `Esc` | Quit. |
+
 ## `calibrate`: lens calibration
 
 ```
@@ -130,7 +161,7 @@ calibration, 1080p frames). For other frames it uses the nominal lens.
 
 ```
 uv run battlesight image PATH [PATH ...] [--until STAGE] [--config FILE] [--camera-file FILE]
-                         [--out DIR] [--json FILE|-] [--show]
+                         [--reference FILE] [--out DIR] [--json FILE|-] [--show]
                          [--display-width 1600] [-q]
 ```
 
@@ -144,7 +175,8 @@ the EXIF orientation of phone photos.
 | `--until STAGE` | all stages | Run the stages up to and including `STAGE`, then stop. |
 | `--config` | `data/board.toml` | Board and tag config. |
 | `--camera-file` | `data/camera.toml` | Camera file. Only the lens (`focal_35mm`, `[lens]`) is used. The photo tests do not read it: they always use the nominal 24 mm lens. |
-| `--out DIR` | none | Write `<name>.overlay.jpg` and `<name>.json` for each image to `DIR`. The command makes `DIR` if it does not exist. |
+| `--reference FILE` | none | Empty-board photo (terrain set up, no operatives) from the same camera and light. The `bases` stage then runs in reference mode for all images. An unreadable file, or one where `corners` or `rectify` fails, gives exit code 2. |
+| `--out DIR` | none | Write `<name>.overlay.jpg`, one `<name>.<view>.jpg` per stage view, and `<name>.json` for each image to `DIR`. The command makes `DIR` if it does not exist. |
 | `--json FILE` | none | Write one report for all images to `FILE`. Use `-` to write it to stdout. |
 | `--show` | off | Show each overlay in a window. Push a key for the next image. Push `q` or `Esc` to stop. |
 | `--display-width` | `1600` | Window width for `--show`. |
@@ -166,7 +198,14 @@ uv run battlesight image data/snapshots/tests --out out/
 
 `--out` writes `<name>.overlay.jpg` (camera frame with all overlays),
 `<name>.rectified.jpg` (top-down board with the map grid, from the
-`rectify` stage), and `<name>.json`.
+`rectify` stage), `<name>.bases.jpg` (top-down board with the found bases),
+and `<name>.json`.
+
+Find the bases with an empty-board reference:
+
+```
+uv run battlesight image game.jpg --reference empty.jpg --out out/
+```
 
 Send the report to another tool:
 
@@ -213,6 +252,7 @@ it on that image.
 |---|---|---|
 | `corners` | 1 | All four corner tags are found. |
 | `rectify` | 2 | The board plane fits the 16 tag corners: the largest error is not more than `rectify.max_reproj_mm`. |
+| `bases` | 3 | Always, when it runs (no bases is a valid result). Fails only when the reference has another image size. |
 
 Each new priority adds a stage to this list. `--until` accepts only the
 stages that exist. `uv run battlesight image --help` shows them.
@@ -225,7 +265,8 @@ The `--json` report:
 {
   "schema": 1,
   "config": "data/board.toml",
-  "stages": ["corners", "rectify"],
+  "stages": ["corners", "rectify", "bases"],
+  "reference": null,
   "ok": true,
   "errors": [],
   "images": [ /* one image report for each image */ ]
@@ -260,6 +301,7 @@ One image report (also the content of `<name>.json` from `--out`):
 
 | Field | Meaning |
 |---|---|
+| `reference` | Path of the `--reference` file, or `null`. Only in the combined report. |
 | `schema` | Report format version. It increases when a field changes or is removed. A new stage or a new field in `data` does not change it. |
 | `size` | Image `[width, height]` in pixels, after the EXIF rotation. |
 | `ok` | `true` when all stages in the report passed. |
@@ -293,6 +335,69 @@ Fields of the `rectify` stage:
 The edge and grid offsets are checks. They do not make the stage fail. A
 large edge offset means the board is not on the L lines of the cards (the
 board slid, or the board size in the config is wrong).
+
+Fields of the `bases` stage:
+
+| Field | Meaning |
+|---|---|
+| `mode` | `reference` (an empty-board reference is set) or `single_frame`. |
+| `px_per_mm` | Scale of the top-down image for the circle fit (`bases.px_per_mm`). |
+| `diameters_mm` | The size classes from the config. |
+| `changed_fraction` | Reference mode: part of the board that differs from the reference. A value near 1 means other light or a moved camera: take the reference again. `null` in single-frame mode. |
+| `bases` | Found bases, best rim coverage first. Each: `center_mm` (board mm), `center_px` (frame pixels), `diameter_mm` (size class), `fit_diameter_mm` (free circle fit before the class was chosen), `coverage` (0..1, part of the rim that supports the fit), `rms_mm` (fit residual), `contrast` (median Lab L step from the rim to the board). |
+
+## Base detection
+
+`src/battlesight/circles.py`, plan priority 3. Geometry only, no training.
+The stage warps the frame to a top-down image at `bases.px_per_mm` (default
+4 px per mm, the camera gives about 3.5 to 4) with a 5 mm border. Then:
+
+1. With a reference: Lab distance to the reference image (warped the same
+   way from its own tags), blur, threshold `bases.diff_threshold`. Centres
+   must lie near changed pixels, and `bases.min_foreground` of the base disc
+   must be changed.
+2. Proposals: each strong edge pixel with a dark band inside (at 0.5 and
+   1.0 mm) and lighter board outside (at 1.25 mm) votes for the centre one
+   radius inward along its gradient, for each diameter. The peaks of the
+   vote maps are the proposals (`max_proposals` per diameter).
+3. Verification: 120 rays from the proposal. On each ray the rim edge is the
+   strongest dark-to-light step within 3.5 mm of the radius that passes the
+   rim test: `outer - rim > bases.min_contrast` and
+   `rim < bases.rim_ratio * outer`. A robust free circle fit gives the centre
+   and the fitted diameter. Three rounds, each with rays from the new centre.
+4. Class: the nearest diameter in `bases.diameters_mm`, when it is within
+   `bases.diameter_tol_mm`. A last fit with the class radius gives the
+   centre. `coverage` is the part of the 120 rays with an edge within 1 mm
+   of that circle. It must be at least `bases.min_coverage`.
+5. Overlapping circles: the best coverage wins. Bases can touch, so two
+   circles overlap when their centres are closer than 0.8 times the sum of
+   the radii.
+
+The diameter is the bottom of the base, where it touches the board. The
+bottom edge lies on the play surface, so the rectify homography maps it
+without parallax. The top of the base is smaller and higher; the rim test
+uses only the dark bevel next to the bottom edge. On the far side of a base
+at a board corner (about 35 deg view angle) the top edge can hide the
+bottom edge by about 0.5 mm.
+
+Single-frame mode (no reference) also finds round things with a dark rim:
+tokens with a dark ring, round barricades, holes in a wall grating. Bases
+with less than `min_coverage` of the rim visible (a model or a wall over
+it) are not reported. Reference mode removes the static ones. Plan section
+9 has the results on the test photos.
+
+`[bases]` in `data/board.toml`:
+
+| Key | Default | Meaning |
+|---|---|---|
+| `diameters_mm` | `[25, 28, 32, 40, 50]` | Size classes, base bottom. |
+| `px_per_mm` | `4.0` | Scale of the top-down image for the fit. |
+| `diameter_tol_mm` | `3.0` | Largest distance of the fitted diameter from a class. |
+| `min_coverage` | `0.5` | Smallest visible part of the rim. |
+| `min_contrast` | `12.0` | Smallest Lab L step (0..255) from the rim band to the board. |
+| `rim_ratio` | `0.75` | Rim band L at most this part of the board L outside. |
+| `diff_threshold` | `25.0` | Reference mode: Lab distance that counts as changed. |
+| `min_foreground` | `0.25` | Reference mode: changed part of the base disc. |
 
 ## Map grid
 
@@ -332,16 +437,17 @@ uv run battlesight image data/snapshots/tests -q --json report.json || echo "pip
 Add the stage in `src/battlesight/pipeline.py`, after the existing stages:
 
 ```python
-def _draw_bases(frame, result, cfg):
+def _draw_tokens(frame, result, cfg):
     ...  # draw in place on the BGR camera frame
 
-def _views_bases(frame, result, cfg):
-    return {"bases": ...}  # optional extra images, written as <name>.bases.jpg
+def _views_tokens(frame, result, cfg):
+    return {"tokens": ...}  # optional extra images, written as <name>.tokens.jpg
 
-@stage("bases", draw=_draw_bases, views=_views_bases)
-def _bases(ctx: Context) -> StageResult:
+@stage("tokens", draw=_draw_tokens, views=_views_tokens)
+def _tokens(ctx: Context) -> StageResult:
     view = ctx.scratch["view"]              # BoardView from the rectify stage
     top_down = ctx.scratch["rectified"]     # top-down image, no overlays
+    bases = ctx.scratch["bases"]            # list of circles.Circle from the bases stage
     ...
     return StageResult(ok=True, message="...", data={...})
 ```

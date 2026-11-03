@@ -2,13 +2,14 @@
 
     battlesight corners [--source 0] [--width 3840 --height 2160]
     battlesight rectify [--source 0] [--width 3840 --height 2160]
+    battlesight bases [--source 0] [--reference data/snapshots/empty_board.png]
     battlesight calibrate [--source 0 | --images PATH...] [--camera-file data/camera.toml]
 
 Everything about the camera is in data/camera.toml (--camera-file): the live
 commands take --source, --width, --height and --fps from it when the options are
 not given (tools/list_cameras.py saves them), and the lens from its [lens] table
 (battlesight calibrate writes it).
-    battlesight image PATH... [--until STAGE] [--out DIR] [--json FILE|-] [--show]
+    battlesight image PATH... [--until STAGE] [--reference FILE] [--out DIR] [--json FILE|-] [--show]
 
 corners: opens the camera, detects the four corner tags on every frame, draws
 them, and warns when a tag is lost or the board moved.
@@ -17,13 +18,18 @@ Keys: q / Esc quit, r re-lock reference, s save snapshot.
 rectify: live top-down board view with the grid. Keys: q quit, v camera or
 top-down view, g grid on/off, r re-lock reference, s save snapshot.
 
+bases: snapshot base detection on the live camera. Keys: space detect, e take
+the empty-board reference, c clear it, v camera or top-down view, s save
+snapshot, q quit.
+
 calibrate: lens calibration with the ChArUco sheet (tools/make_charuco.py),
 from the live camera (space grab view, c calibrate and save, q quit) or from
 saved images.
 
 image: runs the analysis pipeline on saved photos (files or folders). Writes a
-JSON report and overlay images. Exit code 0 when every stage passed on every
-image, 1 when a stage failed, 2 when an input could not be read.
+JSON report and overlay images. With --reference (an empty-board photo) the
+bases stage looks only where the board changed. Exit code 0 when every stage
+passed on every image, 1 when a stage failed, 2 when an input could not be read.
 """
 
 from __future__ import annotations
@@ -45,6 +51,7 @@ from .pipeline import SCHEMA_VERSION, Pipeline, stage_names
 from .rectify import fit_view, mm_to_rect, warp_board
 
 SNAPSHOT_DIR = Path(__file__).resolve().parents[2] / "data" / "snapshots"
+DEFAULT_REFERENCE = SNAPSHOT_DIR / "empty_board.png"
 IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png", ".bmp", ".tif", ".tiff", ".webp"}
 
 
@@ -215,6 +222,73 @@ def cmd_rectify(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_bases(args: argparse.Namespace) -> int:
+    cfg = BoardConfig.load(args.config)
+    pipe = Pipeline(cfg, None, args.camera)
+    ref_path = Path(args.reference)
+    if ref_path.is_file():
+        ref = cv2.imread(str(ref_path), cv2.IMREAD_COLOR)
+        try:
+            pipe.set_reference(ref)
+            print(f"empty-board reference: {ref_path}")
+        except ValueError as exc:
+            print(f"{ref_path}: {exc}. Push e on the empty board to take a new one.", file=sys.stderr)
+    cam = _open_camera(args)
+    if cam is None:
+        return 2
+    print("keys: space detect, e empty-board reference, c clear reference, v camera/top-down view, s snapshot, q quit")
+    window = "Battle Sight - bases"
+    cv2.namedWindow(window, cv2.WINDOW_AUTOSIZE)
+    top_down = True
+    shown = None  # overlay of the last detection, kept until the next one
+    result = snap = None
+    while True:
+        frame = cam.read()
+        if frame is None:
+            if cv2.waitKey(100) in (27, ord("q")):
+                break
+            continue
+        key = cv2.waitKey(1) & 0xFF
+        if key in (27, ord("q")):
+            break
+        if key == ord("e"):
+            try:
+                pipe.set_reference(frame)
+                ref_path.parent.mkdir(parents=True, exist_ok=True)
+                cv2.imwrite(str(ref_path), frame)
+                print(f"empty-board reference saved to {ref_path}")
+            except ValueError as exc:
+                print(f"no reference: {exc}", file=sys.stderr)
+        if key == ord("c"):
+            pipe.clear_reference()
+            print("reference cleared: single-frame detection")
+        if key == ord("s"):
+            _save_snapshot(frame)
+        if key == ord(" "):
+            snap = frame.copy()
+            result = pipe.analyze(snap, source="camera")
+            print(result.summary())
+            for b in result.stages["bases"].data.get("bases", []):
+                print(f"  {b['diameter_mm']:g} mm at {b['center_mm']} mm, rim {b['coverage']:.0%} visible")
+        if key in (ord(" "), ord("v")):
+            if key == ord("v"):
+                top_down = not top_down
+            if result is not None:
+                views = pipe.views(snap, result) if top_down else {}
+                shown = views["bases"] if "bases" in views else pipe.annotate(snap, result)
+                draw_text_banner(shown, result.summary(), GREEN if result.ok else RED, "reference" if pipe.has_reference else "no reference")
+        if shown is None:
+            out = frame.copy()
+            hint = "" if pipe.has_reference else "  (no empty-board reference: push e on the empty board)"
+            draw_text_banner(out, "push space to find the bases" + hint, YELLOW)
+        else:
+            out = shown
+        cv2.imshow(window, fit_to_width(out, args.display_width))
+    cam.release()
+    cv2.destroyAllWindows()
+    return 0
+
+
 def cmd_calibrate(args: argparse.Namespace) -> int:
     finder = CharucoFinder()
     views = []
@@ -301,9 +375,21 @@ def collect_images(inputs: list[str]) -> tuple[list[Path], list[str]]:
 def cmd_image(args: argparse.Namespace) -> int:
     cfg = BoardConfig.load(args.config)
     pipe = Pipeline(cfg, args.until, CameraSettings.load(args.camera_file))
-    images, errors = collect_images(args.inputs)
     # Keep stdout clean for the JSON report when it goes there.
     log = sys.stderr if args.json == "-" else sys.stdout
+    if args.reference:
+        ref = cv2.imread(args.reference, cv2.IMREAD_COLOR)
+        if ref is None:
+            print(f"error: {args.reference}: cannot read the empty-board reference", file=sys.stderr)
+            return 2
+        try:
+            pipe.set_reference(ref)
+        except ValueError as exc:
+            print(f"error: {args.reference}: {exc}", file=sys.stderr)
+            return 2
+        if not args.quiet:
+            print(f"empty-board reference: {args.reference}", file=log)
+    images, errors = collect_images(args.inputs)
     out_dir = Path(args.out) if args.out else None
     if out_dir:
         out_dir.mkdir(parents=True, exist_ok=True)
@@ -343,6 +429,7 @@ def cmd_image(args: argparse.Namespace) -> int:
         "schema": SCHEMA_VERSION,
         "config": str(args.config),
         "stages": pipe.names,
+        "reference": args.reference,
         "ok": not any_failed and not errors,
         "errors": errors,
         "images": reports,
@@ -369,6 +456,11 @@ def main(argv: list[str] | None = None) -> int:
     _add_camera_args(p)
     p.set_defaults(func=cmd_rectify)
 
+    p = sub.add_parser("bases", help="find the operative bases on the live camera (snapshot on a key)")
+    _add_camera_args(p)
+    p.add_argument("--reference", default=str(DEFAULT_REFERENCE), help="empty-board photo: loaded at start, written by the e key")
+    p.set_defaults(func=cmd_bases)
+
     p = sub.add_parser("calibrate", help="lens calibration with the ChArUco sheet")
     _add_camera_args(p)
     p.add_argument("--images", nargs="+", default=None, help="calibrate from image files or folders instead of the camera")
@@ -380,7 +472,8 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--until", choices=stage_names(), default=None, help="last stage to run (default: all stages)")
     p.add_argument("--config", default=str(DEFAULT_CONFIG), help="board TOML config")
     p.add_argument("--camera-file", default=str(DEFAULT_CAMERA_FILE), help="camera settings with the lens calibration ([lens])")
-    p.add_argument("--out", default=None, help="folder for <name>.overlay.jpg and <name>.json per image")
+    p.add_argument("--reference", default=None, metavar="FILE", help="empty-board photo (terrain, no operatives) from the same camera and light, for the bases stage")
+    p.add_argument("--out", default=None, help="folder for <name>.overlay.jpg, <name>.<view>.jpg and <name>.json per image")
     p.add_argument("--json", default=None, metavar="FILE", help="write the combined JSON report to FILE, or - for stdout")
     p.add_argument("--show", action="store_true", help="show each overlay in a window (any key next, q quit)")
     p.add_argument("--display-width", type=int, default=1600, help="window width on screen")

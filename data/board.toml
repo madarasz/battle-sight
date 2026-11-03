@@ -45,3 +45,16 @@ printed = true
 px_per_mm = 2.0       # scale of the top-down image
 margin_mm = 50.0      # table border around the board in the top-down image (shows the tags)
 max_reproj_mm = 2.5   # fail when a tag corner is further than this from the fitted board plane
+
+[bases]
+# Round operative bases. The diameter is the base bottom, where it touches the
+# board. The bases stage fits circles of these sizes to the base rims.
+diameters_mm = [25, 28, 32, 40, 50]
+px_per_mm = 4.0          # scale of the top-down image for the circle fit
+diameter_tol_mm = 3.0    # fitted diameter must be this close to a size above
+min_coverage = 0.5       # part of the rim (0..1) that must be visible
+min_contrast = 12.0      # brightness step (Lab L, 0..255) from the dark rim to the board
+rim_ratio = 0.75         # the rim is at most this part of the board brightness next to it
+# With an empty-board reference only:
+diff_threshold = 25.0    # colour change (Lab distance) that counts as "changed"
+min_foreground = 0.25    # part of the base disc that must be changed

@@ -1,0 +1,13 @@
+{
+  "comment": "Ground truth for the bases stage. Board mm, base bottom diameter. rim 'clear': at least half of the rim is visible, the single-frame test needs it within 2 mm and with the right size. rim 'hidden': a model, a wall or a token hides most of the rim; position approximate (tol_mm), checked only with an empty-board reference. diameter_mm null: size not known.",
+  "bases": [
+    {"center_mm": [329.8, 186.5], "diameter_mm": 40, "rim": "clear", "note": "tyranid, top centre"},
+    {"center_mm": [424.3, 175.7], "diameter_mm": 40, "rim": "clear", "note": "tyranid next to barricade"},
+    {"center_mm": [208.8, 256.1], "diameter_mm": 40, "rim": "clear", "note": "tyranid, left room"},
+    {"center_mm": [129.9, 424.3], "diameter_mm": 40, "rim": "clear", "note": "purple model on objective 1"},
+    {"center_mm": [372.6, 418.9], "diameter_mm": 32, "rim": "clear", "note": "small purple model under wall"},
+    {"center_mm": [527.0, 268.0], "diameter_mm": 40, "rim": "hidden", "tol_mm": 8, "note": "tyranid against wall, right"},
+    {"center_mm": [180.0, 75.0], "diameter_mm": 40, "rim": "hidden", "tol_mm": 10, "note": "tyranid behind wall and token, top left"},
+    {"center_mm": [164.6, 240.3], "diameter_mm": null, "rim": "hidden", "tol_mm": 10, "note": "purple and gold model on the pink objective token"}
+  ]
+}

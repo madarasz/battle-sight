@@ -1,6 +1,6 @@
 # Battle Sight: research and plan
 
-Status: priorities 1 (board corners) and 2 (undistort and rectify) done. Next: priority 3 (bases). Date: 2026-11-03.
+Status: priorities 1 (board corners), 2 (undistort and rectify)and Priority 3 (bases) done. Date: 2026-11-03.
 
 ## 1. Decisions made
 
@@ -16,7 +16,7 @@ Status: priorities 1 (board corners) and 2 (undistort and rectify) done. Next: p
 | Geometry | All measurement is 2D in the board plane. No vantages, no heights. |
 | Walls | Not tracked, not measured. They block placement physically. No map overlay of wall layouts. |
 | Doors | Hatchways and breach points are placed by clicking on the rectified image once per map, snapped to the tile grid, saved as a named map file. App draws 1 in and 2 in bands from their edges. |
-| Bases | Round bases 25, 28, 32, 40, 50 mm. Later: 35 x 60 mm oval. |
+| Bases | Round bases 25, 28, 32, 40, 50 mm, measured at the bottom, where the base touches the board. Later: 35 x 60 mm oval. |
 | Tokens | Round tokens 20 and 40 mm. |
 | Measure mode | Snapshot first. Key press triggers detect and measure on a clean frame. Live tracking later. |
 | Interaction | Click an operative or token on screen. Hotkeys for ring radius, grid, snapshot. |
@@ -138,6 +138,6 @@ Resolved inside the phase that needs them.
 - Priority 1: tag size and print sheet done (40 mm tag, 5 mm margin = 1 module quiet zone, 90 mm square cards with a 40 mm L corner mark, all four on one A4 page). L length does not change accuracy: the board corner is the tag's inner margin corner at any card rotation. Install Camo, confirm 4K reaches OpenCV.
 - Priority 2: done. Tomb World board thickness 1.0 mm (caliper), board size 703 x 606 mm confirmed. Width is the edge from tag 0 to tag 1.
 - Priority 2 results on the two test photos (nominal lens, thickness 1.0 mm): tag fit rms 1.0 mm, max 1.7 mm. Board edges tilt under 0.15 deg, corners 90 deg within 0.21 deg. Printed section lines within 3.1 mm of nominal (card placement: the board right edge is 2.5 to 3.3 mm inside the L), spacing of neighbouring lines within 1.4 mm over 97 mm (0.37 mm per inch).
-- Priority 3: whether the empty-board reference is enough or a trained base segmenter is needed. Decide after first tests on the real board.
+- Priority 3: in code (`circles.py`, stage `bases`, command `bases`). Known-radius circle fit on the dark rim, 120 rays, robust fit, size class from the free fit, rim coverage at least 0.5. Empty-board reference = board with terrain and tokens set up, before the operatives, same camera and light; the reference finds its own tags. The diameter is the base bottom on the play surface, so no parallax correction. Results on the two test photos (single-frame mode, no reference exists for them): all 9 bases with a clearly visible rim found, centre on the rim, right class (25/28/32/40/50). Bases with most of the rim hidden by a model leaning over it or a wall are missed (5 of 7). False bases: tokens with a dark ring, a round barricade, wall gratings (2 and 5 per photo). A reference from another photo of the same board does not work: the light changed and 45 % of the board differs. Open: test photo pair (empty board, then with operatives) for the done test. Then decide whether the reference is enough or a trained base segmenter is needed.
 - Priority 7: door thickness in mm for config. Grid snap pitch (1 in, or half inch if walls sit between lines).
 - Later: roster format, wounds and statuses, live tracking, oval bases, Volkus board.

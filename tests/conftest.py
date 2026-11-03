@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 import cv2
 import numpy as np
 import pytest
@@ -10,6 +12,23 @@ from battlesight.config import BoardConfig
 
 BOARD_GRAY = 70  # dark board, like Tomb World
 LINE_GRAY = 30  # printed grid lines on the board
+RIM_GRAY = 15  # black base rim
+BASE_TOP_GRAY = 140  # painted base top (scenic)
+MODEL_GRAY = 190  # model body over the base
+WALL_GRAY = 25  # wall pieces
+
+
+@dataclass(frozen=True)
+class Base:
+    """A round base in the synthetic image. `model` covers the rim from
+    `model_deg` for `model_span_deg` degrees (0 deg = +x, 90 deg = +y)."""
+
+    center_mm: tuple[float, float]
+    diameter_mm: float
+    rim_mm: float = 2.0  # visible black bevel
+    model_deg: float = 0.0
+    model_span_deg: float = 0.0
+    rim_gray: int = RIM_GRAY
 
 
 def make_config(**over) -> BoardConfig:
@@ -28,14 +47,28 @@ def make_config(**over) -> BoardConfig:
     return BoardConfig(**base)
 
 
-def render_board(cfg: BoardConfig, px_per_mm: float = 2.0, border_mm: float = 80.0, H: np.ndarray | None = None, shift_px: tuple[float, float] = (0.0, 0.0), guide_mm: float = 40.0, print_grid: bool = False):
+def render_board(
+    cfg: BoardConfig,
+    px_per_mm: float = 2.0,
+    border_mm: float = 80.0,
+    H: np.ndarray | None = None,
+    shift_px: tuple[float, float] = (0.0, 0.0),
+    guide_mm: float = 40.0,
+    print_grid: bool = False,
+    bases: tuple[Base, ...] = (),
+    walls: tuple[tuple[tuple[float, float], tuple[float, float]], ...] = (),
+    discs: tuple[tuple[tuple[float, float], float, int], ...] = (),
+):
     """Top-down synthetic board resting on the four square tag cards.
 
     Each card is a white square: the tag in the outer quadrant, diagonal to
     its board corner, and the board corner on the inner quadrant, as printed
     by tools/make_tags.py. The L lines stay visible just outside the board edges.
     With `print_grid`, dark 1.5 mm lines at `cfg.grid_lines_mm()` are printed
-    on the board, like the Tomb World section lines.
+    on the board, like the Tomb World section lines. `discs` are flat round
+    tokens or prints ((x, y) mm, diameter mm, grey). `walls` are dark
+    rectangles (corner mm, opposite corner mm). `bases` are drawn last, with
+    their black rim, a lighter top, and an optional model over part of the rim.
 
     Returns (bgr image, function mm -> px) for the final image, after the
     optional homography H (3x3, acts on the flat image) and pixel shift.
@@ -76,6 +109,25 @@ def render_board(cfg: BoardConfig, px_per_mm: float = 2.0, border_mm: float = 80
             fill((x - lw, m), (x + lw, cfg.height_mm - m), LINE_GRAY)
         for y in ys:
             fill((m, y - lw), (cfg.width_mm - m, y + lw), LINE_GRAY)
+    sub = 16  # fixed-point shift for anti-aliased circles
+
+    def disc(center_mm, r_mm, value):
+        c = np.rint(mm2px_flat(center_mm) * sub).astype(int)
+        cv2.circle(img, (int(c[0]), int(c[1])), int(round(r_mm * px_per_mm * sub)), int(value), -1, cv2.LINE_AA, 4)
+
+    for center, d, value in discs:
+        disc(center, 0.5 * d, value)
+    for a, b in walls:
+        fill(a, b, WALL_GRAY)
+    for base in bases:
+        r = 0.5 * base.diameter_mm
+        disc(base.center_mm, r, base.rim_gray)
+        disc(base.center_mm, r - base.rim_mm, BASE_TOP_GRAY)
+        if base.model_span_deg > 0:
+            c = mm2px_flat(base.center_mm)
+            ax = int(round((r + 3.0) * px_per_mm))
+            a0 = base.model_deg - 0.5 * base.model_span_deg
+            cv2.ellipse(img, (int(round(c[0])), int(round(c[1]))), (ax, ax), 0, a0, a0 + base.model_span_deg, MODEL_GRAY, -1, cv2.LINE_AA)
 
     T = np.array([[1, 0, shift_px[0]], [0, 1, shift_px[1]], [0, 0, 1]], dtype=np.float64)
     M = T @ (H if H is not None else np.eye(3))

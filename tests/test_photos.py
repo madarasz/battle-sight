@@ -5,6 +5,12 @@ Each photo <name>.jpg has a reviewed report <name>.expected.json next to it
 pipeline on the photo and compare the result with the expected report, within
 a tolerance in board millimetres.
 
+Optional files next to a photo:
+
+- <name>.bases.json: hand-checked base positions and sizes (ground truth).
+- <name>.empty.jpg: the empty board (terrain, no operatives or tokens) from
+  the same camera and light. The bases stage then runs in reference mode.
+
 Marked `photos`. The default `uv run pytest` skips them. Run them with:
 
     uv run pytest -m photos
@@ -26,13 +32,21 @@ pytestmark = pytest.mark.photos
 
 SHOTS = Path(__file__).resolve().parents[1] / "data" / "snapshots" / "tests"
 SUFFIXES = {".jpg", ".jpeg", ".png"}
-PHOTOS = sorted(p for p in SHOTS.iterdir() if p.suffix.lower() in SUFFIXES) if SHOTS.is_dir() else []
+REFERENCE_TAG = ".empty"  # <name>.empty.jpg is the empty-board reference of <name>.jpg
+PHOTOS = sorted(p for p in SHOTS.iterdir() if p.suffix.lower() in SUFFIXES and not p.stem.endswith(REFERENCE_TAG)) if SHOTS.is_dir() else []
 
 CORNER_TOL_MM = 1.0  # max distance between found and expected corner points
 
 
 def expected_path(photo: Path) -> Path:
     return photo.with_name(f"{photo.stem}.expected.json")
+
+
+def reference_path(photo: Path) -> Path | None:
+    for p in sorted(photo.parent.glob(f"{photo.stem}{REFERENCE_TAG}.*")):
+        if p.suffix.lower() in SUFFIXES:
+            return p
+    return None
 
 
 @pytest.fixture(scope="module")
@@ -43,12 +57,13 @@ def cfg() -> BoardConfig:
 @pytest.fixture(scope="module")
 def results(cfg) -> dict[Path, FrameResult]:
     """Pipeline results, computed once per photo for all tests in this module."""
-    pipe = Pipeline(cfg)
 
     class Lazy(dict):
         def __missing__(self, photo: Path) -> FrameResult:
             frame = cv2.imread(str(photo), cv2.IMREAD_COLOR)
             assert frame is not None, f"cannot read {photo}"
+            ref = reference_path(photo)
+            pipe = Pipeline(cfg, reference=None if ref is None else cv2.imread(str(ref), cv2.IMREAD_COLOR))
             self[photo] = pipe.analyze(frame, source=str(photo))
             return self[photo]
 
@@ -187,4 +202,114 @@ def test_rectify_done_criteria(cfg, results, photo):
         worst = max(map(abs, grid_spacing_errors_mm(cfg, d["grid_lines"])), default=0.0)
         if worst > SPACING_TOL_MM:
             errors.append(f"grid spacing off by {worst:.2f} mm")
+    assert not errors, "; ".join(errors)
+
+
+# --- bases (priority 3) -----------------------------------------------------
+
+BASES_TOL_MM = 1.0  # found base centre from its expected centre (regression)
+BASE_CENTER_TOL_MM = 2.0  # plan priority 3: centre error under 2 mm
+
+
+def load_truth(photo: Path) -> list[dict]:
+    path = photo.with_name(f"{photo.stem}.bases.json")
+    if not path.is_file():
+        pytest.skip(f"no {path.name}: no base ground truth for this photo")
+    return json.loads(path.read_text())["bases"]
+
+
+def _dist(a, b) -> float:
+    return float(np.linalg.norm(np.subtract(a, b)))
+
+
+def _truth_tol(t: dict) -> float:
+    return float(t.get("tol_mm", BASE_CENTER_TOL_MM))
+
+
+def _match_truth(truth: list[dict], found: list[dict]) -> tuple[dict[int, dict], list[dict]]:
+    """Pair each true base with the nearest found base within its tolerance.
+    Returns ({truth index: found base}, found bases that match no true base)."""
+    pairs: dict[int, dict] = {}
+    used: set[int] = set()
+    for i, t in enumerate(truth):
+        cands = [(j, _dist(f["center_mm"], t["center_mm"])) for j, f in enumerate(found) if j not in used]
+        cands = [(j, d) for j, d in cands if d <= _truth_tol(t)]
+        if cands:
+            j = min(cands, key=lambda c: c[1])[0]
+            pairs[i] = found[j]
+            used.add(j)
+    return pairs, [f for j, f in enumerate(found) if j not in used]
+
+
+@needs_photos
+@photo_params
+def test_bases_match_expected(results, photo):
+    exp = load_expected(photo)["stages"]["bases"]["data"]
+    got = results[photo].stages["bases"].data
+    assert got["mode"] == exp["mode"], "empty-board reference added or removed?"
+    errors = []
+    left = list(got["bases"])
+    for e in exp["bases"]:
+        near = [g for g in left if _dist(g["center_mm"], e["center_mm"]) <= BASES_TOL_MM]
+        if not near:
+            errors.append(f"expected {e['diameter_mm']:g} mm base at {e['center_mm']} not found")
+            continue
+        g = min(near, key=lambda g: _dist(g["center_mm"], e["center_mm"]))
+        left.remove(g)
+        if g["diameter_mm"] != e["diameter_mm"]:
+            errors.append(f"base at {e['center_mm']}: {g['diameter_mm']:g} mm, expected {e['diameter_mm']:g} mm")
+    errors += [f"new {g['diameter_mm']:g} mm base at {g['center_mm']}" for g in left]
+    assert not errors, "; ".join(errors) + f" (tolerance {BASES_TOL_MM} mm)"
+
+
+@needs_photos
+@photo_params
+def test_bases_clear_rims_found(results, photo):
+    """Plan priority 3 for the bases with a clearly visible rim, in any mode:
+    found, centre error under 2 mm, right size."""
+    truth = [t for t in load_truth(photo) if t["rim"] == "clear"]
+    pairs, _ = _match_truth(truth, results[photo].stages["bases"].data["bases"])
+    errors = []
+    for i, t in enumerate(truth):
+        f = pairs.get(i)
+        if f is None:
+            errors.append(f"{t['note']}: not found within {_truth_tol(t):g} mm")
+        elif f["diameter_mm"] != t["diameter_mm"]:
+            errors.append(f"{t['note']}: {f['diameter_mm']:g} mm, true {t['diameter_mm']:g} mm")
+    assert not errors, "; ".join(errors)
+
+
+@needs_photos
+@photo_params
+def test_bases_false_positives_no_worse(results, photo):
+    """Found circles that are no base (tokens, barricades): not more than in
+    the expected report. Single-frame mode finds some; see docs/testing.md."""
+    truth = load_truth(photo)
+    _, got_extra = _match_truth(truth, results[photo].stages["bases"].data["bases"])
+    _, exp_extra = _match_truth(truth, load_expected(photo)["stages"]["bases"]["data"]["bases"])
+    assert len(got_extra) <= len(exp_extra), f"{len(got_extra)} false bases, expected {len(exp_extra)}: " + ", ".join(
+        f"{f['diameter_mm']:g} mm at {f['center_mm']}" for f in got_extra
+    )
+
+
+@needs_photos
+@photo_params
+def test_bases_done_criteria(results, photo):
+    """Plan priority 3, done when: all bases found on a board with walls,
+    centre error under 2 mm, correct diameter class. Needs the empty-board
+    reference <name>.empty.jpg. True bases with a hidden rim count with
+    their own `tol_mm` (their true position is known less well)."""
+    if reference_path(photo) is None:
+        pytest.skip(f"no {photo.stem}{REFERENCE_TAG}.jpg: the done test needs an empty-board reference")
+    truth = load_truth(photo)
+    found = results[photo].stages["bases"].data["bases"]
+    pairs, extra = _match_truth(truth, found)
+    errors = []
+    for i, t in enumerate(truth):
+        f = pairs.get(i)
+        if f is None:
+            errors.append(f"{t['note']}: not found within {_truth_tol(t):g} mm")
+        elif t["diameter_mm"] is not None and f["diameter_mm"] != t["diameter_mm"]:
+            errors.append(f"{t['note']}: {f['diameter_mm']:g} mm, true {t['diameter_mm']:g} mm")
+    errors += [f"false base {f['diameter_mm']:g} mm at {f['center_mm']}" for f in extra]
     assert not errors, "; ".join(errors)

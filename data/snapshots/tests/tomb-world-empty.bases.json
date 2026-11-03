@@ -1,0 +1,4 @@
+{
+  "comment": "Board with terrain and tokens, no operatives: every found base is a false base. Not a reference for tomb-world-1 or -2 (other token places, other light). See tomb-world-1.bases.json for the fields.",
+  "bases": []
+}

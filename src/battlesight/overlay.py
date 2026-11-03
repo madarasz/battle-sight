@@ -128,3 +128,24 @@ def draw_grid(frame: np.ndarray, cfg: BoardConfig, to_px, color: tuple[int, int,
     if outline is not None:
         pts = np.rint(to_px(board_outline_mm(cfg))).astype(np.int32).reshape(-1, 1, 2)
         cv2.polylines(frame, [pts], True, outline, thick, cv2.LINE_AA)
+
+
+def draw_bases(frame: np.ndarray, bases, to_px, color: tuple[int, int, int] = GREEN) -> None:
+    """Draw found bases (circles.Circle) with `to_px`: board mm (N, 2) -> pixels (N, 2).
+    The outline is the base bottom. The label is the diameter class in mm."""
+    s = _scale(frame)
+    thick = max(1, round(2 * s))
+    a = np.linspace(0, 2 * np.pi, 64, endpoint=False)
+    for c in bases:
+        r = 0.5 * c.diameter_mm
+        ring = c.center_mm + r * np.c_[np.cos(a), np.sin(a)]
+        pts = np.rint(to_px(ring)).astype(np.int32).reshape(-1, 1, 2)
+        cv2.polylines(frame, [pts], True, color, thick, cv2.LINE_AA)
+        center = np.rint(to_px(c.center_mm.reshape(1, 2))[0]).astype(int)
+        cv2.drawMarker(frame, (int(center[0]), int(center[1])), color, cv2.MARKER_CROSS, int(8 * s), thick, cv2.LINE_AA)
+        top = np.rint(to_px((c.center_mm + (0.0, -r - 2.0)).reshape(1, 2))[0]).astype(int)
+        label = f"{c.diameter_mm:g}"
+        (tw, _), _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.6 * s, thick)
+        org = (int(top[0] - tw / 2), int(top[1]))
+        cv2.putText(frame, label, org, cv2.FONT_HERSHEY_SIMPLEX, 0.6 * s, BLACK, thick + 2, cv2.LINE_AA)
+        cv2.putText(frame, label, org, cv2.FONT_HERSHEY_SIMPLEX, 0.6 * s, color, thick, cv2.LINE_AA)

@@ -59,6 +59,7 @@ def test_later_stages_skip_after_failure(cfg, monkeypatch):
     assert r.stages["later"].skipped and calls == []
     assert select_stages("corners") == ["corners"]
     assert select_stages("rectify") == ["corners", "rectify"]
+    assert select_stages()[:3] == ["corners", "rectify", "bases"]
 
 
 def test_stage_exception_becomes_failure(cfg, monkeypatch):
@@ -101,7 +102,7 @@ def test_cli_image_ok(tmp_path, config_file, capsys):
     code = main(["image", str(shots), "--config", str(config_file), "--out", str(out), "--json", "-"])
     assert code == 0
     report = json.loads(capsys.readouterr().out)
-    assert report["ok"] and report["stages"] == ["corners", "rectify"]
+    assert report["ok"] and report["stages"] == ["corners", "rectify", "bases"]
     assert report["images"][0]["stages"]["corners"]["ok"]
     assert report["images"][0]["stages"]["rectify"]["ok"]
     assert (out / "a.overlay.jpg").is_file()

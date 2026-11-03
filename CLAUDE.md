@@ -9,7 +9,7 @@ Battle Sight is an augmented reality overlay for Warhammer 40k: Kill Team. A fix
 Read these before design work:
 
 - `specs/about-project`: the owner's goals, in their own words.
-- `specs/plan.md`: decisions, the 7 priorities with "done when" tests, risks, stack, and target layout. The plan is the source of truth for scope. Priorities 1 (board corners) and 2 (rectify) are done. Priority 3 (bases) is next.
+- `specs/plan.md`: decisions, the 7 priorities with "done when" tests, risks, stack, and target layout. The plan is the source of truth for scope. Priorities 1 (board corners) and 2 (rectify) are done. Priority 3 (bases) is in code; its done test waits for a test photo with an empty-board reference.
 
 Work goes in priority order (1 corners, 2 undistort and rectify, 3 bases, 4 operative ID, 5 rings and distances, 6 tokens, 7 doors). Each priority has a measurable done test in the plan. Use it as the acceptance check.
 
@@ -33,10 +33,12 @@ uv run pytest -m ""                       # all tests
 uv run pytest tests/test_calib.py::test_detects_four_tags_flat   # one test
 uv run battlesight corners                # live corner tracking, saved camera
 uv run battlesight rectify                # live top-down view with map grid
+uv run battlesight bases                  # live snapshot base detection, e = empty-board reference
 uv run battlesight calibrate              # lens calibration -> [lens] in data/camera.toml
 uv run battlesight image data/snapshots/tests              # pipeline on saved photos, exit 0/1/2
 uv run battlesight image shot.jpg --out out/ --json -     # overlays + per-image JSON, report on stdout
 uv run battlesight image shot.jpg --until corners --show  # stop after a stage, view overlay
+uv run battlesight image game.jpg --reference empty.jpg --out out/  # bases in reference mode
 uv run tools/list_cameras.py              # list camera indices
 uv run tools/list_cameras.py --use 1 --width 3840 --height 2160  # check index 1, save to data/camera.toml
 uv run tools/list_cameras.py --url http://PHONE-IP:8080/video    # check a Wi-Fi stream, save it
@@ -54,8 +56,9 @@ No linter or formatter is configured.
 ## Architecture
 
 - `src/battlesight/` is the package (hatchling, `src` layout). Entry point `battlesight = battlesight.app:main`. `app.py` holds argparse subcommands. Add new modes as new subcommands there.
-- `pipeline.py`: single-frame analysis, no camera or window. Stages are `corners`, `rectify`. Stages register in run order with `@stage(name, draw=..., views=...)` (`views` returns extra named images, `--out` writes them as `<name>.<view>.jpg`) and return a `StageResult` (ok, message, JSON-safe `data`). A failed stage skips the later ones. `Pipeline.analyze` gives a `FrameResult` (`to_dict()` is the JSON report, with `schema` version), `Pipeline.annotate` draws all stage overlays. Add each new priority as a stage here, so the `image` subcommand and tests pick it up. The `image` subcommand exit codes: 0 all stages ok, 1 a stage failed, 2 bad input.
-- `tests/test_photos.py` (marker `photos`, off by default through `addopts` in `pyproject.toml`): runs the pipeline on each photo in `data/snapshots/tests` and compares with the reviewed `<name>.expected.json` next to it (the `--out` report), corners within `CORNER_TOL_MM` (1 mm, converted with the tag's pixel size). Never update an expected file only to make a test pass.
+- `pipeline.py`: single-frame analysis, no camera or window. Stages are `corners`, `rectify`, `bases`. Stages register in run order with `@stage(name, draw=..., views=...)` (`views` returns extra named images, `--out` writes them as `<name>.<view>.jpg`) and return a `StageResult` (ok, message, JSON-safe `data`). A failed stage skips the later ones. `Pipeline.analyze` gives a `FrameResult` (`to_dict()` is the JSON report, with `schema` version), `Pipeline.annotate` draws all stage overlays. Add each new priority as a stage here, so the `image` subcommand and tests pick it up. The `image` subcommand exit codes: 0 all stages ok, 1 a stage failed, 2 bad input.
+- `circles.py` (priority 3): `find_circles` finds round bases of the known diameters (`[bases]` in `data/board.toml`, base bottom) in a top-down image at `bases.px_per_mm` (4). Edge votes along the gradient for proposals, 120 rays with a dark-rim test, robust free fit, nearest size class, fixed-radius refit, `coverage` = visible rim part. `foreground_mask` diffs against an empty-board reference. `Pipeline(reference=frame)` / `set_reference` warps the reference from its own tags into `cache["bases_reference"]`; the `bases` stage then runs in `reference` mode, else `single_frame` (finds some dark-ringed tokens and barricades). The stage puts `bases` (list of `Circle`) in `scratch`. Bottom edge lies on the play surface: no parallax correction. `docs/cli.md` "Base detection" has the steps and config keys.
+- `tests/test_photos.py` (marker `photos`, off by default through `addopts` in `pyproject.toml`): runs the pipeline on each photo in `data/snapshots/tests` and compares with the reviewed `<name>.expected.json` next to it (the `--out` report), corners within `CORNER_TOL_MM` (1 mm, converted with the tag's pixel size). Never update an expected file only to make a test pass. Bases: `<name>.bases.json` is hand-checked ground truth (`clear` / `hidden` rims, `tol_mm`), `<name>.empty.jpg` an optional empty-board reference; `test_bases_done_criteria` runs only with both.
 - `config.py`: `BoardConfig` (frozen dataclass) loads `data/board.toml`. All lengths are in mm. Board coordinates: origin at the top-left board corner, x right, y down. Corner index 0..3 = TL, TR, BR, BL, and `tags.ids[k]` is the tag at corner k.
 - `calib.py`: `TagDetector` (OpenCV `cv2.aruco` with `DICT_APRILTAG_36h11`, no contrib build) returns `{tag_id: TagObs}`. Each card lies under a board corner, tag outside the board, diagonal to the corner. `board_corners_px` takes tag corner k+2 (the one nearest the board) and pushes it toward the board by the white card margin to get board corner k. `DriftMonitor` auto-locks a reference after `settle_frames` still frames, then reports OK / MOVED / LOST. It converts pixel shift to mm with each tag's apparent size.
 - `calib.py` also holds `Lens` (K, distortion, `undistort_px` / `distort_px`), `lens_for_frame(camera, size)` (the `[lens]` calibration of `CameraSettings` when its aspect ratio fits the frame, else a nominal pinhole from `CameraSettings.focal_35mm`), and the ChArUco target and `calibrate_lens`.
@@ -63,7 +66,7 @@ No linter or formatter is configured.
 - Map grid: `[grid]` in `data/board.toml` and `BoardConfig.grid_lines_mm()`. Tomb World uses its 7 x 6 printed sections inside a 12 mm margin, Volkus a 1 in pitch. Never hard-code an inch grid. `docs/cli.md` "Map grid" documents it.
 - `camera.py`: `Camera` wraps `cv2.VideoCapture` and reconnects after repeated read failures. `read()` returns `None` while the camera is down. Callers must handle that. A device index uses AVFoundation on macOS (Camo, built-in camera). A URL (`is_stream`) uses FFmpeg with open and read timeouts, and `LatestFrameReader` reads it on a thread and keeps only the newest frame. `CameraSettings` loads and saves `data/camera.toml` (git-ignored, machine-local): `[camera]` from `tools/list_cameras.py`, `[lens]` from `calibrate`. Each writer keeps the other table. `app.py` `_apply_camera_settings` fills the camera options left out on the command line from it: option > file > built-in default. `docs/setup.md` has the camera troubleshooting (Camo extension blocked by MDM, stream network checks).
 - `overlay.py`: draw-in-place helpers on BGR frames. Line and font sizes scale from a 1080p baseline, so overlays stay readable at 4K.
-- `tests/conftest.py`: `render_board` makes a synthetic top-down board with the board resting on real square AprilTag cards, tags outside the corners, with an optional homography, pixel shift, and printed grid lines. `tomb_world_grid()` is a test config with the Tomb World size and sections. `tests/test_rectify.py` adds a virtual pinhole camera for exact thickness and distortion tests. It returns the image and an `mm2px` function for ground truth. New vision tests should use this harness, not camera captures. `make_config(**over)` builds a test config without the TOML file.
+- `tests/conftest.py`: `render_board` makes a synthetic top-down board with the board resting on real square AprilTag cards, tags outside the corners, with an optional homography, pixel shift, printed grid lines, and `bases` (`Base`: black rim, lighter top, model over part of the rim), `walls`, `discs` (tokens, prints). `tomb_world_grid()` is a test config with the Tomb World size and sections. `tests/test_rectify.py` adds a virtual pinhole camera for exact thickness and distortion tests. It returns the image and an `mm2px` function for ground truth. New vision tests should use this harness, not camera captures. `make_config(**over)` builds a test config without the TOML file.
 
 - Corner cards (`tools/make_tags.py`): 90 mm square, tag in the outer quadrant, black L in the inner quadrant at the board corner. The 5 mm white margin is the tag quiet zone. The app measures from the cards, not the board: a board that slides over a still card gives no warning.
 - Rectify: the top-down image scale is `rectify.px_per_mm` (default 2 px per mm). `board.width_mm` is the edge from tag 0 to tag 1 as the cards lie (703 x 606 mm in the test photos). When width and height are swapped, the stage fails and says so. Board thickness: the cards lie on the table and the play surface is `board.thickness_mm` higher (Tomb World 1.0 mm, caliper). Without the correction, 1 mm gives up to about 0.5 mm error at the board edge, 3 mm about 1.5 mm. With `grid.printed = true` the stage finds the printed lines and reports their offsets, a check that does not use the tags.
@@ -72,14 +75,16 @@ No linter or formatter is configured.
 Layout:
 
 ```
-src/battlesight/   config.py camera.py calib.py rectify.py overlay.py pipeline.py app.py
+src/battlesight/   config.py camera.py calib.py rectify.py circles.py overlay.py pipeline.py app.py
 tools/             make_tags.py make_charuco.py list_cameras.py
 tests/             synthetic-board tests, test-photo tests, no camera needed
 data/              board.toml, tags/, snapshots/ (snapshots/tests/ = test photos), calib/
 docs/              setup.md (user setup), cli.md, testing.md
 ```
 
-Target modules for later priorities (`rectify.py`, `circles.py`, `ident.py`, `doors.py`, `measure.py`, `ui/`) and data folders are listed in `specs/plan.md` section 7.
+`specs/bases-benchmark.md` is the plan for the bases benchmark tool, ground truth click tool, and metric baseline (not started).
+
+Target modules for later priorities (`ident.py`, `doors.py`, `measure.py`, `ui/`) and data folders are listed in `specs/plan.md` section 7.
 
 ## Design constraints from the plan
 

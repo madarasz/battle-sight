@@ -18,7 +18,9 @@ The `image` subcommand, the tests, and a later FastAPI front end all call
 
 from __future__ import annotations
 
+import dataclasses
 import time
+from collections import Counter
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
@@ -28,6 +30,7 @@ import numpy as np
 from .calib import TagDetector, TagObs, board_corners_px, lens_for_frame
 from .camera import CameraSettings
 from .config import CORNER_NAMES, BoardConfig
+from . import circles
 from . import rectify as rect
 
 SCHEMA_VERSION = 1
@@ -137,13 +140,35 @@ def select_stages(until: str | None = None) -> list[str]:
 
 
 class Pipeline:
-    """Runs the selected stages on frames. Keeps the cache between frames."""
+    """Runs the selected stages on frames. Keeps the cache between frames.
 
-    def __init__(self, cfg: BoardConfig, until: str | None = None, camera: CameraSettings | None = None):
+    `reference` is an optional empty-board frame (terrain set up, no
+    operatives or tokens) from the same camera and light. With it the bases
+    stage looks only where the frame changed."""
+
+    def __init__(self, cfg: BoardConfig, until: str | None = None, camera: CameraSettings | None = None, reference: np.ndarray | None = None):
         self.cfg = cfg
         self.camera = camera or CameraSettings()
         self.names = select_stages(until)
         self.cache: dict[str, Any] = {}
+        if reference is not None:
+            self.set_reference(reference)
+
+    def set_reference(self, frame: np.ndarray) -> None:
+        """Use `frame` as the empty-board reference. The reference finds its own
+        tags, so a small camera move between it and later frames does not matter.
+        Raises ValueError when its corners or rectify stage fails."""
+        r = Pipeline(self.cfg, "rectify", self.camera).analyze(frame, source="reference")
+        if not r.ok:
+            raise ValueError(f"empty-board reference: {r.summary()}")
+        self.cache["bases_reference"] = bases_image(frame, r.scratch["view"], self.cfg)
+
+    def clear_reference(self) -> None:
+        self.cache.pop("bases_reference", None)
+
+    @property
+    def has_reference(self) -> bool:
+        return "bases_reference" in self.cache
 
     def analyze(self, frame: np.ndarray, source: str = "") -> FrameResult:
         ctx = Context(frame, self.cfg, self.cache, self.camera)
@@ -186,10 +211,15 @@ class Pipeline:
 
 
 def analyze(
-    frame: np.ndarray, cfg: BoardConfig, until: str | None = None, source: str = "", camera: CameraSettings | None = None
+    frame: np.ndarray,
+    cfg: BoardConfig,
+    until: str | None = None,
+    source: str = "",
+    camera: CameraSettings | None = None,
+    reference: np.ndarray | None = None,
 ) -> FrameResult:
     """One-shot helper. Use `Pipeline` for many frames."""
-    return Pipeline(cfg, until, camera).analyze(frame, source)
+    return Pipeline(cfg, until, camera, reference).analyze(frame, source)
 
 
 def _round(a: np.ndarray, nd: int = 2) -> list:
@@ -299,4 +329,73 @@ def _rectify(ctx: Context) -> StageResult:
         if rect.swapped_fits_better(cfg, obs, lens, view):
             hint = "; board width and height look swapped in the config"
         return StageResult(ok=False, message=f"{msg} > {cfg.max_reproj_mm:g} mm{hint}", data=data)
+    return StageResult(ok=True, message=msg, data=data)
+
+
+# --- priority 3: bases -------------------------------------------------------
+
+BASES_MARGIN_MM = 5.0  # table border around the board in the bases image
+
+
+def bases_config(cfg: BoardConfig) -> BoardConfig:
+    """Config of the top-down image for the circle fit: `bases.px_per_mm`, small border."""
+    return dataclasses.replace(cfg, rectify_px_per_mm=cfg.bases_px_per_mm, rectify_margin_mm=BASES_MARGIN_MM)
+
+
+def bases_image(frame: np.ndarray, view: rect.BoardView, cfg: BoardConfig) -> np.ndarray:
+    return rect.warp_board(frame, view, bases_config(cfg))
+
+
+def _board_region(cfg: BoardConfig, shape: tuple[int, ...]) -> np.ndarray:
+    """Pixels of the bases image inside the board: where base centres can lie."""
+    region = np.zeros(shape[:2], bool)
+    (x0, y0), (x1, y1) = np.rint(rect.mm_to_rect(bases_config(cfg), [(0.0, 0.0), (cfg.width_mm, cfg.height_mm)])).astype(int)
+    region[y0:y1, x0:x1] = True
+    return region
+
+
+def _draw_bases(frame: np.ndarray, result: FrameResult, cfg: BoardConfig) -> None:
+    from .overlay import draw_bases
+
+    view = result.scratch.get("view")
+    if view is not None:
+        draw_bases(frame, result.scratch.get("bases", []), view.mm_to_px)
+
+
+def _views_bases(frame: np.ndarray, result: FrameResult, cfg: BoardConfig) -> dict[str, np.ndarray]:
+    from .overlay import draw_bases
+
+    img = result.scratch.get("rectified")
+    if img is None:
+        return {}
+    img = img.copy()
+    draw_bases(img, result.scratch.get("bases", []), lambda p: rect.mm_to_rect(cfg, p))
+    return {"bases": img}
+
+
+@stage("bases", draw=_draw_bases, views=_views_bases)
+def _bases(ctx: Context) -> StageResult:
+    cfg = ctx.cfg
+    view: rect.BoardView = ctx.scratch["view"]
+    img = bases_image(ctx.frame, view, cfg)
+    region = _board_region(cfg, img.shape)
+    ref = ctx.cache.get("bases_reference")
+    fg = None
+    if ref is not None:
+        if ref.shape != img.shape:
+            return StageResult(ok=False, message="empty-board reference has another size: set it again")
+        fg = circles.foreground_mask(img, ref, cfg.bases_diff_threshold)
+    found = circles.find_circles(img, circles.CircleParams.from_config(cfg, BASES_MARGIN_MM), region, fg)
+    ctx.scratch["bases"] = found
+    mode = "reference" if ref is not None else "single_frame"
+    centers_px = view.mm_to_px(np.array([c.center_mm for c in found])) if found else np.zeros((0, 2))
+    data = {
+        "mode": mode,
+        "px_per_mm": cfg.bases_px_per_mm,
+        "diameters_mm": list(cfg.bases_diameters_mm),
+        "changed_fraction": None if fg is None else round(float(fg[region].mean()), 3),
+        "bases": [{**c.to_dict(), "center_px": _round(p)} for c, p in zip(found, centers_px)],
+    }
+    sizes = ", ".join(f"{n}x{d:g}" for d, n in sorted(Counter(c.diameter_mm for c in found).items()))
+    msg = f"{len(found)} bases" + (f" ({sizes} mm)" if found else "") + ("" if ref is not None else ", no reference")
     return StageResult(ok=True, message=msg, data=data)

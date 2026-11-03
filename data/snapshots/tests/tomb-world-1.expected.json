@@ -11,7 +11,7 @@
       "ok": true,
       "skipped": false,
       "message": "4/4 tags",
-      "ms": 133.1,
+      "ms": 150.4,
       "data": {
         "tags": {
           "0": {
@@ -128,7 +128,7 @@
       "ok": true,
       "skipped": false,
       "message": "fit rms 1.07 mm, max 1.71 mm, nominal lens",
-      "ms": 19.0,
+      "ms": 12.9,
       "data": {
         "lens": {
           "source": "nominal",
@@ -254,6 +254,146 @@
             -0.71
           ]
         }
+      }
+    },
+    "bases": {
+      "ok": true,
+      "skipped": false,
+      "message": "8 bases (2x32, 5x40, 1x50 mm), no reference",
+      "ms": 1979.9,
+      "data": {
+        "mode": "single_frame",
+        "px_per_mm": 4.0,
+        "diameters_mm": [
+          25.0,
+          28.0,
+          32.0,
+          40.0,
+          50.0
+        ],
+        "changed_fraction": null,
+        "bases": [
+          {
+            "center_mm": [
+              372.62,
+              418.92
+            ],
+            "diameter_mm": 32.0,
+            "fit_diameter_mm": 32.0,
+            "coverage": 0.717,
+            "rms_mm": 0.207,
+            "contrast": 108.5,
+            "center_px": [
+              1118.08,
+              2138.37
+            ]
+          },
+          {
+            "center_mm": [
+              129.83,
+              424.32
+            ],
+            "diameter_mm": 40.0,
+            "fit_diameter_mm": 39.74,
+            "coverage": 0.667,
+            "rms_mm": 0.338,
+            "contrast": 89.7,
+            "center_px": [
+              1088.98,
+              1078.34
+            ]
+          },
+          {
+            "center_mm": [
+              208.84,
+              256.08
+            ],
+            "diameter_mm": 40.0,
+            "fit_diameter_mm": 39.33,
+            "coverage": 0.608,
+            "rms_mm": 0.297,
+            "contrast": 95.5,
+            "center_px": [
+              1815.12,
+              1434.77
+            ]
+          },
+          {
+            "center_mm": [
+              424.31,
+              175.69
+            ],
+            "diameter_mm": 40.0,
+            "fit_diameter_mm": 37.51,
+            "coverage": 0.608,
+            "rms_mm": 0.324,
+            "contrast": 72.5,
+            "center_px": [
+              2158.38,
+              2345.98
+            ]
+          },
+          {
+            "center_mm": [
+              401.24,
+              214.79
+            ],
+            "diameter_mm": 40.0,
+            "fit_diameter_mm": 39.9,
+            "coverage": 0.558,
+            "rms_mm": 0.489,
+            "contrast": 83.3,
+            "center_px": [
+              1996.0,
+              2250.93
+            ]
+          },
+          {
+            "center_mm": [
+              542.89,
+              160.85
+            ],
+            "diameter_mm": 50.0,
+            "fit_diameter_mm": 48.08,
+            "coverage": 0.55,
+            "rms_mm": 0.498,
+            "contrast": 27.9,
+            "center_px": [
+              2225.66,
+              2847.06
+            ]
+          },
+          {
+            "center_mm": [
+              329.87,
+              186.48
+            ],
+            "diameter_mm": 40.0,
+            "fit_diameter_mm": 39.97,
+            "coverage": 0.542,
+            "rms_mm": 0.321,
+            "contrast": 63.0,
+            "center_px": [
+              2109.12,
+              1947.83
+            ]
+          },
+          {
+            "center_mm": [
+              164.52,
+              240.28
+            ],
+            "diameter_mm": 32.0,
+            "fit_diameter_mm": 33.86,
+            "coverage": 0.5,
+            "rms_mm": 0.399,
+            "contrast": 82.9,
+            "center_px": [
+              1879.0,
+              1249.29
+            ]
+          }
+        ]
       }
     }
   }

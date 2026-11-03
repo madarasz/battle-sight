@@ -1,0 +1,13 @@
+{
+  "comment": "Ground truth for the bases stage. See tomb-world-1.bases.json for the fields.",
+  "bases": [
+    {"center_mm": [239.8, 249.1], "diameter_mm": 40, "rim": "clear", "note": "tyranid, left room"},
+    {"center_mm": [636.4, 165.3], "diameter_mm": 40, "rim": "clear", "note": "tyranid, top right"},
+    {"center_mm": [372.0, 419.1], "diameter_mm": 32, "rim": "clear", "note": "small purple model under wall"},
+    {"center_mm": [239.8, 524.6], "diameter_mm": 32, "rim": "clear", "note": "gold model, bottom"},
+    {"center_mm": [338.0, 182.0], "diameter_mm": 40, "rim": "hidden", "tol_mm": 8, "note": "tyranid against wall corner"},
+    {"center_mm": [431.0, 183.0], "diameter_mm": 40, "rim": "hidden", "tol_mm": 8, "note": "tyranid next to barricade"},
+    {"center_mm": [337.0, 340.0], "diameter_mm": 40, "rim": "hidden", "tol_mm": 8, "note": "tyranid against wall, centre"},
+    {"center_mm": [158.7, 252.0], "diameter_mm": null, "rim": "hidden", "tol_mm": 10, "note": "large purple model on a decorated base or token"}
+  ]
+}

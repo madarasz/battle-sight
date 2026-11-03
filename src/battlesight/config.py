@@ -40,18 +40,31 @@ class BoardConfig:
     rectify_px_per_mm: float = 2.0
     rectify_margin_mm: float = 50.0
     max_reproj_mm: float = 2.5  # rectify fails when the tag corner fit is worse
+    # Bases: known diameters at the base bottom, found by a circle fit in a
+    # top-down image at `bases_px_per_mm` (see circles.py for the other values).
+    bases_diameters_mm: tuple[float, ...] = (25.0, 28.0, 32.0, 40.0, 50.0)
+    bases_px_per_mm: float = 4.0
+    bases_diameter_tol_mm: float = 3.0
+    bases_min_coverage: float = 0.5
+    bases_min_contrast: float = 12.0
+    bases_rim_ratio: float = 0.75
+    bases_diff_threshold: float = 25.0
+    bases_min_foreground: float = 0.25
 
     @classmethod
     def load(cls, path: str | Path = DEFAULT_CONFIG) -> BoardConfig:
         with open(path, "rb") as fh:
             raw = tomllib.load(fh)
         board, tags, drift = raw["board"], raw["tags"], raw.get("drift", {})
-        grid, rect = raw.get("grid", {}), raw.get("rectify", {})
+        grid, rect, bases = raw.get("grid", {}), raw.get("rectify", {}), raw.get("bases", {})
         if "camera" in raw:
             raise ValueError("[camera] moved from the board config to data/camera.toml (focal_35mm, lens calibration)")
         sections = grid.get("sections")
         if sections is not None and (len(sections) != 2 or min(sections) < 1):
             raise ValueError("grid.sections must hold two positive counts [nx, ny]")
+        diameters = tuple(float(d) for d in bases.get("diameters_mm", (25, 28, 32, 40, 50)))
+        if not diameters or min(diameters) <= 0:
+            raise ValueError("bases.diameters_mm must hold positive diameters")
         ids = tuple(int(i) for i in tags["ids"])
         if len(ids) != 4 or len(set(ids)) != 4:
             raise ValueError("tags.ids must hold four distinct tag ids")
@@ -73,6 +86,14 @@ class BoardConfig:
             rectify_px_per_mm=float(rect.get("px_per_mm", 2.0)),
             rectify_margin_mm=float(rect.get("margin_mm", 50.0)),
             max_reproj_mm=float(rect.get("max_reproj_mm", 2.5)),
+            bases_diameters_mm=tuple(sorted(diameters)),
+            bases_px_per_mm=float(bases.get("px_per_mm", 4.0)),
+            bases_diameter_tol_mm=float(bases.get("diameter_tol_mm", 3.0)),
+            bases_min_coverage=float(bases.get("min_coverage", 0.5)),
+            bases_min_contrast=float(bases.get("min_contrast", 12.0)),
+            bases_rim_ratio=float(bases.get("rim_ratio", 0.75)),
+            bases_diff_threshold=float(bases.get("diff_threshold", 25.0)),
+            bases_min_foreground=float(bases.get("min_foreground", 0.25)),
         )
 
     def corner_index(self, tag_id: int) -> int | None:

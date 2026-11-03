@@ -1,7 +1,7 @@
 # Setup and calibration
 
-Do these steps one time before your first game. Do steps 5 and 6 again only
-when you change the board or the camera.
+Do steps 1 to 6 one time before your first game. Do steps 5 and 6 again only
+when you change the board or the camera. Do step 7 before each game.
 
 ## 1. Install the app (macOS)
 
@@ -196,6 +196,10 @@ editor. All lengths are in millimetres.
     also checks its accuracy against the printed lines.
 - `[drift]`, `tolerance_mm`: how far a card can move before the app shows
   "BOARD MOVED" (default 2 mm).
+- `[bases]`, `diameters_mm`: the base sizes in mm that the app looks for.
+  Measure a base at its bottom, where it touches the board. The default list
+  is `[25, 28, 32, 40, 50]`. Remove the sizes that your teams do not use:
+  fewer sizes give fewer mistakes.
 
 ## 6. Calibrate the lens (optional)
 
@@ -227,6 +231,31 @@ Do it for better accuracy at the board edges.
 
 Do the calibration again when you change the camera, the lens, or the image
 size.
+
+## 7. Take the empty-board photo
+
+The app finds the bases best when it can compare the board with a photo of
+the same board without operatives. Do this step before each game, because
+the terrain and the light change.
+
+1. Set up the terrain and the tokens on the board. Do not put operatives on
+   the board yet.
+2. Make sure that the light is as it will be in the game. Close the curtains
+   or turn on the lamps first.
+3. Start the bases mode:
+
+   ```bash
+   uv run battlesight bases
+   ```
+
+4. Keep your hands and other objects out of the image. Push `e`. The app
+   saves the photo to `data/snapshots/empty_board.png` and uses it until you
+   take a new one. The next start of `battlesight bases` loads it again.
+5. Put the operatives on the board and push `space`.
+
+If you move the camera or the light changes much, take the photo again. A
+small move of the board is not a problem: the app finds the corner cards in
+the empty-board photo too.
 
 ## Troubleshooting
 
