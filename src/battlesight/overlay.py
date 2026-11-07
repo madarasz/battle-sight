@@ -149,3 +149,22 @@ def draw_bases(frame: np.ndarray, bases, to_px, color: tuple[int, int, int] = GR
         org = (int(top[0] - tw / 2), int(top[1]))
         cv2.putText(frame, label, org, cv2.FONT_HERSHEY_SIMPLEX, 0.6 * s, BLACK, thick + 2, cv2.LINE_AA)
         cv2.putText(frame, label, org, cv2.FONT_HERSHEY_SIMPLEX, 0.6 * s, color, thick, cv2.LINE_AA)
+
+
+def draw_dashed_circle(
+    frame: np.ndarray,
+    center: tuple[float, float],
+    radius: float,
+    color: tuple[int, int, int],
+    thickness: int = 1,
+    dashes: int = 24,
+    duty: float = 0.5,
+) -> None:
+    """Dashed circle in pixels: `dashes` arcs, each `duty` of its step long.
+    A small duty with many dashes gives a dotted circle."""
+    c = (int(round(center[0])), int(round(center[1])))
+    r = max(1, int(round(radius)))
+    step = 360.0 / dashes
+    for k in range(dashes):
+        a0 = k * step
+        cv2.ellipse(frame, c, (r, r), 0, a0, a0 + duty * step, color, thickness, cv2.LINE_AA)

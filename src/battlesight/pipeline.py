@@ -373,19 +373,34 @@ def _views_bases(frame: np.ndarray, result: FrameResult, cfg: BoardConfig) -> di
     return {"bases": img}
 
 
+def detect_bases(img: np.ndarray, cfg: BoardConfig, reference: np.ndarray | None) -> tuple[list[circles.Circle], np.ndarray | None]:
+    """Bases in the bases image `img` (`bases_image`). `reference` is the
+    bases image of the empty board, or None. Returns (circles, foreground
+    mask or None). Raises ValueError when the reference has another size."""
+    region = _board_region(cfg, img.shape)
+    fg = None
+    if reference is not None:
+        if reference.shape != img.shape:
+            raise ValueError("empty-board reference has another size: set it again")
+        fg = circles.foreground_mask(img, reference, cfg.bases_diff_threshold)
+    return circles.find_circles(img, circles.CircleParams.from_config(cfg, BASES_MARGIN_MM), region, fg), fg
+
+
+def changed_fraction(fg: np.ndarray | None, cfg: BoardConfig) -> float | None:
+    """Part of the board that differs from the empty-board reference."""
+    return None if fg is None else round(float(fg[_board_region(cfg, fg.shape)].mean()), 3)
+
+
 @stage("bases", draw=_draw_bases, views=_views_bases)
 def _bases(ctx: Context) -> StageResult:
     cfg = ctx.cfg
     view: rect.BoardView = ctx.scratch["view"]
     img = bases_image(ctx.frame, view, cfg)
-    region = _board_region(cfg, img.shape)
     ref = ctx.cache.get("bases_reference")
-    fg = None
-    if ref is not None:
-        if ref.shape != img.shape:
-            return StageResult(ok=False, message="empty-board reference has another size: set it again")
-        fg = circles.foreground_mask(img, ref, cfg.bases_diff_threshold)
-    found = circles.find_circles(img, circles.CircleParams.from_config(cfg, BASES_MARGIN_MM), region, fg)
+    try:
+        found, fg = detect_bases(img, cfg, ref)
+    except ValueError as exc:
+        return StageResult(ok=False, message=str(exc))
     ctx.scratch["bases"] = found
     mode = "reference" if ref is not None else "single_frame"
     centers_px = view.mm_to_px(np.array([c.center_mm for c in found])) if found else np.zeros((0, 2))
@@ -393,7 +408,7 @@ def _bases(ctx: Context) -> StageResult:
         "mode": mode,
         "px_per_mm": cfg.bases_px_per_mm,
         "diameters_mm": list(cfg.bases_diameters_mm),
-        "changed_fraction": None if fg is None else round(float(fg[region].mean()), 3),
+        "changed_fraction": changed_fraction(fg, cfg),
         "bases": [{**c.to_dict(), "center_px": _round(p)} for c, p in zip(found, centers_px)],
     }
     sizes = ", ".join(f"{n}x{d:g}" for d, n in sorted(Counter(c.diameter_mm for c in found).items()))

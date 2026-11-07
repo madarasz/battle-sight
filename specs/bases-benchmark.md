@@ -1,6 +1,6 @@
 # Bases benchmark: implementation plan
 
-Status: plan, not started. Date: 2026-11-03. Priority 3 of `specs/plan.md`.
+Status: parts 1 to 4 (sections 5 to 10, 12) done 2026-11-03, first baseline written. Section 11 (tuning) not started. Date: 2026-11-03. Priority 3 of `specs/plan.md`.
 
 Read first: `CLAUDE.md`, `specs/plan.md` (priority 3 row and section 9),
 `docs/cli.md` "Base detection", `docs/testing.md` "Photo tests".
@@ -43,11 +43,12 @@ one change at a time, each checked with the benchmark (section 11).
   |---|---|---|
   | `tomb-world-1.jpg` | game, no reference | `tomb-world-1.bases.json`: 5 clear, 3 hidden |
   | `tomb-world-2.jpg` | game, no reference | `tomb-world-2.bases.json`: 4 clear, 4 hidden |
-  | `tomb-world-empty.jpg` | negative: terrain and tokens, no operatives | `tomb-world-empty.bases.json`: empty list |
 
-  `tomb-world-empty.jpg` is not a reference for the two game photos: the
-  tokens and teleporters are in other places and the light is different
-  (46 % and 49 % of the board changes).
+  The negative photo `tomb-world-empty.jpg` (terrain and tokens, no
+  operatives) was removed on 2026-11-07. It was not a reference for the two
+  game photos (other token places, other light: 46 % and 49 % of the board
+  changes), and its printed grid failed the rectify spacing test. A new
+  negative photo and an empty-board pair will replace it.
 
 - The clear-rim ground truth of `tomb-world-1` and `-2` comes from detector
   fits, checked by eye on 4 px per mm crops. Hidden-rim positions are
@@ -61,8 +62,8 @@ one change at a time, each checked with the benchmark (section 11).
   - 50 mm false bases on round prints and tokens (spinner tokens). No team on
     the photos has 50 mm bases.
   - Two teleporters (terrain, round, 60 mm) with smaller round patterns
-    inside give false bases (on `tomb-world-empty` a 40 mm circle at
-    (551, 350) mm).
+    inside give false bases (on the removed `tomb-world-empty` a 40 mm
+    circle at (551, 350) mm).
   - Terrain parts (round barricades, wall gratings) give false bases.
   - Two bases are found as a smaller circle inside the real base: a pattern
     on the model or the base top.
@@ -103,7 +104,8 @@ Rules for a new game pair (put them in `docs/setup.md` step 7 and in
 
 Keep the current fields. Add `schema`, `source`, and `not_bases`. Readers
 must accept version 1 files (no `schema`): treat them as version 2 with
-`not_bases: []` and `source: "detector"` for each base.
+`not_bases: []`, `source: "detector"` for a clear base and `source:
+"estimate"` for a hidden base.
 
 ```json
 {
@@ -516,7 +518,9 @@ work, not part of these steps.
 
 ## 14. Known issue, not part of this work
 
-`test_rectify_done_criteria[tomb-world-empty.jpg]` fails: neighbouring
+Closed 2026-11-07: the owner removed `tomb-world-empty.jpg` from the test
+set and will take a new photo. Record of the issue:
+`test_rectify_done_criteria[tomb-world-empty.jpg]` failed: neighbouring
 printed grid lines y2 and y3 are 1.90 mm too close (limit `SPACING_TOL_MM`
 1.5 mm). The y offsets are +1.5, +1.5, +2.1, +0.2, +0.1, -1.0, -0.7 mm: the
 step is at y3 = 303 mm, the middle of the board. The likely cause is a gap

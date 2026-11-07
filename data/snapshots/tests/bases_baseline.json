@@ -1,0 +1,230 @@
+{
+  "schema": 1,
+  "config": {
+    "diameter_tol_mm": 3.0,
+    "diameters_mm": [
+      25.0,
+      28.0,
+      32.0,
+      40.0,
+      50.0
+    ],
+    "diff_threshold": 25.0,
+    "min_contrast": 12.0,
+    "min_coverage": 0.5,
+    "min_foreground": 0.25,
+    "px_per_mm": 4.0,
+    "rim_ratio": 0.75
+  },
+  "overrides": {},
+  "git": "f56156b+dirty",
+  "photos": [
+    {
+      "name": "tomb-world-1",
+      "mode": "single_frame",
+      "changed_fraction": null,
+      "metrics": {
+        "truth": 8,
+        "found": 8,
+        "matched": 6,
+        "size_ok": 6,
+        "wrong_size": 0,
+        "missed": 2,
+        "false": 2,
+        "false_by_kind": {
+          "other": 1,
+          "print": 1
+        },
+        "recall": 0.75,
+        "precision": 0.75,
+        "f1": 0.75,
+        "size_accuracy": 1.0,
+        "center_err_mm": {
+          "median": 0.037,
+          "p90": 0.073,
+          "max": 0.073
+        },
+        "done_ok": false,
+        "done": 0,
+        "photos": 1,
+        "ms": 1902.3
+      },
+      "by_rim": {
+        "clear": {
+          "truth": 6,
+          "matched": 6,
+          "size_ok": 6,
+          "wrong_size": 0,
+          "missed": 0,
+          "recall": 1.0,
+          "size_accuracy": 1.0,
+          "center_err_mm": {
+            "median": 0.037,
+            "p90": 0.073,
+            "max": 0.073
+          }
+        },
+        "hidden": {
+          "truth": 2,
+          "matched": 0,
+          "size_ok": 0,
+          "wrong_size": 0,
+          "missed": 2,
+          "recall": 0.0,
+          "size_accuracy": 1.0,
+          "center_err_mm": null
+        }
+      }
+    },
+    {
+      "name": "tomb-world-2",
+      "mode": "single_frame",
+      "changed_fraction": null,
+      "metrics": {
+        "truth": 8,
+        "found": 10,
+        "matched": 4,
+        "size_ok": 4,
+        "wrong_size": 0,
+        "missed": 4,
+        "false": 6,
+        "false_by_kind": {
+          "inside_base": 3,
+          "print": 2,
+          "wall": 1
+        },
+        "recall": 0.5,
+        "precision": 0.4,
+        "f1": 0.4444,
+        "size_accuracy": 1.0,
+        "center_err_mm": {
+          "median": 0.062,
+          "p90": 0.086,
+          "max": 0.092
+        },
+        "done_ok": false,
+        "done": 0,
+        "photos": 1,
+        "ms": 1904.4
+      },
+      "by_rim": {
+        "clear": {
+          "truth": 6,
+          "matched": 4,
+          "size_ok": 4,
+          "wrong_size": 0,
+          "missed": 2,
+          "recall": 0.6667,
+          "size_accuracy": 1.0,
+          "center_err_mm": {
+            "median": 0.062,
+            "p90": 0.086,
+            "max": 0.092
+          }
+        },
+        "hidden": {
+          "truth": 2,
+          "matched": 0,
+          "size_ok": 0,
+          "wrong_size": 0,
+          "missed": 2,
+          "recall": 0.0,
+          "size_accuracy": 1.0,
+          "center_err_mm": null
+        }
+      }
+    }
+  ],
+  "total": {
+    "metrics": {
+      "truth": 16,
+      "found": 18,
+      "matched": 10,
+      "size_ok": 10,
+      "wrong_size": 0,
+      "missed": 6,
+      "false": 8,
+      "false_by_kind": {
+        "inside_base": 3,
+        "other": 1,
+        "print": 3,
+        "wall": 1
+      },
+      "recall": 0.625,
+      "precision": 0.5556,
+      "f1": 0.5882,
+      "size_accuracy": 1.0,
+      "center_err_mm": {
+        "median": 0.049,
+        "p90": 0.075,
+        "max": 0.092
+      },
+      "done_ok": false,
+      "done": 0,
+      "photos": 2,
+      "ms": 3806.8
+    },
+    "by_rim": {
+      "clear": {
+        "truth": 12,
+        "matched": 10,
+        "size_ok": 10,
+        "wrong_size": 0,
+        "missed": 2,
+        "recall": 0.8333,
+        "size_accuracy": 1.0,
+        "center_err_mm": {
+          "median": 0.049,
+          "p90": 0.075,
+          "max": 0.092
+        }
+      },
+      "hidden": {
+        "truth": 4,
+        "matched": 0,
+        "size_ok": 0,
+        "wrong_size": 0,
+        "missed": 4,
+        "recall": 0.0,
+        "size_accuracy": 1.0,
+        "center_err_mm": null
+      }
+    },
+    "by_mode": {
+      "single_frame": {
+        "truth": 16,
+        "found": 18,
+        "matched": 10,
+        "size_ok": 10,
+        "wrong_size": 0,
+        "missed": 6,
+        "false": 8,
+        "false_by_kind": {
+          "inside_base": 3,
+          "other": 1,
+          "print": 3,
+          "wall": 1
+        },
+        "recall": 0.625,
+        "precision": 0.5556,
+        "f1": 0.5882,
+        "size_accuracy": 1.0,
+        "center_err_mm": {
+          "median": 0.049,
+          "p90": 0.075,
+          "max": 0.092
+        },
+        "done_ok": false,
+        "done": 0,
+        "photos": 2,
+        "ms": 3806.8
+      }
+    },
+    "false_by_kind": {
+      "inside_base": 3,
+      "other": 1,
+      "print": 3,
+      "wall": 1
+    }
+  }
+}

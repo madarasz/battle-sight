@@ -45,6 +45,10 @@ uv run tools/list_cameras.py --url http://PHONE-IP:8080/video    # check a Wi-Fi
 uv run battlesight corners --source http://PHONE-IP:8080/video  # one run with another source
 uv run tools/make_tags.py                 # print sheet -> data/tags/corner_tags.pdf
 uv run tools/make_charuco.py              # lens calibration sheet -> data/calib/charuco.pdf
+uv run tools/bench_bases.py               # bases benchmark on data/snapshots/tests: table, out/bench/
+uv run tools/bench_bases.py --sweep min_coverage=0.4,0.5 --no-images   # parameter sweep, best f1 first
+uv run tools/bench_bases.py --baseline data/snapshots/tests/bases_baseline.json   # exit 1 when worse
+uv run tools/annotate_bases.py data/snapshots/tests/<name>.jpg --prefill   # click base ground truth
 ```
 
 `docs/testing.md` describes the two test sets, how to add a test photo, and how to update expected files. Update it when you add a test file or a stage.
@@ -58,7 +62,8 @@ No linter or formatter is configured.
 - `src/battlesight/` is the package (hatchling, `src` layout). Entry point `battlesight = battlesight.app:main`. `app.py` holds argparse subcommands. Add new modes as new subcommands there.
 - `pipeline.py`: single-frame analysis, no camera or window. Stages are `corners`, `rectify`, `bases`. Stages register in run order with `@stage(name, draw=..., views=...)` (`views` returns extra named images, `--out` writes them as `<name>.<view>.jpg`) and return a `StageResult` (ok, message, JSON-safe `data`). A failed stage skips the later ones. `Pipeline.analyze` gives a `FrameResult` (`to_dict()` is the JSON report, with `schema` version), `Pipeline.annotate` draws all stage overlays. Add each new priority as a stage here, so the `image` subcommand and tests pick it up. The `image` subcommand exit codes: 0 all stages ok, 1 a stage failed, 2 bad input.
 - `circles.py` (priority 3): `find_circles` finds round bases of the known diameters (`[bases]` in `data/board.toml`, base bottom) in a top-down image at `bases.px_per_mm` (4). Edge votes along the gradient for proposals, 120 rays with a dark-rim test, robust free fit, nearest size class, fixed-radius refit, `coverage` = visible rim part. `foreground_mask` diffs against an empty-board reference. `Pipeline(reference=frame)` / `set_reference` warps the reference from its own tags into `cache["bases_reference"]`; the `bases` stage then runs in `reference` mode, else `single_frame` (finds some dark-ringed tokens and barricades). The stage puts `bases` (list of `Circle`) in `scratch`. Bottom edge lies on the play surface: no parallax correction. `docs/cli.md` "Base detection" has the steps and config keys.
-- `tests/test_photos.py` (marker `photos`, off by default through `addopts` in `pyproject.toml`): runs the pipeline on each photo in `data/snapshots/tests` and compares with the reviewed `<name>.expected.json` next to it (the `--out` report), corners within `CORNER_TOL_MM` (1 mm, converted with the tag's pixel size). Never update an expected file only to make a test pass. Bases: `<name>.bases.json` is hand-checked ground truth (`clear` / `hidden` rims, `tol_mm`), `<name>.empty.jpg` an optional empty-board reference; `test_bases_done_criteria` runs only with both.
+- `bench.py`: bases benchmark, pure functions. Ground truth `<name>.bases.json` schema 2 (`Truth`, `Decoy` = `not_bases`, schema 1 still loads), `match` (one-to-one global greedy within `tol_mm`, false detections get a `kind`, `inside_base` or `other`), `PhotoScore` (`done_ok` = priority 3 done test), `metrics` / `total` (recall, precision, f1, size accuracy, centre error of clear clicked or detector rims), `report` (`bench.json`), `compare` (baseline rules), text table. Also the photo file rules (`find_photos`, `reference_path`: `<name>.empty.*` is a reference). `pipeline.detect_bases(img, cfg, reference)` is the body of the bases stage, so `tools/bench_bases.py` runs corners and rectify once and sweeps `[bases]` values cheaply. `tools/annotate_bases.py` holds the click logic in `Annotator` (no window calls, unit tested).
+- `tests/test_photos.py` (marker `photos`, off by default through `addopts` in `pyproject.toml`): runs the pipeline on each photo in `data/snapshots/tests` and compares with the reviewed `<name>.expected.json` next to it (the `--out` report), corners within `CORNER_TOL_MM` (1 mm, converted with the tag's pixel size). Never update an expected file only to make a test pass. Bases: `<name>.bases.json` is ground truth (`clear` / `hidden` rims, `tol_mm`, `source`, `not_bases`), `<name>.empty.jpg` an optional empty-board reference; `test_bases_done_criteria` runs only with both. `test_bases_benchmark_no_worse` compares the benchmark totals with `data/snapshots/tests/bases_baseline.json`; `pytest -m photos` prints the metrics table. The baseline moves only on purpose (`tools/bench_bases.py --write-baseline`, new numbers in the commit message), never only to make a test pass.
 - `config.py`: `BoardConfig` (frozen dataclass) loads `data/board.toml`. All lengths are in mm. Board coordinates: origin at the top-left board corner, x right, y down. Corner index 0..3 = TL, TR, BR, BL, and `tags.ids[k]` is the tag at corner k.
 - `calib.py`: `TagDetector` (OpenCV `cv2.aruco` with `DICT_APRILTAG_36h11`, no contrib build) returns `{tag_id: TagObs}`. Each card lies under a board corner, tag outside the board, diagonal to the corner. `board_corners_px` takes tag corner k+2 (the one nearest the board) and pushes it toward the board by the white card margin to get board corner k. `DriftMonitor` auto-locks a reference after `settle_frames` still frames, then reports OK / MOVED / LOST. It converts pixel shift to mm with each tag's apparent size.
 - `calib.py` also holds `Lens` (K, distortion, `undistort_px` / `distort_px`), `lens_for_frame(camera, size)` (the `[lens]` calibration of `CameraSettings` when its aspect ratio fits the frame, else a nominal pinhole from `CameraSettings.focal_35mm`), and the ChArUco target and `calibrate_lens`.
@@ -75,14 +80,14 @@ No linter or formatter is configured.
 Layout:
 
 ```
-src/battlesight/   config.py camera.py calib.py rectify.py circles.py overlay.py pipeline.py app.py
-tools/             make_tags.py make_charuco.py list_cameras.py
+src/battlesight/   config.py camera.py calib.py rectify.py circles.py bench.py overlay.py pipeline.py app.py
+tools/             make_tags.py make_charuco.py list_cameras.py bench_bases.py annotate_bases.py
 tests/             synthetic-board tests, test-photo tests, no camera needed
 data/              board.toml, tags/, snapshots/ (snapshots/tests/ = test photos), calib/
 docs/              setup.md (user setup), cli.md, testing.md
 ```
 
-`specs/bases-benchmark.md` is the plan for the bases benchmark tool, ground truth click tool, and metric baseline (not started).
+`specs/bases-benchmark.md` is the plan for the bases benchmark tool, ground truth click tool, and metric baseline (parts 1 to 4 done; section 11 tuning and re-annotation are next).
 
 Target modules for later priorities (`ident.py`, `doors.py`, `measure.py`, `ui/`) and data folders are listed in `specs/plan.md` section 7.
 

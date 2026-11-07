@@ -10,6 +10,8 @@ import pytest
 
 from battlesight.config import BoardConfig
 
+BENCH_TABLE = pytest.StashKey[str]()  # bases benchmark table of the photo tests
+
 BOARD_GRAY = 70  # dark board, like Tomb World
 LINE_GRAY = 30  # printed grid lines on the board
 RIM_GRAY = 15  # black base rim
@@ -164,3 +166,12 @@ def no_local_camera_file(tmp_path, monkeypatch):
 @pytest.fixture
 def cfg() -> BoardConfig:
     return make_config()
+
+
+def pytest_terminal_summary(terminalreporter, exitstatus, config):
+    """Print the bases benchmark table after the photo tests. Nothing when
+    they did not run."""
+    table = config.stash.get(BENCH_TABLE, None)
+    if table:
+        terminalreporter.write_sep("=", "bases benchmark (specs/bases-benchmark.md)")
+        terminalreporter.write_line(table)

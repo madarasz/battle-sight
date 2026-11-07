@@ -22,6 +22,7 @@ default.
 | File | Tests |
 |---|---|
 | `tests/test_bases.py` | Circle fit on synthetic boards: each base size (centre within 0.5 mm, right class), neighbour sizes 25, 28, 32, a model over 40 % of the rim, a rim hidden too much (no result), touching bases, a base against a wall, light tokens and other sizes rejected, printed grid gives no bases, region limit. Reference mode: a static dark print is removed, noise is not foreground. Pipeline stage in single-frame and reference mode, no bases, bad reference, `image --reference`, the `[bases]` config table. |
+| `tests/test_bench.py` | Bases benchmark: one-to-one global greedy match (with the case where a per-truth match differs), tolerance, unknown size, decoy and `inside_base` categories. Metrics for a hand-made case, a negative photo, no detections, `done_ok`. Each baseline rule, a new photo, a better run. Ground truth schema 1 and 2, bad `rim` and `kind`. `tools/bench_bases.py` end to end on two synthetic photos (one with a reference): `bench.json`, `--mode`, `--set`, `--sweep`, `--write-baseline` and `--baseline`, exit codes, debug images. Click tool logic: fit of a known circle, class keys, hidden rim, estimate, save and load, undo, delete. |
 | `tests/test_camera.py` | Camera source parsing: device index, stream URL, file path. The stream reader keeps only the newest frame, waits for a new frame, and stops at the end of the stream. Camera settings file: defaults without a file, save and load for a device and a stream, command options override the file, `list_cameras.py` keeps the lens when it saves a new source. No camera or network needed. |
 | `tests/test_config.py` | Load of `data/board.toml`. Rejection of bad tag ids and bad grid sections. Grid lines for Tomb World sections and for a Volkus 1 in pitch. |
 | `tests/test_calib.py` | Tag corner geometry in mm. Tag detection (flat, perspective and blur, low pixel density, wrong tag ids). Board corner position. Drift monitor: reference lock, moved board, one moved tag, lost tag. |
@@ -57,11 +58,20 @@ bases stage:
 data/snapshots/tests/
   tomb-world-1.jpg
   tomb-world-1.expected.json   # reviewed report of `image --out`
-  tomb-world-1.bases.json      # hand-checked bases (ground truth), optional
+  tomb-world-1.bases.json      # bases ground truth, optional
   tomb-world-1.empty.jpg       # empty-board reference, optional
   tomb-world-2.jpg
   ...
+  bases_baseline.json          # bases benchmark baseline (tools/bench_bases.py --write-baseline)
 ```
+
+There are three kinds of photos for the bases stage:
+
+| Kind | Files | Use |
+|---|---|---|
+| Game, single | `<name>.jpg`, `<name>.bases.json` | Single-frame mode. |
+| Game pair | `<name>.jpg`, `<name>.empty.jpg`, `<name>.bases.json` | Reference mode, and single-frame mode on the same photo (`bench_bases.py --mode single`). The done test of priority 3. |
+| Negative | `<name>.jpg`, `<name>.bases.json` with `"bases": []` | False bases only. |
 
 `<name>.empty.jpg` (or `.png`) is the same board with the terrain and the
 tokens, but no operatives, from the same camera and light. When it exists,
@@ -69,29 +79,45 @@ the test runs the bases stage in reference mode. The tests do not use it as
 a photo of its own. The two Tomb World game photos have no empty-board
 photo.
 
-`tomb-world-empty.jpg` is a negative photo: terrain and tokens, no
-operatives. Its `<name>.bases.json` has an empty list, so each base found in
-it is a false base. It is not the reference of `tomb-world-1` or `-2`: the
-tokens are in other places and the light is different.
+A negative photo (terrain and tokens, no operatives) can also be a test
+photo of its own. Give it a `<name>.bases.json` with an empty `bases`
+list, so each base found in it is a false base. Do not name it
+`<name>.empty.jpg`: that name makes it a reference, not a test photo.
 
-`<name>.bases.json` lists the true bases:
+`<name>.bases.json` is the ground truth (schema 2). Files without
+`schema` are version 1: a clear base reads as `source: "detector"`, a
+hidden base as `source: "estimate"`, with no `not_bases`.
 
 ```json
 {
+  "schema": 2,
+  "comment": "free text",
   "bases": [
-    {"center_mm": [329.8, 186.5], "diameter_mm": 40, "rim": "clear", "note": "tyranid, top centre"},
-    {"center_mm": [527.0, 268.0], "diameter_mm": 40, "rim": "hidden", "tol_mm": 8, "note": "tyranid against wall"},
-    {"center_mm": [164.6, 240.3], "diameter_mm": null, "rim": "hidden", "tol_mm": 10, "note": "model on a token"}
+    {"center_mm": [329.8, 186.5], "diameter_mm": 40, "rim": "clear", "source": "clicked", "note": "tyranid, top centre", "points_mm": [[349.8, 186.5], "..."]},
+    {"center_mm": [527.0, 268.0], "diameter_mm": 40, "rim": "hidden", "tol_mm": 8, "source": "estimate", "note": "tyranid against wall"},
+    {"center_mm": [164.6, 240.3], "diameter_mm": null, "rim": "hidden", "tol_mm": 10, "source": "estimate", "note": "model on a token"}
+  ],
+  "not_bases": [
+    {"center_mm": [551.0, 350.0], "diameter_mm": 60, "kind": "teleporter", "note": "dark teleporter"}
   ]
 }
 ```
 
 | Field | Meaning |
 |---|---|
-| `center_mm` | Centre of the base bottom in board mm. |
-| `diameter_mm` | Base bottom diameter. `null` when not known: any size class matches. |
-| `rim` | `clear`: at least half of the rim is visible. `hidden`: a model, a wall or a token hides most of it. |
-| `tol_mm` | Largest distance of a found base from `center_mm`. Default 2 mm (the done test). Use a larger value for a position known less well. |
+| `bases[].center_mm` | Centre of the base bottom in board mm. |
+| `bases[].diameter_mm` | Base bottom diameter. `null` when not known: any size class matches, no size check. |
+| `bases[].rim` | `clear`: at least half of the bottom rim is visible. `hidden`: less (a model, a wall or a token hides it). |
+| `bases[].tol_mm` | Match radius. Default 2 mm (the done test). Use a larger value for a position known less well. |
+| `bases[].source` | `clicked` (rim points clicked in `tools/annotate_bases.py`), `detector` (a checked detector fit), `estimate` (approximate). |
+| `bases[].points_mm` | Clicked rim points, so a person can check the fit. Optional. |
+| `not_bases[]` | Known round things that are not bases. Only labels: a false base within half of `diameter_mm` of the centre gets `kind` as its category. |
+| `not_bases[].kind` | One of `teleporter`, `token`, `print`, `barricade`, `wall`, `model`, `other`. |
+
+The clear-rim ground truth of `tomb-world-1` and `-2` comes from detector
+fits (schema 1), checked by eye. Their centre errors in the benchmark are
+thus near 0 and do not show the true error. Click them again with
+`tools/annotate_bases.py` ("Click the ground truth" below).
 
 The expected file is the image report that `battlesight image --out` writes
 (see [cli.md](cli.md), "JSON report"). A person checked the overlay image
@@ -109,8 +135,8 @@ For each photo:
 | `test_rectify_match_expected` | The lens source is the same. 81 board points through the expected and the found homography are within `RECTIFY_TOL_MM` (1 mm). Each board edge offset and each printed grid line offset is within 1 mm of the expected value. |
 | `test_bases_match_expected` | Same `mode`. Each expected base is found within `BASES_TOL_MM` (1 mm) with the same size class. No new bases. |
 | `test_bases_clear_rims_found` | Each `clear` base of `<name>.bases.json` is found within its `tol_mm` (2 mm) with the right size, in any mode. Skipped without `<name>.bases.json`. |
-| `test_bases_false_positives_no_worse` | Found bases that match no true base (tokens, barricades): not more than in the expected file. Thus a change can remove false bases, but not add them. |
-| `test_bases_done_criteria` | The done test of priority 3: every true base found (clear and hidden), right size, no false bases. Needs `<name>.empty.jpg` and `<name>.bases.json`, else skipped. |
+| `test_bases_benchmark_no_worse` | One test for all photos. The bases benchmark totals are not worse than `bases_baseline.json` (rules in "Bases benchmark" below). Skipped without the baseline file. |
+| `test_bases_done_criteria` | The done test of priority 3 (`PhotoScore.done_ok`): every true base found (clear and hidden), right size, no false bases, each clear base within 2 mm. Needs `<name>.empty.jpg` and `<name>.bases.json`, else skipped. |
 | `test_rectify_done_criteria` | The done test of priority 2 in `specs/plan.md`, with no expected file: all four board edges found and tilted less than `EDGE_ANGLE_TOL_DEG` (0.3 deg), board corners at 90 deg within `CORNER_ANGLE_TOL_DEG` (0.5 deg), each printed grid line found and within `GRID_TOL_MM` (3.5 mm) of its nominal place, neighbouring grid lines spaced right within `SPACING_TOL_MM` (1.5 mm). |
 
 `GRID_TOL_MM` is large because it includes the card placement error: in the
@@ -138,15 +164,6 @@ ground truth was checked on 4 px per mm crops):
 |---|---|---|---|
 | `tomb-world-1` | 5 of 5 | 1 of 3 (the model on the pink token, size unknown) | 2: a round barricade, a 50 mm spinner token |
 | `tomb-world-2` | 4 of 4 | 1 of 4 (a tyranid, as 32 mm) | 5: two circles on the large model, a hole in a wall grating, a wall part, the spinner token |
-| `tomb-world-empty` | - | - | 1: the inner ring of the dark teleporter, as 40 mm |
-
-`test_rectify_done_criteria[tomb-world-empty.jpg]` fails: printed grid
-lines y2 and y3 are 1.90 mm too close (limit 1.5 mm). The step is at the
-middle of the board, so the likely cause is a gap between the two board
-halves in this setup. See `specs/bases-benchmark.md` section 14.
-
-`specs/bases-benchmark.md` is the plan for a benchmark tool with metrics
-(recall, precision, centre error, false bases by kind) and a baseline.
 
 The hidden tyranids next to walls show less than half of their rim. Their
 `tol_mm` is large because their true centre is not known to 2 mm. The done
@@ -184,13 +201,13 @@ AssertionError: board corner 2 off by 1.68 mm (tolerance 1.0 mm)
    cp out/<name>.json data/snapshots/tests/<name>.expected.json
    ```
 
-5. Optional, for the bases tests: write `<name>.bases.json` by hand. Get
-   each centre from a found base that you checked in step 3, or measure it on
-   the board. For the done test, take `<name>.empty.jpg` before the
-   operatives go on the board (`e` in `battlesight bases` writes
-   `data/snapshots/empty_board.png`), and run step 2 with
-   `--reference data/snapshots/tests/<name>.empty.jpg`.
-6. Run `uv run pytest -m photos`.
+5. Optional, for the bases tests: click `<name>.bases.json` with
+   `tools/annotate_bases.py` ("Click the ground truth" below). For the done
+   test, take `<name>.empty.jpg` too ("Add a game pair" below), and run
+   step 2 with `--reference data/snapshots/tests/<name>.empty.jpg`.
+6. Run `uv run pytest -m photos`. A new photo with ground truth gives no
+   baseline failure ("new photo, not in baseline"). Write the baseline again
+   when you want to keep its numbers (see "Bases benchmark").
 7. Commit the photo and its files together.
 
 A photo without an expected file makes `test_photo_size_matches` and
@@ -219,6 +236,128 @@ at once. After you add a stage (see [cli.md](cli.md), "Add a stage"):
 2. Add a `test_<stage>_match_expected` test to `tests/test_photos.py`. Use a
    tolerance in mm, as in `test_corners_match_expected`.
 3. Add the test to the table in "What the tests check".
+
+## Bases benchmark
+
+`tools/bench_bases.py` ([cli.md](cli.md)) and the photo tests use the same
+code, `src/battlesight/bench.py`. Plan: `specs/bases-benchmark.md`.
+
+### Matching
+
+1. All (true base, detection) pairs with distance `<= tol_mm`.
+2. Sort by distance, then by the order in the file.
+3. Take the pairs in that order. Skip a pair when its true base or its
+   detection is already taken (one to one, global greedy).
+4. True bases without a pair are missed. Detections without a pair are
+   false.
+5. Category of a false detection: the `kind` of the nearest `not_bases`
+   entry within half its diameter; else `inside_base` when the centre lies
+   inside a true base (half its diameter, or 20 mm for an unknown size);
+   else `other`.
+
+### Metrics
+
+For each photo and for the total (counts summed over the photos, then the
+ratios). Also by rim (`clear`, `hidden`) and by mode.
+
+| Metric | Meaning |
+|---|---|
+| `truth`, `found` | Number of true bases, number of detections. |
+| `matched` | Number of matches. |
+| `size_ok`, `wrong_size` | Matches with the right and the wrong size class (true size known). |
+| `missed` | `truth - matched`. |
+| `false`, `false_by_kind` | False detections, and their number by category. |
+| `recall` | `matched / truth` (1.0 when `truth` is 0). |
+| `precision` | `matched / found` (1.0 when `found` is 0). |
+| `f1` | `2 p r / (p + r)` (0 when both are 0). |
+| `size_accuracy` | `size_ok / (size_ok + wrong_size)` (1.0 when no size is known). |
+| `center_err_mm` | Median, 90th percentile and maximum of the centre error. Only clear rims with `source` `clicked` or `detector`. |
+| `done_ok` | Nothing missed, no wrong size, no false base, each clear match within 2 mm: the done test of priority 3. |
+| `ms` | Base detection time. |
+
+The by-rim metrics have no `found`, `false` or `precision`: a false
+detection has no rim.
+
+### Table
+
+`uv run pytest -m photos` prints the table after the tests (a
+`pytest_terminal_summary` hook in `tests/conftest.py`). It prints nothing
+when the photo tests did not run.
+
+```
+photo                 mode    truth found match size_ok miss false  recall  prec    f1  err_med err_max  done    ms
+tomb-world-1          single      8     8     6       5    2     2    0.75  0.75  0.75     0.04    0.07    no  1953
+...
+TOTAL                            16    19    11       9    5     8    0.69  0.58  0.63     0.05    0.09   0/3
+target                                                     0     0    1.00  1.00  1.00        -    2.00   3/3
+false by kind: inside_base 2, other 6
+clear rims: recall 1.00 (9/9), hidden rims: recall 0.29 (2/7)
+```
+
+The `target` row is the done test. It is not a pass rule now.
+
+### Baseline
+
+`data/snapshots/tests/bases_baseline.json` is the output of
+`--write-baseline`: the config, the git commit, the per-photo and the total
+metrics, no match lists. It is committed.
+
+A run is worse than the baseline when one of these is true (totals):
+
+| Rule | Limit |
+|---|---|
+| `matched` (all rims) | lower |
+| `matched` (clear rims) | lower |
+| `false` | higher |
+| `wrong_size` | higher |
+| `center_err_mm.max` | more than 0.5 mm higher |
+| a photo with `done_ok` true in the baseline | now false |
+| a photo in the baseline | missing in the run |
+
+A new photo (not in the baseline) gives no failure. When the run is better
+on a rule and worse on none, the tool prints "better than baseline: run
+with --write-baseline to keep it".
+
+Move the baseline only on purpose: run
+`uv run tools/bench_bases.py --write-baseline data/snapshots/tests/bases_baseline.json`,
+and commit it with the new numbers in the commit message. Do not write a
+baseline only to make a test pass.
+
+`"holdout": ["<name>", ...]` in the baseline file keeps photos out of the
+tuning: a sweep ranks the combinations without them and shows their `f1`
+in its own column. `--write-baseline` keeps the list.
+
+### Click the ground truth
+
+```
+uv run tools/annotate_bases.py data/snapshots/tests/<name>.jpg --prefill
+```
+
+Click 5 or more points on the bottom rim of each base (where the black
+bevel touches the board), push `Enter`. Push `h` when less than half of the
+rim is visible. Give each base a note (`t`). Mark round terrain, tokens and
+prints that the detector finds as `not_bases`: mouse on the cyan proposal,
+`x`, type the kind. With `--prefill`, `a`
+accepts a detection, but check it at 4x zoom first. Push `s`. The keys are
+in [cli.md](cli.md).
+
+### Add a game pair
+
+A game pair is the done test of priority 3.
+
+1. Set the terrain and the tokens. Take the empty photo.
+2. Put the operatives on the board. Take the game photo. Do not move tokens
+   or terrain between the two photos.
+3. A hand-held phone is allowed: the rectify stage maps both photos to the
+   same board mm. Tall terrain does not map the same. A wall top 75 mm above
+   the board moves about 75 x d / H mm when the camera moves d mm at height
+   H (d = 100 mm, H = 700 mm: about 11 mm). The foreground mask then marks
+   wall edges as changed. Hold the phone at about the same place, straight
+   above the board centre. The benchmark shows `changed_fraction`.
+4. Lock exposure and white balance if the camera app allows it. Do not change
+   the lamps between the two photos.
+5. Save them as `<name>.jpg` and `<name>.empty.jpg`. Add the expected file
+   ("Add a photo") and click `<name>.bases.json`.
 
 ## In CI or a script
 

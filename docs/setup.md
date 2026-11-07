@@ -257,6 +257,22 @@ If you move the camera or the light changes much, take the photo again. A
 small move of the board is not a problem: the app finds the corner cards in
 the empty-board photo too.
 
+### Photo pairs for the tests (optional)
+
+The developers need photo pairs to test and improve the base detection.
+A pair is one empty-board photo and one game photo. Obey these rules:
+
+- Take both photos in the same session. Set the terrain and the tokens,
+  take the empty photo, put the operatives on the board, then take the game
+  photo. Do not move tokens or terrain between the two photos.
+- You can hold the phone in your hand. Hold it at about the same place for
+  both photos, straight above the board centre. Tall walls look different
+  when the camera moves.
+- Lock the exposure and the white balance if the camera app can do it. Do
+  not change the lamps between the two photos.
+- Give the files the same name: `<name>.jpg` (game) and `<name>.empty.jpg`
+  (empty board).
+
 ## Troubleshooting
 
 ### `list_cameras.py` shows only index 0

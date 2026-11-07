@@ -384,7 +384,8 @@ Single-frame mode (no reference) also finds round things with a dark rim:
 tokens with a dark ring, round barricades, holes in a wall grating. Bases
 with less than `min_coverage` of the rim visible (a model or a wall over
 it) are not reported. Reference mode removes the static ones. Plan section
-9 has the results on the test photos.
+9 has the results on the test photos. `tools/bench_bases.py` (below)
+measures them.
 
 `[bases]` in `data/board.toml`:
 
@@ -425,6 +426,8 @@ and set the margin and sections or pitch.
 
 [testing.md](testing.md) tells about the unit tests and the photo tests. The
 photo tests use the `<name>.json` files from `--out` as expected results.
+The bases benchmark (`tools/bench_bases.py`, below) gives metrics and a
+baseline for the bases stage.
 
 In CI or a shell script, use the exit code of the `image` command:
 
@@ -466,6 +469,131 @@ The `image` command, `--until`, and `test_photo_passes_all_stages` use the
 new stage with no other change. Add the stage to the "Stages" table above.
 Then update the photo test expected files (see [testing.md](testing.md),
 "New stages").
+
+## `tools/bench_bases.py`: bases benchmark
+
+Plan: `specs/bases-benchmark.md`. The tool measures the `bases` stage on
+photos with ground truth (`<name>.bases.json`). It gives numbers, not only
+pass or fail. Use it to tune `[bases]` and to stop changes that make the
+result worse.
+
+```
+uv run tools/bench_bases.py [PATH ...] [--config data/board.toml]
+                            [--mode auto|single|reference]
+                            [--set KEY=VALUE ...] [--sweep KEY=V1,V2,... ...]
+                            [--out out/bench] [--json FILE|-]
+                            [--baseline FILE] [--write-baseline FILE]
+                            [--no-images] [-q]
+```
+
+| Option | Default | Meaning |
+|---|---|---|
+| `PATH` | `data/snapshots/tests` | Photos or folders. Only photos with a `<name>.bases.json` count. `<name>.empty.*` is a reference, not a photo. |
+| `--config` | `data/board.toml` | Board config. |
+| `--mode` | `auto` | `auto`: reference mode when `<name>.empty.*` exists. `single`: never use the reference. `reference`: only photos with a reference. |
+| `--set` | none | Override a `[bases]` key for this run: `--set min_coverage=0.4 --set diameters_mm=32,40`. Unknown key or bad value: exit 2. |
+| `--sweep` | none | Run all combinations. Values split by `,`. For `diameters_mm` split the alternatives by `;`: `--sweep "diameters_mm=32,40;25,28,32,40,50"`. Prints one total row per combination, best `f1` first, then fewer `false`. The table, `bench.json` and the images are for the best one. A `px_per_mm` sweep makes a new bases image for each value (slow). |
+| `--out` | `out/bench` | Folder for `<name>.bench.jpg` and `bench.json`. |
+| `--json` | none | Also write `bench.json` to a file, or `-` for stdout (the table then goes to stderr). |
+| `--baseline` | none | Compare with a baseline file. Exit 1 when a rule is worse (see [testing.md](testing.md), "Bases benchmark"). |
+| `--write-baseline` | none | Write the metrics as a new baseline. Keeps the `holdout` list of an existing file. |
+| `--no-images` | off | No debug images (faster sweeps). |
+| `-q` | off | No progress lines on stderr. |
+
+The tool uses the nominal lens, as the photo tests do. It does not read
+`data/camera.toml`. It runs `corners` and `rectify` once per photo and per
+reference, and then only the base detection (`pipeline.detect_bases`) for
+each combination.
+
+Exit codes: 0 done, 1 worse than `--baseline`, 2 bad input (no photo with
+ground truth, unreadable file, a photo or reference that fails `corners` or
+`rectify`, bad `--set` or `--sweep`, bad ground truth file).
+
+Text output: one row per photo, `TOTAL`, `target` (the priority 3 done
+test), false bases by kind, recall by rim. Then one line for each miss
+(`MISS`), wrong size (`SIZE`) and false base (`FALSE`), with the board mm,
+so you can find it in the debug image.
+
+`<name>.bench.jpg`: the top-down image at `rectify.px_per_mm` with green
+circles (match, right size), orange (match, wrong size, `found/true`, line
+to the true centre), red (false base, kind and coverage), yellow dashed
+(missed base), grey dotted (`not_bases` entry). The banner has the photo
+result.
+
+`bench.json`:
+
+```json
+{
+  "schema": 1,
+  "config": {"diameters_mm": [25.0, 28.0, 32.0, 40.0, 50.0], "min_coverage": 0.5, "...": "all [bases] values used"},
+  "overrides": {"min_coverage": 0.4},
+  "git": "f56156b+dirty",
+  "photos": [
+    {"name": "tomb-world-1", "mode": "single_frame", "changed_fraction": null,
+     "metrics": {"truth": 8, "found": 8, "matched": 6, "...": "..."},
+     "by_rim": {"clear": {"...": "..."}, "hidden": {"...": "..."}},
+     "matches": [{"truth": {"...": "..."}, "found": {"...": "..."}, "error_mm": 0.04, "size_ok": true}],
+     "missed": [{"...": "truth entry"}],
+     "false": [{"found": {"...": "..."}, "kind": "token"}]}
+  ],
+  "total": {"metrics": {"...": "..."}, "by_rim": {"...": "..."}, "by_mode": {"...": "..."}, "false_by_kind": {"other": 6}},
+  "sweep": [{"overrides": {"...": "..."}, "total": {"...": "..."}, "holdout": null}]
+}
+```
+
+`git` is `git rev-parse --short HEAD`, with `+dirty` when the work tree has
+changes, or `null`. `sweep` is there only with `--sweep`. `holdout` (a list
+of photo names) is there when the baseline has one. The metric fields are
+in [testing.md](testing.md), "Bases benchmark".
+
+Examples:
+
+```
+uv run tools/bench_bases.py                                            # all test photos
+uv run tools/bench_bases.py --set diameters_mm=32,40                   # only the sizes of the teams on the photos
+uv run tools/bench_bases.py --sweep min_coverage=0.4,0.45,0.5 --no-images
+uv run tools/bench_bases.py --baseline data/snapshots/tests/bases_baseline.json
+```
+
+## `tools/annotate_bases.py`: click the ground truth
+
+```
+uv run tools/annotate_bases.py data/snapshots/tests/<name>.jpg [--config data/board.toml] [--prefill]
+                               [--display-width 1600] [--display-height 950]
+```
+
+The tool runs `corners` and `rectify` (nominal lens), makes the bases image
+(`bases.px_per_mm`), and shows it in a window. It loads
+`<name>.bases.json` when it exists and writes it (schema 2) on `s`. The
+ground truth then does not come from the detector.
+
+| Key | Action |
+|---|---|
+| left click | Add a point on the bottom rim of a base. 5 or more around the visible part is best. |
+| `Enter` | 3 or more points: fit a free circle and snap the diameter to the nearest class. `source: "clicked"`, `tol_mm` 2, the points go in `points_mm`. The rim is `clear` when the points span at least 180 deg. Fewer than 3 points: an estimate at the click, `source: "estimate"`, `tol_mm` 8, rim `hidden`. |
+| `1` to `9` | With points: fit with size class 1 to 9 of `bases.diameters_mm`. Without points: set the size of the base under the mouse. |
+| `0` | Size unknown (`null`). |
+| `Backspace` | Drop the points. |
+| `h` | Rim `clear` <-> `hidden` (base under the mouse, else the last one). |
+| `t` | Note for the entry under the mouse. Type it in the terminal. |
+| `x` | `not_bases` entry. With 3 or more points: of their fit. Else: of the base or the proposal under the mouse (the base moves, the proposal goes away). Type its kind in the terminal. |
+| `a` | With `--prefill`: accept the detector proposal (cyan dashed) under the mouse, `source: "detector"`. The rim is `clear` when its coverage is 0.5 or more. |
+| `p` | With `--prefill`: show all proposals. By default a proposal on a saved entry (within its `tol_mm`, at least 3 mm, or inside a `not_bases` circle) is hidden. |
+| `d` | Delete the entry or proposal under the mouse. |
+| `u` | Undo. |
+| `+` / `-`, `z` / `Z`, mouse wheel | Zoom in / out at the mouse: 1x, 2x, 4x, 8x of the screen fit. |
+| arrows, right-drag | Pan. |
+| `s` | Save. |
+| `q`, `Esc` | Quit. Asks in the terminal to save when there are changes. |
+
+The banner shows the board mm under the mouse, the counts, the points, and
+the free fit diameter, and the shown / all proposals. Green circles are clear bases, yellow hidden bases,
+dashed circles estimates, cyan dashed circles detector proposals (not
+saved), grey dotted circles `not_bases`, magenta the fit of the current
+points. A label shows the size and the first letter of the source (`c`
+clicked, `d` detector, `e` estimate).
+
+The edit logic is the `Annotator` class (no window calls). `tests/test_bench.py` drives it.
 
 ## `tools/list_cameras.py`: find and save the camera
 
