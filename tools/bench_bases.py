@@ -7,7 +7,7 @@
                                 [--baseline FILE] [--write-baseline FILE]
                                 [--no-images] [-q]
 
-PATH: photos or folders (default data/snapshots/tests). Only photos with a
+PATH: photos or folders (default tests/images). Only photos with a
 <name>.bases.json count. <name>.empty.* is the empty-board reference of
 <name>.*, not a photo of its own.
 
@@ -43,7 +43,7 @@ from battlesight.config import DEFAULT_CONFIG, BoardConfig
 from battlesight.pipeline import Pipeline, bases_image, changed_fraction, detect_bases
 
 ROOT = Path(__file__).resolve().parents[1]
-DEFAULT_PHOTOS = ROOT / "data" / "snapshots" / "tests"
+DEFAULT_PHOTOS = ROOT / "tests" / "images"
 BASES_FIELDS = bench.BASES_FIELDS
 LIST_KEYS = {"diameters_mm"}
 SLOW_KEYS = {"px_per_mm"}  # a new value needs a new bases image

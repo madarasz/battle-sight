@@ -7,10 +7,9 @@ build/
 *.egg-info/
 data/snapshots/*.png
 data/snapshots/*.jpg
-data/tags/*
-data/calib/*
+data/print/*
 !.gitkeep
 out/
 .DS_Store
 data/camera.toml
-data/gallery/*/embeddings.npz
+data/teams/

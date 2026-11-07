@@ -27,6 +27,6 @@ packages = ["src/battlesight"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-# Photo regression tests are slow and need data/snapshots/tests. Run them with `uv run pytest -m photos`.
+# Photo regression tests are slow and need tests/images. Run them with `uv run pytest -m photos`.
 addopts = "-m 'not photos'"
-markers = ["photos: regression tests on real photos in data/snapshots/tests"]
+markers = ["photos: regression tests on real photos in tests/images"]

@@ -114,7 +114,7 @@ The other options are the same as for `corners`.
 ## `ident`: name the operatives
 
 ```
-uv run battlesight ident --team NAME [--team NAME2] [--gallery-root data/gallery]
+uv run battlesight ident --team NAME [--team NAME2] [--gallery-root data/teams]
                          [--reference data/snapshots/empty_board.png]
                          [--source 0] [--width 1920] [--height 1080] [--fps N]
                          [--camera-file data/camera.toml]
@@ -149,7 +149,7 @@ base held moves to the clicked base; the other base becomes unknown.
 | Option | Default | Meaning |
 |---|---|---|
 | `--team` | required | Team folder under `--gallery-root`. Repeat it for the second team. Labels are `<team>/<operative>`. |
-| `--gallery-root` | `data/gallery` | Folder with one folder per team. |
+| `--gallery-root` | `data/teams` | Folder with one folder per team. |
 | `--reference` | `data/snapshots/empty_board.png` | Empty-board reference, as for `bases`. |
 
 | Key or mouse | Action |
@@ -167,11 +167,11 @@ base held moves to the clicked base; the other base becomes unknown.
 ```
 uv run battlesight enroll --team NAME --operative NAME [--base-mm 32]
                           [--images PATH ...] [--reference FILE]
-                          [--gallery-root data/gallery] [camera options]
+                          [--gallery-root data/teams] [camera options]
 ```
 
-Adds crops of one operative to `data/gallery/<team>/<operative>/` and its base
-size to `data/gallery/<team>/team.toml` (created when new). Live: push
+Adds crops of one operative to `data/teams/<team>/<operative>/` and its base
+size to `data/teams/<team>/team.toml` (created when new). Live: push
 `space`. With exactly one base (of `--base-mm` or the size in `team.toml`)
 the crop goes in at once; with more, click the base. Turn and move the model
 between grabs: 10 to 20 crops from different places on the board (the
@@ -187,7 +187,7 @@ from `team.toml` is an error.
 ## `gallery`: check the gallery
 
 ```
-uv run battlesight gallery --team NAME [--team NAME2] [--gallery-root data/gallery] [--config FILE]
+uv run battlesight gallery --team NAME [--team NAME2] [--gallery-root data/teams] [--config FILE]
 ```
 
 Lists each operative with its base size and photo count. Then it checks each
@@ -210,7 +210,7 @@ calibration, the app uses a nominal lens: focal length from `focal_35mm` in
 distortion in the phone, but a calibration is better.
 
 1. Print the target: `uv run tools/make_charuco.py`. This writes
-   `data/calib/charuco.pdf` (A4 landscape, ChArUco 10 x 7, 25 mm squares).
+   `data/print/charuco.pdf` (A4 landscape, ChArUco 10 x 7, 25 mm squares).
    Print at 100 % or fit to page. The print size does not change the lens
    values (focal length, centre, distortion): they are in pixels and do not
    depend on the square size. The scale must be the same in both directions.
@@ -262,7 +262,7 @@ the EXIF orientation of phone photos.
 | `--reference FILE` | none | Empty-board photo (terrain set up, no operatives) from the same camera and light. The `bases` stage then runs in reference mode for all images. An unreadable file, or one where `corners` or `rectify` fails, gives exit code 2. |
 | `--team NAME` | all teams | Gallery team for the `ident` stage. Repeat for two teams. Without it the command uses every team folder in `--gallery-root` (a folder with a `team.toml` or operative folders). No team folder: the `ident` stage names nothing. An unreadable gallery gives exit code 2. The gallery (and the model) loads only when the `ident` stage runs (not with `--until bases` or earlier). |
 | `--no-ident` | off | Do not load the gallery. The `ident` stage names nothing. |
-| `--gallery-root` | `data/gallery` | Folder with one folder per team. |
+| `--gallery-root` | `data/teams` | Folder with one folder per team. |
 | `--out DIR` | none | Write `<name>.overlay.jpg`, one `<name>.<view>.jpg` per stage view, and `<name>.json` for each image to `DIR`. The command makes `DIR` if it does not exist. |
 | `--json FILE` | none | Write one report for all images to `FILE`. Use `-` to write it to stdout. |
 | `--show` | off | Show each overlay in a window. Push a key for the next image. Push `q` or `Esc` to stop. |
@@ -274,13 +274,13 @@ the EXIF orientation of phone photos.
 Check all test photos:
 
 ```
-uv run battlesight image data/snapshots/tests
+uv run battlesight image tests/images
 ```
 
 Write overlays and JSON files to a folder:
 
 ```
-uv run battlesight image data/snapshots/tests --out out/
+uv run battlesight image tests/images --out out/
 ```
 
 `--out` writes `<name>.overlay.jpg` (camera frame with all overlays),
@@ -312,8 +312,8 @@ Each image gives one status line on stdout. With `--json -`, the status lines
 go to stderr, so stdout holds only the JSON.
 
 ```
-ok   data/snapshots/tests/tomb-world-1.jpg  corners ok: 4/4 tags
-FAIL data/snapshots/tests/blank.png  corners FAIL: 0/4 tags, missing [0, 1, 2, 3]
+ok   tests/images/tomb-world-1.jpg  corners ok: 4/4 tags
+FAIL tests/images/blank.png  corners FAIL: 0/4 tags, missing [0, 1, 2, 3]
 ```
 
 Errors (file not found, file is not an image) go to stderr as `error: ...`.
@@ -367,7 +367,7 @@ One image report (also the content of `<name>.json` from `--out`):
 ```json
 {
   "schema": 1,
-  "source": "data/snapshots/tests/tomb-world-1.jpg",
+  "source": "tests/images/tomb-world-1.jpg",
   "size": [3072, 4096],
   "ok": true,
   "stages": {
@@ -459,8 +459,8 @@ identity stay separate: the stage only reads the bases of the `bases` stage.
    normalised, joined. Runs on Apple MPS when available. About 80 to 90 ms
    for 10 bases on an M4 Pro. `model = "color-hist"` is a colour histogram
    without ML, for the tests.
-3. Gallery: `data/gallery/<team>/team.toml` (`[operatives."Name"]`,
-   `base_mm`), `data/gallery/<team>/<operative>/*.png` crops. Each crop is
+3. Gallery: `data/teams/<team>/team.toml` (`[operatives."Name"]`,
+   `base_mm`), `data/teams/<team>/<operative>/*.png` crops. Each crop is
    embedded at `rotations` angles. `embeddings.npz` in the team folder caches
    the embeddings by file name and change time, with a key of the model and
    the crop values; a change of these values embeds all crops again. Git
@@ -577,7 +577,7 @@ baseline for the bases stage.
 In CI or a shell script, use the exit code of the `image` command:
 
 ```
-uv run battlesight image data/snapshots/tests -q --json report.json || echo "pipeline failed"
+uv run battlesight image tests/images -q --json report.json || echo "pipeline failed"
 ```
 
 ## Add a stage
@@ -633,7 +633,7 @@ uv run tools/bench_bases.py [PATH ...] [--config data/board.toml]
 
 | Option | Default | Meaning |
 |---|---|---|
-| `PATH` | `data/snapshots/tests` | Photos or folders. Only photos with a `<name>.bases.json` count. `<name>.empty.*` is a reference, not a photo. |
+| `PATH` | `tests/images` | Photos or folders. Only photos with a `<name>.bases.json` count. `<name>.empty.*` is a reference, not a photo. |
 | `--config` | `data/board.toml` | Board config. |
 | `--mode` | `auto` | `auto`: reference mode when `<name>.empty.*` exists. `single`: never use the reference. `reference`: only photos with a reference. |
 | `--set` | none | Override a `[bases]` key for this run: `--set min_coverage=0.4 --set diameters_mm=32,40`. Unknown key or bad value: exit 2. |
@@ -697,13 +697,13 @@ Examples:
 uv run tools/bench_bases.py                                            # all test photos
 uv run tools/bench_bases.py --set diameters_mm=32,40                   # only the sizes of the teams on the photos
 uv run tools/bench_bases.py --sweep min_coverage=0.4,0.45,0.5 --no-images
-uv run tools/bench_bases.py --baseline data/snapshots/tests/bases_baseline.json
+uv run tools/bench_bases.py --baseline tests/images/bases_baseline.json
 ```
 
 ## `tools/annotate_bases.py`: click the ground truth
 
 ```
-uv run tools/annotate_bases.py data/snapshots/tests/<name>.jpg [--config data/board.toml] [--prefill]
+uv run tools/annotate_bases.py tests/images/<name>.jpg [--config data/board.toml] [--prefill]
                                [--display-width 1600] [--display-height 950]
 ```
 

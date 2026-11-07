@@ -2,7 +2,7 @@
 
     uv run tools/make_tags.py [--size-mm 40] [--margin-mm 5] [--guide-mm 40] [--dpi 300]
 
-Writes data/tags/corner_tags.png and .pdf (A4, all four cards on one page). Print at 100% scale, no "fit to page". Check the 100 mm ruler with a
+Writes data/print/corner_tags.png and .pdf (A4, all four cards on one page). Print at 100% scale, no "fit to page". Check the 100 mm ruler with a
 tape measure after printing. Cut on the grey lines.
 
 Each card is a square on the table at its board corner. The tag sits in the
@@ -114,7 +114,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--margin-mm", type=float, default=None, help="white margin (default from config)")
     ap.add_argument("--guide-mm", type=float, default=None, help="guide end length along the board edge (default from config)")
     ap.add_argument("--dpi", type=float, default=300)
-    ap.add_argument("--out", default=str(ROOT / "data" / "tags" / "corner_tags"), help="output path without extension")
+    ap.add_argument("--out", default=str(ROOT / "data" / "print" / "corner_tags"), help="output path without extension")
     args = ap.parse_args(argv)
 
     with open(args.config, "rb") as fh:

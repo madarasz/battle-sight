@@ -1,4 +1,4 @@
-"""Regression tests on real photos in data/snapshots/tests.
+"""Regression tests on real photos in tests/images.
 
 Each photo <name>.jpg has a reviewed report <name>.expected.json next to it
 (the <name>.json that `battlesight image --out` writes). The tests run the
@@ -37,7 +37,7 @@ from .conftest import BENCH_TABLE
 
 pytestmark = pytest.mark.photos
 
-SHOTS = Path(__file__).resolve().parents[1] / "data" / "snapshots" / "tests"
+SHOTS = Path(__file__).resolve().parents[1] / "tests" / "images"
 PHOTOS = bench.find_photos([SHOTS]) if SHOTS.is_dir() else []
 BASELINE = SHOTS / "bases_baseline.json"
 
@@ -84,7 +84,7 @@ def _px_per_mm(cfg: BoardConfig, tags: dict, tag_id: int) -> float:
 
 
 photo_params = pytest.mark.parametrize("photo", PHOTOS, ids=lambda p: p.name)
-needs_photos = pytest.mark.skipif(not PHOTOS, reason="no photos in data/snapshots/tests")
+needs_photos = pytest.mark.skipif(not PHOTOS, reason="no photos in tests/images")
 
 
 @needs_photos
@@ -273,7 +273,7 @@ def test_bases_clear_rims_found(results, photo):
 
 @needs_photos
 def test_bases_benchmark_no_worse(cfg, bench_scores):
-    """Benchmark totals not worse than data/snapshots/tests/bases_baseline.json
+    """Benchmark totals not worse than tests/images/bases_baseline.json
     (rules in specs/bases-benchmark.md section 7.2)."""
     if not bench_scores:
         pytest.skip("no photo with <name>.bases.json")
@@ -304,7 +304,7 @@ def test_bases_done_criteria(results, photo):
 def test_ident_done_criteria(cfg, photo):
     """Plan priority 4, done when: 9 of 10 bases named right on the first try.
     Needs <name>.ident.json (teams and the true name at each base centre) and
-    the gallery of those teams in data/gallery/. Runs the full pipeline with
+    the gallery of those teams in data/teams/. Runs the full pipeline with
     the gallery (and the empty-board reference when there is one)."""
     truth_path = photo.with_name(f"{photo.stem}.ident.json")
     if not truth_path.is_file():

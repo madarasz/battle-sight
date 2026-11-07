@@ -2,7 +2,7 @@
 
     uv run tools/make_charuco.py [--dpi 300]
 
-Writes data/calib/charuco.png and .pdf (A4 landscape). Print at 100% or "fit to
+Writes data/print/charuco.png and .pdf (A4 landscape). Print at 100% or "fit to
 page": the lens values (pixels) do not depend on the square size, but the scale must be
 the same in both directions. Glue the sheet to something flat and stiff (card, board,
 glass). A bent sheet gives a bad calibration.
@@ -38,7 +38,7 @@ def mm_to_px(mm: float, dpi: float) -> int:
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--dpi", type=float, default=300)
-    ap.add_argument("--out", default=str(ROOT / "data" / "calib" / "charuco"), help="output path without extension")
+    ap.add_argument("--out", default=str(ROOT / "data" / "print" / "charuco"), help="output path without extension")
     args = ap.parse_args(argv)
 
     target = CharucoTarget()

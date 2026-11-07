@@ -1,6 +1,6 @@
 """Click the ground truth of the bases on a test photo.
 
-    uv run tools/annotate_bases.py data/snapshots/tests/<name>.jpg [--config data/board.toml] [--prefill]
+    uv run tools/annotate_bases.py tests/images/<name>.jpg [--config data/board.toml] [--prefill]
 
 Shows the top-down bases image (bases.px_per_mm, nominal lens). Writes
 <name>.bases.json (schema 2) next to the photo. Keys:

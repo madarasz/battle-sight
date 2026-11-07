@@ -13,7 +13,7 @@ a retrained detector.
 2. Embedding: DINOv2 (`ident.model`, Hugging Face name) on the crop at
    `ident.input_px`. The feature is the class token and the mean patch token,
    each L2 normalised, joined, and normalised again. No training.
-3. Gallery: `data/gallery/<team>/<operative>/*.png`, crops saved by the
+3. Gallery: `data/teams/<team>/<operative>/*.png`, crops saved by the
    enroll command or by a fix in the ident command, and `team.toml` with the
    base size of each operative. Each crop is embedded at `ident.rotations`
    angles, because the models turn on the board. The embeddings are cached in
@@ -45,7 +45,7 @@ import numpy as np
 
 from .config import BoardConfig
 
-DEFAULT_GALLERY_ROOT = Path(__file__).resolve().parents[2] / "data" / "gallery"
+DEFAULT_GALLERY_ROOT = Path(__file__).resolve().parents[2] / "data" / "teams"
 TEAM_FILE = "team.toml"
 CACHE_FILE = "embeddings.npz"
 # Saved crops hold this much board around the base on each side, so a later

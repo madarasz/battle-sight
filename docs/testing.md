@@ -5,7 +5,7 @@ Battle Sight has two test sets. Both use `pytest`. Neither needs a camera.
 | Set | Marker | Command | Input | Checks |
 |---|---|---|---|---|
 | Unit tests | none | `uv run pytest` | Synthetic boards made in code | Each function and the CLI give the correct result. |
-| Photo tests | `photos` | `uv run pytest -m photos` | Real photos in `data/snapshots/tests` | The pipeline result on each photo agrees with a reviewed expected result. |
+| Photo tests | `photos` | `uv run pytest -m photos` | Real photos in `tests/images` | The pipeline result on each photo agrees with a reviewed expected result. |
 
 To run all tests:
 
@@ -56,7 +56,7 @@ Each test photo has an expected file next to it, and optional files for the
 bases stage:
 
 ```
-data/snapshots/tests/
+tests/images/
   tomb-world-1.jpg
   tomb-world-1.expected.json   # reviewed report of `image --out`
   tomb-world-1.bases.json      # bases ground truth, optional
@@ -183,7 +183,7 @@ AssertionError: board corner 2 off by 1.68 mm (tolerance 1.0 mm)
 
 `test_ident_done_criteria` is the done test of priority 4: at least 9 of 10
 bases named right on the first try. It runs only when the photo has a
-`<name>.ident.json` and every team in it has a gallery in `data/gallery/`:
+`<name>.ident.json` and every team in it has a gallery in `data/teams/`:
 
 ```json
 {
@@ -202,13 +202,13 @@ from other photos than the test photo, else the test checks nothing.
 
 ### Add a photo
 
-1. Put the photo in `data/snapshots/tests`. To get a frame from the real
+1. Put the photo in `tests/images`. To get a frame from the real
    camera, push `s` in `battlesight corners`, then move the file from
    `data/snapshots/`.
 2. Run the pipeline on it:
 
    ```
-   uv run battlesight image data/snapshots/tests/<name>.jpg --out out/
+   uv run battlesight image tests/images/<name>.jpg --out out/
    ```
 
 3. Open `out/<name>.overlay.jpg`. Make sure that each white cross is on its
@@ -221,13 +221,13 @@ from other photos than the test photo, else the test checks nothing.
 4. Copy the report to the expected file:
 
    ```
-   cp out/<name>.json data/snapshots/tests/<name>.expected.json
+   cp out/<name>.json tests/images/<name>.expected.json
    ```
 
 5. Optional, for the bases tests: click `<name>.bases.json` with
    `tools/annotate_bases.py` ("Click the ground truth" below). For the done
    test, take `<name>.empty.jpg` too ("Add a game pair" below), and run
-   step 2 with `--reference data/snapshots/tests/<name>.empty.jpg`.
+   step 2 with `--reference tests/images/<name>.empty.jpg`.
 6. Run `uv run pytest -m photos`. A new photo with ground truth gives no
    baseline failure ("new photo, not in baseline"). Write the baseline again
    when you want to keep its numbers (see "Bases benchmark").
@@ -321,7 +321,7 @@ The `target` row is the done test. It is not a pass rule now.
 
 ### Baseline
 
-`data/snapshots/tests/bases_baseline.json` is the output of
+`tests/images/bases_baseline.json` is the output of
 `--write-baseline`: the config, the git commit, the per-photo and the total
 metrics, no match lists. It is committed.
 
@@ -342,7 +342,7 @@ on a rule and worse on none, the tool prints "better than baseline: run
 with --write-baseline to keep it".
 
 Move the baseline only on purpose: run
-`uv run tools/bench_bases.py --write-baseline data/snapshots/tests/bases_baseline.json`,
+`uv run tools/bench_bases.py --write-baseline tests/images/bases_baseline.json`,
 and commit it with the new numbers in the commit message. Do not write a
 baseline only to make a test pass.
 
@@ -353,7 +353,7 @@ in its own column. `--write-baseline` keeps the list.
 ### Click the ground truth
 
 ```
-uv run tools/annotate_bases.py data/snapshots/tests/<name>.jpg --prefill
+uv run tools/annotate_bases.py tests/images/<name>.jpg --prefill
 ```
 
 Click 5 or more points on the bottom rim of each base (where the black
@@ -390,5 +390,5 @@ uv run pytest -m photos
 ```
 
 Both commands give exit code 0 when all tests pass. The photo tests need the
-photos in the checkout. When `data/snapshots/tests` has no photos, pytest
+photos in the checkout. When `tests/images` has no photos, pytest
 skips the photo tests.

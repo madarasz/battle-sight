@@ -26,7 +26,7 @@ the empty-board reference, c clear it, v camera or top-down view, s save
 snapshot, q quit.
 
 ident: snapshot base detection and operative names from the gallery
-(data/gallery/<team>/). Keys: space detect and name, click a base then a name
+(data/teams/<team>/). Keys: space detect and name, click a base then a name
 to fix it (the crop goes into the gallery), a accept all names, u undo the last
 gallery photo, e empty-board reference, c clear it, v camera or top-down view,
 s save snapshot, q quit.

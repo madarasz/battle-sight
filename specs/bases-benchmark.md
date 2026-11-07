@@ -37,7 +37,7 @@ one change at a time, each checked with the benchmark (section 11).
 - `data/board.toml` `[bases]`: `diameters_mm`, `px_per_mm`, `diameter_tol_mm`,
   `min_coverage`, `min_contrast`, `rim_ratio`, `diff_threshold`,
   `min_foreground`. `BoardConfig.bases_*` fields.
-- Test photos in `data/snapshots/tests`:
+- Test photos in `tests/images`:
 
   | Photo | Kind | Ground truth |
   |---|---|---|
@@ -71,7 +71,7 @@ one change at a time, each checked with the benchmark (section 11).
 
 ## 3. Photo set and file names
 
-Three kinds of photos. All go in `data/snapshots/tests`.
+Three kinds of photos. All go in `tests/images`.
 
 | Kind | Files | Use |
 |---|---|---|
@@ -231,7 +231,7 @@ uv run tools/bench_bases.py [PATH ...] [--config data/board.toml]
 
 | Option | Default | Meaning |
 |---|---|---|
-| `PATH` | `data/snapshots/tests` | Photos or folders. Only photos with a `<name>.bases.json`. Skip `*.empty.*`. |
+| `PATH` | `tests/images` | Photos or folders. Only photos with a `<name>.bases.json`. Skip `*.empty.*`. |
 | `--config` | `data/board.toml` | Board config. |
 | `--mode` | `auto` | `auto`: reference mode when `<name>.empty.*` exists. `single`: never use the reference. `reference`: only photos with a reference. |
 | `--set` | none | Override a `[bases]` key for this run, for example `--set min_coverage=0.4 --set diameters_mm=32,40`. Unknown key: exit 2. |
@@ -339,7 +339,7 @@ A legend in a corner and the total line of the photo in the banner. Use the
 
 ### 7.1 Baseline file
 
-`data/snapshots/tests/bases_baseline.json`: the output of
+`tests/images/bases_baseline.json`: the output of
 `--write-baseline`. Same content as `bench.json` without `matches`,
 `missed`, `false` lists and without `sweep`. It records the config and the
 git commit. Commit it.
@@ -376,7 +376,7 @@ them. When a photo reaches `done_ok`, the baseline rule keeps it there.
 ## 8. Ground truth click tool (`tools/annotate_bases.py`)
 
 ```
-uv run tools/annotate_bases.py data/snapshots/tests/<name>.jpg [--config data/board.toml] [--prefill]
+uv run tools/annotate_bases.py tests/images/<name>.jpg [--config data/board.toml] [--prefill]
 ```
 
 1. Run corners and rectify (nominal lens). Make the bases image at
@@ -506,7 +506,7 @@ In `tests/test_photos.py`:
 |---|---|---|
 | 1 | `bench.py`: data classes, `load_truth` (schema 1 and 2), `match`, `score`, `compare`. Unit tests. | `uv run pytest tests/test_bench.py` passes. |
 | 2 | `detect_bases` refactor in `pipeline.py`. | All unit and photo tests pass with no change to the expected files. |
-| 3 | `tools/bench_bases.py`: run, table, `bench.json`, images, `--mode`, `--set`. | Tool runs on `data/snapshots/tests`, end-to-end unit test passes. |
+| 3 | `tools/bench_bases.py`: run, table, `bench.json`, images, `--mode`, `--set`. | Tool runs on `tests/images`, end-to-end unit test passes. |
 | 4 | `--sweep`, `--baseline`, `--write-baseline`. | Unit tests for compare and sweep pass. |
 | 5 | Photo tests (section 9) and the terminal summary. Write the first baseline. | `uv run pytest -m photos` passes and prints the table. |
 | 6 | `tools/annotate_bases.py` and its logic tests. | Logic tests pass. The owner can click a base and save. |

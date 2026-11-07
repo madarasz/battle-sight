@@ -165,7 +165,7 @@ def no_local_camera_file(tmp_path, monkeypatch):
 
 @pytest.fixture(autouse=True)
 def no_local_gallery(request, tmp_path, monkeypatch):
-    """Unit tests must not load the real data/gallery (and the DINOv2 model).
+    """Unit tests must not load the real data/teams (and the DINOv2 model).
     The photo tests keep it: their ident done test needs it."""
     if request.node.get_closest_marker("photos") is not None:
         return

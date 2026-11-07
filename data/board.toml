@@ -61,7 +61,7 @@ min_foreground = 0.25    # part of the base disc that must be changed
 
 [ident]
 # Operative identity: a crop around each base goes through DINOv2 and is
-# compared with the gallery photos (data/gallery/<team>/<operative>/).
+# compared with the gallery photos (data/teams/<team>/<operative>/).
 model = "facebook/dinov2-small"   # Hugging Face name; "color-hist" = colour histogram, no ML
 crop_pad_mm = 25.0       # board around the base in the crop, each side (the model leans out by parallax), at most 40
 input_px = 224           # crop size for the model (multiple of 14 for DINOv2)

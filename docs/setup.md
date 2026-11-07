@@ -32,7 +32,7 @@ The app finds the board with four printed cards, one under each board corner.
    uv run tools/make_tags.py
    ```
 
-   This writes `data/tags/corner_tags.pdf` (A4, all four cards on one page).
+   This writes `data/print/corner_tags.pdf` (A4, all four cards on one page).
 2. Print the sheet at 100 %. Do not use "fit to page".
 3. Measure the 100 mm ruler on the print. It must be 100 mm. If not, print
    again and check the printer scale.
@@ -212,7 +212,7 @@ Do it for better accuracy at the board edges.
    uv run tools/make_charuco.py
    ```
 
-2. Print `data/calib/charuco.pdf`. You can print at 100 % or use "fit to
+2. Print `data/print/charuco.pdf`. You can print at 100 % or use "fit to
    page". The size of the print does not change the result. The scale must
    be the same in both directions (no stretch). Glue the print to something
    flat and stiff (for example, cardboard or a clipboard).
@@ -344,9 +344,9 @@ Then use `battlesight ident` in your games. When a name is wrong, click the
 base and the correct name. When all names are correct, push `a`. Each
 correction and each `a` adds photos from real games to the gallery.
 
-The app keeps the photos in `data/gallery/kommandos/`, one folder for each
+The app keeps the photos in `data/teams/kommandos/`, one folder for each
 operative. It also keeps the base size of each operative in
-`data/gallery/kommandos/team.toml`. An operative gets a name only on a base
+`data/teams/kommandos/team.toml`. An operative gets a name only on a base
 of this size.
 
 To check the photos, run:

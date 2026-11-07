@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "source": "data/snapshots/tests/tomb-world-2.jpg",
+  "source": "tests/images/tomb-world-2.jpg",
   "size": [
     4096,
     3072

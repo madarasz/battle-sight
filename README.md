@@ -143,7 +143,8 @@ uv run battlesight image my-photo.jpg --show
 
 The app does the same analysis on a saved photo and shows the result.
 Use it to check a photo that you saved with `s`. To find the bases with an
-empty-board photo, add `--reference empty.jpg`. To name the operatives, add
+empty-board photo, add `--reference empty.jpg`. The app also names the operatives of all teams
+that you taught it (setup step 8). To use only one team, add
 `--team kommandos`.
 
 ## What you see
@@ -204,7 +205,7 @@ the image, and the grid sits on the printed lines.
   operatives (setup step 8), and check with `battlesight gallery`.
 - **The name list is empty.** The gallery has no operative with this base
   size. Teach the app this operative (setup step 8), or check `base_mm` in
-  `data/gallery/<team>/team.toml`.
+  `data/teams/<team>/team.toml`.
 - **The first start of `ident` or `enroll` is slow.** The app downloads the
   recognition model one time. Later starts take a few seconds.
 - **The grid does not sit on the printed lines.** Check the map settings
