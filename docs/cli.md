@@ -111,6 +111,90 @@ The other options are the same as for `corners`.
 | `s` | Save the current camera frame to `data/snapshots/`. |
 | `q`, `Esc` | Quit. |
 
+## `ident`: name the operatives
+
+```
+uv run battlesight ident --team NAME [--team NAME2] [--gallery-root data/gallery]
+                         [--reference data/snapshots/empty_board.png]
+                         [--source 0] [--width 1920] [--height 1080] [--fps N]
+                         [--camera-file data/camera.toml]
+                         [--config data/board.toml] [--display-width 1600]
+```
+
+Snapshot mode, like `bases`: `space` runs all stages (`corners`, `rectify`,
+`bases`, `ident`) on one frame. The window shows each base with its operative
+name and score: green = sure, yellow = unsure (the lead over the second name
+is less than `ident.min_margin`, or the one-to-one assignment gave the base
+its second choice), red `?` = unknown (score under `ident.min_score`, or no
+operative of this base size is left). The command prints each base to stdout.
+
+On every third live frame the command looks for the four corner cards. When
+a card is not seen, a red second strip under the status strip names the
+missing cards (`CORNERS NOT SEEN: 3/4 cards, missing 2 bottom-right`), also
+over a shown snapshot. `enroll` does the same. `app.corner_warning` and
+`app._CornerCheck` hold the logic.
+
+Messages of keys and clicks (a failed stage, no base found, nothing to undo,
+a name set, a photo added) print to the Terminal as before, and also show
+for 6 seconds as a strip under the banner, under the corner warning when it
+shows: red for an error, yellow for a hint, green for done. `app._Notice`
+holds the last message.
+
+Fixes (plan priority 4, "user confirms or fixes with one click"): click a
+base, then click a name in the menu. The menu lists the operatives of this
+base size, best score first, then the operatives without gallery photos. The
+crop of the base goes into the gallery of that operative. A name that another
+base held moves to the clicked base; the other base becomes unknown.
+
+| Option | Default | Meaning |
+|---|---|---|
+| `--team` | required | Team folder under `--gallery-root`. Repeat it for the second team. Labels are `<team>/<operative>`. |
+| `--gallery-root` | `data/gallery` | Folder with one folder per team. |
+| `--reference` | `data/snapshots/empty_board.png` | Empty-board reference, as for `bases`. |
+
+| Key or mouse | Action |
+|---|---|
+| `space` | Detect and name on the current frame. |
+| left click on a base | Open the name menu. |
+| left click on a name | Set the name, add the crop to the gallery. |
+| right click | Close the menu. |
+| `a` | Accept all names that are not confirmed: add their crops to the gallery. |
+| `u` | Undo the last gallery photo of this snapshot (deletes the file, gives the old name back). |
+| `e`, `c`, `v`, `s`, `q` | As in `bases`. |
+
+## `enroll`: gallery photos of one operative
+
+```
+uv run battlesight enroll --team NAME --operative NAME [--base-mm 32]
+                          [--images PATH ...] [--reference FILE]
+                          [--gallery-root data/gallery] [camera options]
+```
+
+Adds crops of one operative to `data/gallery/<team>/<operative>/` and its base
+size to `data/gallery/<team>/team.toml` (created when new). Live: push
+`space`. With exactly one base (of `--base-mm` or the size in `team.toml`)
+the crop goes in at once; with more, click the base. Turn and move the model
+between grabs: 10 to 20 crops from different places on the board (the
+parallax changes the look near the edges). `u` undoes the last crop, `v`
+changes the view, `q` quits.
+
+`--images`: takes the crop from saved photos. A photo with no base or more
+than one base of the size is skipped with a message. Exit 0 when at least one
+crop was added, 1 when none, 2 on a bad input or name. A name must not be
+empty, start with `.`, or hold `/`, `\` or `:`. A `--base-mm` that differs
+from `team.toml` is an error.
+
+## `gallery`: check the gallery
+
+```
+uv run battlesight gallery --team NAME [--team NAME2] [--gallery-root data/gallery] [--config FILE]
+```
+
+Lists each operative with its base size and photo count. Then it checks each
+photo against the rest of the gallery (leave-one-out, size limit on, no
+one-to-one assignment) and prints the score and the misses (`A looked like
+B`). A miss shows which operatives need more or better photos.
+
 ## `calibrate`: lens calibration
 
 ```
@@ -161,8 +245,8 @@ calibration, 1080p frames). For other frames it uses the nominal lens.
 
 ```
 uv run battlesight image PATH [PATH ...] [--until STAGE] [--config FILE] [--camera-file FILE]
-                         [--reference FILE] [--out DIR] [--json FILE|-] [--show]
-                         [--display-width 1600] [-q]
+                         [--reference FILE] [--team NAME ...] [--gallery-root DIR] [--no-ident]
+                         [--out DIR] [--json FILE|-] [--show] [--display-width 1600] [-q]
 ```
 
 `PATH` is an image file or a folder. For a folder, the command reads all
@@ -176,6 +260,9 @@ the EXIF orientation of phone photos.
 | `--config` | `data/board.toml` | Board and tag config. |
 | `--camera-file` | `data/camera.toml` | Camera file. Only the lens (`focal_35mm`, `[lens]`) is used. The photo tests do not read it: they always use the nominal 24 mm lens. |
 | `--reference FILE` | none | Empty-board photo (terrain set up, no operatives) from the same camera and light. The `bases` stage then runs in reference mode for all images. An unreadable file, or one where `corners` or `rectify` fails, gives exit code 2. |
+| `--team NAME` | all teams | Gallery team for the `ident` stage. Repeat for two teams. Without it the command uses every team folder in `--gallery-root` (a folder with a `team.toml` or operative folders). No team folder: the `ident` stage names nothing. An unreadable gallery gives exit code 2. The gallery (and the model) loads only when the `ident` stage runs (not with `--until bases` or earlier). |
+| `--no-ident` | off | Do not load the gallery. The `ident` stage names nothing. |
+| `--gallery-root` | `data/gallery` | Folder with one folder per team. |
 | `--out DIR` | none | Write `<name>.overlay.jpg`, one `<name>.<view>.jpg` per stage view, and `<name>.json` for each image to `DIR`. The command makes `DIR` if it does not exist. |
 | `--json FILE` | none | Write one report for all images to `FILE`. Use `-` to write it to stdout. |
 | `--show` | off | Show each overlay in a window. Push a key for the next image. Push `q` or `Esc` to stop. |
@@ -253,6 +340,7 @@ it on that image.
 | `corners` | 1 | All four corner tags are found. |
 | `rectify` | 2 | The board plane fits the 16 tag corners: the largest error is not more than `rectify.max_reproj_mm`. |
 | `bases` | 3 | Always, when it runs (no bases is a valid result). Fails only when the reference has another image size. |
+| `ident` | 4 | Always, when it runs. Without a gallery (no team folder, or `--no-ident`) or with an empty gallery it names nothing. Views: `ident` (top-down image with names). |
 
 Each new priority adds a stage to this list. `--until` accepts only the
 stages that exist. `uv run battlesight image --help` shows them.
@@ -267,6 +355,7 @@ The `--json` report:
   "config": "data/board.toml",
   "stages": ["corners", "rectify", "bases"],
   "reference": null,
+  "teams": ["Raveners"],
   "ok": true,
   "errors": [],
   "images": [ /* one image report for each image */ ]
@@ -302,6 +391,7 @@ One image report (also the content of `<name>.json` from `--out`):
 | Field | Meaning |
 |---|---|
 | `reference` | Path of the `--reference` file, or `null`. Only in the combined report. |
+| `teams` | Gallery teams that the `ident` stage used, or `null` without a gallery. Only in the combined report. |
 | `schema` | Report format version. It increases when a field changes or is removed. A new stage or a new field in `data` does not change it. |
 | `size` | Image `[width, height]` in pixels, after the EXIF rotation. |
 | `ok` | `true` when all stages in the report passed. |
@@ -345,6 +435,61 @@ Fields of the `bases` stage:
 | `diameters_mm` | The size classes from the config. |
 | `changed_fraction` | Reference mode: part of the board that differs from the reference. A value near 1 means other light or a moved camera: take the reference again. `null` in single-frame mode. |
 | `bases` | Found bases, best rim coverage first. Each: `center_mm` (board mm), `center_px` (frame pixels), `diameter_mm` (size class), `fit_diameter_mm` (free circle fit before the class was chosen), `coverage` (0..1, part of the rim that supports the fit), `rms_mm` (fit residual), `contrast` (median Lab L step from the rim to the board). |
+
+Fields of the `ident` stage:
+
+| Field | Meaning |
+|---|---|
+| `teams` | Gallery teams, or `null` without a gallery. |
+| `model` | Embedder (`ident.model`). |
+| `gallery_photos` | Number of gallery crops. |
+| `bases` | One entry per found base, in the order of the `bases` stage: `center_mm`, `diameter_mm`, `label` (`<team>/<operative>` or `null` = unknown), `score` (mean cosine similarity of the `top_k` best gallery photos), `margin` (score minus the best other allowed name; negative when the assignment took a second choice; `null` when there is no other), `sure`, `confirmed`, `candidates` (up to 5 `[label, score]`, best first, only operatives of this base size). |
+
+## Operative identity
+
+`src/battlesight/ident.py`, stage `ident`. Plan priority 4. Detection and
+identity stay separate: the stage only reads the bases of the `bases` stage.
+
+1. Crop: square around the base in the bases image (`bases.px_per_mm`). The
+   gallery keeps the crop with 40 mm of board on each side
+   (`STORE_PAD_MM`). The model input is the centre square of base diameter +
+   2 x `crop_pad_mm`, at `input_px`, grey outside the inscribed circle.
+2. Embedding: DINOv2 (`model`, Hugging Face name; the first run downloads it
+   to `~/.cache/huggingface`). Class token and mean patch token, each L2
+   normalised, joined. Runs on Apple MPS when available. About 80 to 90 ms
+   for 10 bases on an M4 Pro. `model = "color-hist"` is a colour histogram
+   without ML, for the tests.
+3. Gallery: `data/gallery/<team>/team.toml` (`[operatives."Name"]`,
+   `base_mm`), `data/gallery/<team>/<operative>/*.png` crops. Each crop is
+   embedded at `rotations` angles. `embeddings.npz` in the team folder caches
+   the embeddings by file name and change time, with a key of the model and
+   the crop values; a change of these values embeds all crops again. Git
+   ignores the cache.
+4. Score: per operative, the best rotation of each photo, then the mean of
+   the `top_k` best photos. Only operatives whose `base_mm` is the size class
+   of the base. One-to-one assignment (Hungarian, `scipy`) because each
+   operative is on the board at most once. Score under `min_score`: unknown.
+5. Fixes: `LabelSession` (no window calls, unit tested) holds the snapshot.
+   A chosen name adds the crop to the gallery at once.
+
+`[ident]` in `data/board.toml`:
+
+| Key | Default | Meaning |
+|---|---|---|
+| `model` | `facebook/dinov2-small` | Hugging Face model, or `color-hist`. |
+| `crop_pad_mm` | 25 | Board around the base in the model input, each side, at most 40. The model body leans out of the base by parallax (up to about 19 mm at a board corner). |
+| `input_px` | 224 | Model input size. A multiple of 14 for DINOv2. |
+| `rotations` | 8 | Angles per gallery crop. |
+| `top_k` | 3 | Gallery photos per operative in the score. |
+| `min_score` | 0.5 | Unknown under this score. |
+| `min_margin` | 0.03 | Unsure under this lead over the second name. |
+
+First check on the two test photos (no real gallery yet, each found base
+enrolled as its own operative): the board around the base makes crops of
+different operatives similar (cosine 0.5 to 0.87), and one model in both
+photos scored 0.75. The done test (9 of 10 right) needs a gallery of 10 to
+20 crops per operative from the real camera, and a labelled game photo
+(`docs/testing.md`). Tune `crop_pad_mm`, `top_k`, `min_score` with it.
 
 ## Base detection
 

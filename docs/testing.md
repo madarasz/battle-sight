@@ -25,6 +25,7 @@ default.
 | `tests/test_bench.py` | Bases benchmark: one-to-one global greedy match (with the case where a per-truth match differs), tolerance, unknown size, decoy and `inside_base` categories. Metrics for a hand-made case, a negative photo, no detections, `done_ok`. Each baseline rule, a new photo, a better run. Ground truth schema 1 and 2, bad `rim` and `kind`. `tools/bench_bases.py` end to end on two synthetic photos (one with a reference): `bench.json`, `--mode`, `--set`, `--sweep`, `--write-baseline` and `--baseline`, exit codes, debug images. Click tool logic: fit of a known circle, class keys, hidden rim, estimate, save and load, undo, delete. |
 | `tests/test_camera.py` | Camera source parsing: device index, stream URL, file path. The stream reader keeps only the newest frame, waits for a new frame, and stops at the end of the stream. Camera settings file: defaults without a file, save and load for a device and a stream, command options override the file, `list_cameras.py` keeps the lens when it saves a new source. No camera or network needed. |
 | `tests/test_config.py` | Load of `data/board.toml`. Rejection of bad tag ids and bad grid sections. Grid lines for Tomb World sections and for a Volkus 1 in pitch. |
+| `tests/test_ident.py` | Operative identity with the colour-histogram embedder (no model download): crop size, grey mask, rotation. One-to-one assignment (second choice, size limit, unknown). Gallery: `team.toml`, add, embedding cache reused, remove, two teams, leave-one-out. `ident` stage on synthetic boards with painted models, moved and turned between enrollment and game; no gallery, empty gallery. Fix logic (`LabelSession`: pick, menu order, a name moves, accept all, undo), menu hit test, done-test scoring, `[ident]` config, `enroll --images`, `image --team`, `gallery`. |
 | `tests/test_calib.py` | Tag corner geometry in mm. Tag detection (flat, perspective and blur, low pixel density, wrong tag ids). Board corner position. Drift monitor: reference lock, moved board, one moved tag, lost tag. |
 | `tests/test_pipeline.py` | Pipeline stages: a good board, a missing tag, skip of later stages after a failure, an error in a stage, an unknown stage name. The `image` command: exit codes 0, 1, 2, the JSON report, the `--out` files, `--until corners`. |
 | `tests/test_rectify.py` | Board plane fit with an exact virtual camera: homography, camera position, board thickness correction, lens distortion. Top-down image of a rendered board: board edges, corner angles, printed grid lines, a board that slid over still cards, lens distortion removal. Stage report, failure on a bad fit, hint for swapped board width and height. Lens in the camera file: nominal lens and its focal length, calibrated lens at another scale, other aspect ratio. ChArUco lens calibration on virtual camera views, and the `calibrate` command (writes `[lens]`, keeps `[camera]`). |
@@ -60,6 +61,7 @@ data/snapshots/tests/
   tomb-world-1.expected.json   # reviewed report of `image --out`
   tomb-world-1.bases.json      # bases ground truth, optional
   tomb-world-1.empty.jpg       # empty-board reference, optional
+  tomb-world-1.ident.json      # true operative names, optional
   tomb-world-2.jpg
   ...
   bases_baseline.json          # bases benchmark baseline (tools/bench_bases.py --write-baseline)
@@ -176,6 +178,27 @@ A failure message gives the corner and the distance:
 ```
 AssertionError: board corner 2 off by 1.68 mm (tolerance 1.0 mm)
 ```
+
+### Operative names
+
+`test_ident_done_criteria` is the done test of priority 4: at least 9 of 10
+bases named right on the first try. It runs only when the photo has a
+`<name>.ident.json` and every team in it has a gallery in `data/gallery/`:
+
+```json
+{
+  "teams": ["kommandos"],
+  "tol_mm": 10,
+  "bases": [
+    {"center_mm": [123.4, 456.7], "label": "kommandos/Boss Nob"}
+  ]
+}
+```
+
+Each true base matches the nearest found base within `tol_mm`. A missed base
+counts as wrong. Take the centres from `battlesight image <photo> --json -`
+(the `ident` or `bases` stage). Make the gallery with `battlesight enroll`
+from other photos than the test photo, else the test checks nothing.
 
 ### Add a photo
 

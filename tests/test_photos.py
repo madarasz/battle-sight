@@ -294,3 +294,33 @@ def test_bases_done_criteria(results, photo):
         pytest.skip(f"no {photo.stem}{REFERENCE_TAG}.jpg: the done test needs an empty-board reference")
     s = photo_score(photo, results[photo], load_truth(photo))
     assert s.done_ok, bench.format_details([s])
+
+
+# --- priority 4: operative identity -------------------------------------------
+
+
+@needs_photos
+@photo_params
+def test_ident_done_criteria(cfg, photo):
+    """Plan priority 4, done when: 9 of 10 bases named right on the first try.
+    Needs <name>.ident.json (teams and the true name at each base centre) and
+    the gallery of those teams in data/gallery/. Runs the full pipeline with
+    the gallery (and the empty-board reference when there is one)."""
+    truth_path = photo.with_name(f"{photo.stem}.ident.json")
+    if not truth_path.is_file():
+        pytest.skip(f"no {truth_path.name}: the done test needs the true operative names")
+    from battlesight import ident as idt
+
+    truth = idt.IdentTruth.load(truth_path)
+    missing = [t for t in truth.teams if not (idt.DEFAULT_GALLERY_ROOT / t).is_dir()]
+    if missing:
+        pytest.skip(f"no gallery for {missing} in {idt.DEFAULT_GALLERY_ROOT}")
+    gallery = idt.Gallery.for_teams(truth.teams, cfg)
+    frame = cv2.imread(str(photo), cv2.IMREAD_COLOR)
+    ref = reference_path(photo)
+    pipe = Pipeline(cfg, reference=None if ref is None else cv2.imread(str(ref), cv2.IMREAD_COLOR), gallery=gallery)
+    r = pipe.analyze(frame, source=str(photo))
+    assert r.ok, r.summary()
+    centers = np.array([b.center_mm for b in r.scratch["bases"]]).reshape(-1, 2)
+    s = idt.score_truth(truth, centers, r.scratch.get("idents", []))
+    assert s["done_ok"], s

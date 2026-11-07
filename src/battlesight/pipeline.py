@@ -31,6 +31,7 @@ from .calib import TagDetector, TagObs, board_corners_px, lens_for_frame
 from .camera import CameraSettings
 from .config import CORNER_NAMES, BoardConfig
 from . import circles
+from . import ident as idt
 from . import rectify as rect
 
 SCHEMA_VERSION = 1
@@ -144,15 +145,31 @@ class Pipeline:
 
     `reference` is an optional empty-board frame (terrain set up, no
     operatives or tokens) from the same camera and light. With it the bases
-    stage looks only where the frame changed."""
+    stage looks only where the frame changed.
 
-    def __init__(self, cfg: BoardConfig, until: str | None = None, camera: CameraSettings | None = None, reference: np.ndarray | None = None):
+    `gallery` (ident.Gallery) holds the enrolled operatives. Without it the
+    ident stage passes and names nothing."""
+
+    def __init__(
+        self,
+        cfg: BoardConfig,
+        until: str | None = None,
+        camera: CameraSettings | None = None,
+        reference: np.ndarray | None = None,
+        gallery: idt.Gallery | None = None,
+    ):
         self.cfg = cfg
         self.camera = camera or CameraSettings()
         self.names = select_stages(until)
         self.cache: dict[str, Any] = {}
         if reference is not None:
             self.set_reference(reference)
+        if gallery is not None:
+            self.cache["gallery"] = gallery
+
+    @property
+    def gallery(self) -> idt.Gallery | None:
+        return self.cache.get("gallery")
 
     def set_reference(self, frame: np.ndarray) -> None:
         """Use `frame` as the empty-board reference. The reference finds its own
@@ -402,6 +419,7 @@ def _bases(ctx: Context) -> StageResult:
     except ValueError as exc:
         return StageResult(ok=False, message=str(exc))
     ctx.scratch["bases"] = found
+    ctx.scratch["bases_image"] = img
     mode = "reference" if ref is not None else "single_frame"
     centers_px = view.mm_to_px(np.array([c.center_mm for c in found])) if found else np.zeros((0, 2))
     data = {
@@ -413,4 +431,57 @@ def _bases(ctx: Context) -> StageResult:
     }
     sizes = ", ".join(f"{n}x{d:g}" for d, n in sorted(Counter(c.diameter_mm for c in found).items()))
     msg = f"{len(found)} bases" + (f" ({sizes} mm)" if found else "") + ("" if ref is not None else ", no reference")
+    return StageResult(ok=True, message=msg, data=data)
+
+
+# --- priority 4: operative identity -----------------------------------------
+
+
+def base_crops(img: np.ndarray, found: list[circles.Circle], cfg: BoardConfig) -> list[np.ndarray]:
+    """Gallery crops (ident.store_crop) of the found bases from the bases image."""
+    bcfg = bases_config(cfg)
+    if not found:
+        return []
+    centers = rect.mm_to_rect(bcfg, np.array([c.center_mm for c in found]))
+    return [idt.store_crop(img, p, c.diameter_mm, cfg.bases_px_per_mm) for c, p in zip(found, centers)]
+
+
+def _draw_ident(frame: np.ndarray, result: FrameResult, cfg: BoardConfig) -> None:
+    from .overlay import draw_idents
+
+    view = result.scratch.get("view")
+    if view is not None and result.scratch.get("idents"):
+        draw_idents(frame, result.scratch.get("bases", []), result.scratch["idents"], view.mm_to_px)
+
+
+def _views_ident(frame: np.ndarray, result: FrameResult, cfg: BoardConfig) -> dict[str, np.ndarray]:
+    from .overlay import draw_bases, draw_idents
+
+    img = result.scratch.get("rectified")
+    if img is None or not result.scratch.get("idents"):
+        return {}
+    img = img.copy()
+    to_px = lambda p: rect.mm_to_rect(cfg, p)  # noqa: E731
+    draw_bases(img, result.scratch.get("bases", []), to_px)
+    draw_idents(img, result.scratch.get("bases", []), result.scratch["idents"], to_px)
+    return {"ident": img}
+
+
+@stage("ident", draw=_draw_ident, views=_views_ident)
+def _ident(ctx: Context) -> StageResult:
+    gallery: idt.Gallery | None = ctx.cache.get("gallery")
+    found: list[circles.Circle] = ctx.scratch["bases"]
+    crops = base_crops(ctx.scratch["bases_image"], found, ctx.cfg)
+    ctx.scratch["base_crops"] = crops
+    if gallery is None:
+        return StageResult(ok=True, message="no gallery", data={"teams": None, "bases": []})
+    data: dict[str, Any] = {"teams": sorted(gallery.team_dirs), "model": gallery.embedder.name, "gallery_photos": len(gallery), "bases": []}
+    if len(gallery) == 0:
+        return StageResult(ok=True, message="gallery has no photos: enroll the operatives", data=data)
+    idents = idt.identify(crops, [c.diameter_mm for c in found], gallery)
+    ctx.scratch["idents"] = idents
+    data["bases"] = [{"center_mm": _round(c.center_mm), "diameter_mm": c.diameter_mm, **x.to_dict()} for c, x in zip(found, idents)]
+    named = sum(x.label is not None for x in idents)
+    unsure = sum(x.label is not None and not x.sure for x in idents)
+    msg = f"{named}/{len(idents)} named" + (f", {unsure} unsure" if unsure else "")
     return StageResult(ok=True, message=msg, data=data)

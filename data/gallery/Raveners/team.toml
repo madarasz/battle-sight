@@ -1,0 +1,6 @@
+# Battle Sight gallery of team 'Raveners'. One table per operative.
+# base_mm: base diameter (one of [bases] diameters_mm). Only bases of this size can get this name.
+# Photos: one folder per operative next to this file, written by `battlesight enroll` and by fixes.
+
+[operatives."Prime"]
+base_mm = 40

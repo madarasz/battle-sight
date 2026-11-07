@@ -10,7 +10,7 @@ bases, and later the range rings and the distances between operatives.
 1. ✅ Board corners: AprilTag cards, drift warning
 2. ✅ Undistort and rectify: lens calibration, top-down board image, map grid
 3. ✅ Bases: find round bases, size and position
-4. 🚧 Operative ID: name each base from a photo gallery
+4. ⏳ Operative ID: name each base from a photo gallery (done test waits for real gallery photos)
 5. 🚧 Rings and distances: range rings, rim-to-rim distance
 6. 🚧 Tokens: find tokens, list operatives in range
 7. 🚧 Doors: click hatchways once per map, draw 1 in and 2 in bands
@@ -31,6 +31,7 @@ a phone through Camo), a printer, and scissors.
 5. Set your board and map.
 6. Calibrate the lens (optional).
 7. Take a photo of the empty board (for base detection).
+8. Teach the app your operatives (for operative names).
 
 ## How to use
 
@@ -85,6 +86,40 @@ like bases.
 The Terminal window also lists each base: size, position on the board in mm,
 and how much of its edge the camera saw.
 
+### Name the operatives
+
+```bash
+uv run battlesight ident --team kommandos
+```
+
+Do setup step 8 first, one time for each team. For two teams, add the
+second team: `--team kommandos --team veterans`.
+
+Push `space`. The app finds the bases and writes the name of the operative
+under each base:
+
+- Green name: the app is sure.
+- Yellow name: the app is not sure. Check it.
+- Red `?`: the app does not know this operative.
+
+If a name is wrong, click the base, then click the correct name in the list.
+The app learns from each correction, so it makes fewer errors in the next
+games.
+
+| Key or mouse | Action |
+|---|---|
+| `space` | Find and name the operatives now. |
+| Click a base | Show the list of names for this base size. |
+| Click a name | Give this name to the base. The app keeps the photo. |
+| Right click | Close the list. |
+| `a` | All names are correct: the app keeps the photos of all bases. |
+| `u` | Undo the last correction. |
+| `e` | Keep the current image as the empty-board photo. |
+| `c` | Forget the empty-board photo. |
+| `v` | Change between the top-down view and the camera view. |
+| `s` | Save a photo to `data/snapshots/`. |
+| `q` | Quit. |
+
 ### Corner check (to set up the table)
 
 ```bash
@@ -108,7 +143,8 @@ uv run battlesight image my-photo.jpg --show
 
 The app does the same analysis on a saved photo and shows the result.
 Use it to check a photo that you saved with `s`. To find the bases with an
-empty-board photo, add `--reference empty.jpg`.
+empty-board photo, add `--reference empty.jpg`. To name the operatives, add
+`--team kommandos`.
 
 ## What you see
 
@@ -120,6 +156,8 @@ The banner at the top tells the board status:
 | Green "4 corners OK" | All four cards are visible. The board did not move. | Play. |
 | Yellow "BOARD MOVED" | A card moved more than 2 mm. | Put the board back, or press `r` if you moved it on purpose. |
 | Red "TAG LOST" | The camera cannot see a card. | Remove what covers the card (a hand, a model, a dice tray). |
+| Red "CORNERS NOT SEEN" (second line, `ident` and `enroll`) | The camera cannot see one or more corner cards now. The line names the cards. `space` cannot find the board. | Remove what covers the card. Move the camera if a card is outside the image. |
+| Message line under the banner (`ident` and `enroll`) | The result of your last key or click, for 6 seconds. Red: it did not work, for example "no base found". Yellow: do the next step, for example "click the base". Green: done, for example "photo 3 added". | Read the message. For a red message, correct the cause and try again. |
 
 On the camera image:
 
@@ -129,6 +167,9 @@ On the camera image:
 - Yellow lines: the map grid.
 - Green circle with a number: a base that the app found, and its size in mm.
   The circle is the bottom edge of the base, where it touches the board.
+- Name under a base (`ident` mode): the operative and a score from 0 to 1.
+  Green is sure, yellow is not sure, red `?` is unknown. A white circle
+  shows the base that you clicked.
 
 In the top-down view, the board is upright, the cards are in the corners of
 the image, and the grid sits on the printed lines.
@@ -158,5 +199,13 @@ the image, and the grid sits on the printed lines.
   before the operatives go on the board.
 - **The size of a base is wrong.** Make sure that `diameters_mm` in
   `data/board.toml` lists only the base sizes of your teams.
+- **An operative gets the wrong name.** Click the base and select the
+  correct name. If it happens frequently, add more photos of the two
+  operatives (setup step 8), and check with `battlesight gallery`.
+- **The name list is empty.** The gallery has no operative with this base
+  size. Teach the app this operative (setup step 8), or check `base_mm` in
+  `data/gallery/<team>/team.toml`.
+- **The first start of `ident` or `enroll` is slow.** The app downloads the
+  recognition model one time. Later starts take a few seconds.
 - **The grid does not sit on the printed lines.** Check the map settings
   ([docs/setup.md](docs/setup.md), step 5). Then calibrate the lens (step 6).

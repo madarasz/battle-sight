@@ -273,6 +273,95 @@ A pair is one empty-board photo and one game photo. Obey these rules:
 - Give the files the same name: `<name>.jpg` (game) and `<name>.empty.jpg`
   (empty board).
 
+## 8. Teach the app your operatives
+
+The app can name each operative on the board. First it must learn how each
+operative looks from your camera. Do this step one time for each team. You
+need 10 to 20 photos of each operative. The app takes them for you with the
+game camera. Read [Good gallery photos](#good-gallery-photos) first.
+
+1. Select a short name for the team, for example `kommandos`. Use the same
+   name in each command.
+2. Put one operative on the board. Start the enroll mode with its name:
+
+   ```bash
+   uv run battlesight enroll --team kommandos --operative "Boss Nob"
+   ```
+
+3. Push `space`. The app finds the base and keeps a photo of it. The banner
+   shows the number of photos.
+4. Turn the model a little and move it to another place on the board. Push
+   `space` again. Do this 10 to 20 times. Use places near the center and
+   near the edges, because the model looks different there.
+5. If the app finds more than one base, click the base of the operative.
+   If you took a bad photo, push `u` to remove it.
+6. Push `q`. Do steps 2 to 6 for each operative of the team.
+
+### Good gallery photos
+
+The app compares the operatives in a game with the gallery photos. Thus the
+gallery photos must look like the game: the same camera, the same board, the
+same light.
+
+- **Use the game camera, in its game position.** Do not take close-up
+  photos. The app must see the four corner cards to find the board, and it
+  measures the base in board millimetres. A close-up photo, or a photo
+  without the cards, gives no gallery photo.
+- **Put the operative on the board, not on a desk.** The app keeps a circle
+  around the base, with about 25 mm of board around the base edge. This
+  board is part of each photo. A desk around the model teaches the app the
+  wrong background.
+- **The empty board and the board with terrain are both correct.** Keep
+  about 30 mm of free board around the base. A wall or a token near the
+  base gets into the photo, and the app can learn it as a part of the
+  operative. A wall that covers the base edge also stops the app from
+  finding the base.
+- **Take the empty-board photo first (step 7)** for the board as it is now.
+  The enroll mode uses it to find the base. An old empty-board photo of
+  other terrain can give wrong bases.
+- **Use the game light.** Lock the focus and the exposure of the camera, as
+  for a game.
+- **You do not cut the photos.** The app finds the base and keeps only the
+  circle around it. The rest of the camera image is not kept.
+- **Move the operative and turn it.** The camera sees the model from a
+  different side at each place on the board: near an edge, the model leans
+  away from the board centre in the image. Use the centre, all four edges,
+  and the corners. At each place, turn the model to a new direction. The
+  app also turns each photo itself, but a real turn changes the shadows and
+  the visible sides of the model.
+- **One operative in the image is the easiest.** If more operatives are on
+  the board, click the base of the correct operative after `space`.
+- **Keep your hands out of the image** when you push `space`.
+
+| How many photos | When |
+|---|---|
+| 10 | Operatives of the team look very different (colour, shape, weapon). |
+| 15 to 20 | Two or more operatives look alike, for example the same body with a different weapon. |
+| More of two operatives | `battlesight gallery` shows that the app mixes up these two. |
+
+A fast way to get many photos: enroll each operative with about 5 photos.
+Then use `battlesight ident` in your games. When a name is wrong, click the
+base and the correct name. When all names are correct, push `a`. Each
+correction and each `a` adds photos from real games to the gallery.
+
+The app keeps the photos in `data/gallery/kommandos/`, one folder for each
+operative. It also keeps the base size of each operative in
+`data/gallery/kommandos/team.toml`. An operative gets a name only on a base
+of this size.
+
+To check the photos, run:
+
+```bash
+uv run battlesight gallery --team kommandos
+```
+
+The app compares each photo with the other photos and shows how many it
+names correctly. If it mixes up two operatives, add more photos of these
+two operatives.
+
+The first start downloads the recognition model (about 90 MB). This needs
+the internet one time only.
+
 ## Troubleshooting
 
 ### `list_cameras.py` shows only index 0

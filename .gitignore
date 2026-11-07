@@ -13,3 +13,4 @@ data/calib/*
 out/
 .DS_Store
 data/camera.toml
+data/gallery/*/embeddings.npz

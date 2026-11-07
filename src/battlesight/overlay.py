@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 import cv2
 import numpy as np
 
@@ -75,15 +77,17 @@ def draw_banner(frame: np.ndarray, report: DriftReport, extra: str = "") -> None
     draw_text_banner(frame, report.summary(), _STATUS_COLOR[report.status], extra)
 
 
-def draw_text_banner(frame: np.ndarray, text: str, color: tuple[int, int, int], extra: str = "") -> None:
+def draw_text_banner(frame: np.ndarray, text: str, color: tuple[int, int, int], extra: str = "", row: int = 0) -> None:
+    """Status strip across the top. `row` 1 puts it under the row 0 strip (for a warning)."""
     s = _scale(frame)
     h = int(44 * s)
-    cv2.rectangle(frame, (0, 0), (frame.shape[1], h), BLACK, -1)
-    cv2.rectangle(frame, (0, 0), (int(12 * s), h), color, -1)
-    cv2.putText(frame, text, (int(24 * s), int(30 * s)), cv2.FONT_HERSHEY_SIMPLEX, 0.8 * s, color, max(1, round(2 * s)), cv2.LINE_AA)
+    y0 = row * h
+    cv2.rectangle(frame, (0, y0), (frame.shape[1], y0 + h), BLACK, -1)
+    cv2.rectangle(frame, (0, y0), (int(12 * s), y0 + h), color, -1)
+    cv2.putText(frame, text, (int(24 * s), y0 + int(30 * s)), cv2.FONT_HERSHEY_SIMPLEX, 0.8 * s, color, max(1, round(2 * s)), cv2.LINE_AA)
     if extra:
         (tw, _), _ = cv2.getTextSize(extra, cv2.FONT_HERSHEY_SIMPLEX, 0.6 * s, 1)
-        cv2.putText(frame, extra, (frame.shape[1] - tw - int(16 * s), int(30 * s)), cv2.FONT_HERSHEY_SIMPLEX, 0.6 * s, WHITE, 1, cv2.LINE_AA)
+        cv2.putText(frame, extra, (frame.shape[1] - tw - int(16 * s), y0 + int(30 * s)), cv2.FONT_HERSHEY_SIMPLEX, 0.6 * s, WHITE, 1, cv2.LINE_AA)
 
 
 def fit_to_width(frame: np.ndarray, width: int) -> np.ndarray:
@@ -149,6 +153,81 @@ def draw_bases(frame: np.ndarray, bases, to_px, color: tuple[int, int, int] = GR
         org = (int(top[0] - tw / 2), int(top[1]))
         cv2.putText(frame, label, org, cv2.FONT_HERSHEY_SIMPLEX, 0.6 * s, BLACK, thick + 2, cv2.LINE_AA)
         cv2.putText(frame, label, org, cv2.FONT_HERSHEY_SIMPLEX, 0.6 * s, color, thick, cv2.LINE_AA)
+
+
+def _label(frame: np.ndarray, text: str, org: tuple[int, int], color, s: float, thick: int, center: bool = True) -> None:
+    (tw, th), _ = cv2.getTextSize(text, cv2.FONT_HERSHEY_SIMPLEX, 0.6 * s, thick)
+    x = int(org[0] - tw / 2) if center else int(org[0])
+    y = int(org[1] + th)
+    cv2.putText(frame, text, (x, y), cv2.FONT_HERSHEY_SIMPLEX, 0.6 * s, BLACK, thick + 2, cv2.LINE_AA)
+    cv2.putText(frame, text, (x, y), cv2.FONT_HERSHEY_SIMPLEX, 0.6 * s, color, thick, cv2.LINE_AA)
+
+
+def ident_color(x) -> tuple[int, int, int]:
+    """Green: sure or confirmed name. Yellow: unsure name. Red: unknown."""
+    if x.label is None:
+        return RED
+    return GREEN if x.sure else YELLOW
+
+
+def draw_idents(frame: np.ndarray, bases, idents, to_px, selected: int | None = None) -> None:
+    """Operative names (ident.Ident) under the bases (circles.Circle). The
+    team part of the label is left out. `selected` gets a white ring."""
+    s = _scale(frame)
+    thick = max(1, round(2 * s))
+    a = np.linspace(0, 2 * np.pi, 64, endpoint=False)
+    for i, (c, x) in enumerate(zip(bases, idents)):
+        r = 0.5 * c.diameter_mm
+        color = ident_color(x)
+        ring = c.center_mm + r * np.c_[np.cos(a), np.sin(a)]
+        pts = np.rint(to_px(ring)).astype(np.int32).reshape(-1, 1, 2)
+        cv2.polylines(frame, [pts], True, WHITE if i == selected else color, thick * (2 if i == selected else 1), cv2.LINE_AA)
+        name = "?" if x.label is None else x.label.partition("/")[2] or x.label
+        if x.label is not None and not x.confirmed:
+            name += f" {x.score:.2f}"
+        bottom = np.rint(to_px((c.center_mm + (0.0, r + 2.0)).reshape(1, 2))[0]).astype(int)
+        _label(frame, name, (int(bottom[0]), int(bottom[1])), color, s, thick)
+
+
+@dataclass
+class Menu:
+    """A list of names drawn at `origin` (display pixels), one row each.
+    `hit` gives the row under a point. No window calls, so tests can use it."""
+
+    items: list[str]
+    origin: tuple[int, int]
+    row_h: int = 28
+    width: int = 260
+
+    def rect(self) -> tuple[int, int, int, int]:
+        x, y = self.origin
+        return x, y, x + self.width, y + self.row_h * len(self.items)
+
+    def hit(self, x: float, y: float) -> int | None:
+        x0, y0, x1, y1 = self.rect()
+        if not (x0 <= x < x1 and y0 <= y < y1):
+            return None
+        return int((y - y0) // self.row_h)
+
+    def fit(self, size: tuple[int, int]) -> Menu:
+        """Copy moved inside an image of `size` (width, height)."""
+        w, h = size
+        x0, y0, x1, y1 = self.rect()
+        x = min(max(0, x0), max(0, w - (x1 - x0)))
+        y = min(max(0, y0), max(0, h - (y1 - y0)))
+        return Menu(self.items, (x, y), self.row_h, self.width)
+
+
+def draw_menu(frame: np.ndarray, menu: Menu, hover: int | None = None) -> None:
+    x0, y0, x1, y1 = menu.rect()
+    cv2.rectangle(frame, (x0, y0), (x1, y1), BLACK, -1)
+    cv2.rectangle(frame, (x0, y0), (x1, y1), WHITE, 1)
+    scale = menu.row_h / 40.0
+    for k, item in enumerate(menu.items):
+        y = y0 + k * menu.row_h
+        if k == hover:
+            cv2.rectangle(frame, (x0 + 1, y), (x1 - 1, y + menu.row_h), (90, 90, 90), -1)
+        cv2.putText(frame, item, (x0 + 8, y + int(menu.row_h * 0.72)), cv2.FONT_HERSHEY_SIMPLEX, scale, WHITE, 1, cv2.LINE_AA)
 
 
 def draw_dashed_circle(

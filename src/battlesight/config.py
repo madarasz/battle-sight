@@ -50,6 +50,15 @@ class BoardConfig:
     bases_rim_ratio: float = 0.75
     bases_diff_threshold: float = 25.0
     bases_min_foreground: float = 0.25
+    # Operative identity (ident.py): crop around each base, DINOv2 embedding,
+    # nearest operatives in the enrolled gallery.
+    ident_model: str = "facebook/dinov2-small"
+    ident_crop_pad_mm: float = 25.0
+    ident_input_px: int = 224
+    ident_rotations: int = 8
+    ident_top_k: int = 3
+    ident_min_score: float = 0.5
+    ident_min_margin: float = 0.03
 
     @classmethod
     def load(cls, path: str | Path = DEFAULT_CONFIG) -> BoardConfig:
@@ -57,6 +66,7 @@ class BoardConfig:
             raw = tomllib.load(fh)
         board, tags, drift = raw["board"], raw["tags"], raw.get("drift", {})
         grid, rect, bases = raw.get("grid", {}), raw.get("rectify", {}), raw.get("bases", {})
+        ident = raw.get("ident", {})
         if "camera" in raw:
             raise ValueError("[camera] moved from the board config to data/camera.toml (focal_35mm, lens calibration)")
         sections = grid.get("sections")
@@ -94,6 +104,13 @@ class BoardConfig:
             bases_rim_ratio=float(bases.get("rim_ratio", 0.75)),
             bases_diff_threshold=float(bases.get("diff_threshold", 25.0)),
             bases_min_foreground=float(bases.get("min_foreground", 0.25)),
+            ident_model=str(ident.get("model", "facebook/dinov2-small")),
+            ident_crop_pad_mm=float(ident.get("crop_pad_mm", 25.0)),
+            ident_input_px=int(ident.get("input_px", 224)),
+            ident_rotations=int(ident.get("rotations", 8)),
+            ident_top_k=int(ident.get("top_k", 3)),
+            ident_min_score=float(ident.get("min_score", 0.5)),
+            ident_min_margin=float(ident.get("min_margin", 0.03)),
         )
 
     def corner_index(self, tag_id: int) -> int | None:

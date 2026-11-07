@@ -102,7 +102,7 @@ def test_cli_image_ok(tmp_path, config_file, capsys):
     code = main(["image", str(shots), "--config", str(config_file), "--out", str(out), "--json", "-"])
     assert code == 0
     report = json.loads(capsys.readouterr().out)
-    assert report["ok"] and report["stages"] == ["corners", "rectify", "bases"]
+    assert report["ok"] and report["stages"] == ["corners", "rectify", "bases", "ident"]
     assert report["images"][0]["stages"]["corners"]["ok"]
     assert report["images"][0]["stages"]["rectify"]["ok"]
     assert (out / "a.overlay.jpg").is_file()

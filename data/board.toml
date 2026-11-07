@@ -58,3 +58,14 @@ rim_ratio = 0.75         # the rim is at most this part of the board brightness 
 # With an empty-board reference only:
 diff_threshold = 25.0    # colour change (Lab distance) that counts as "changed"
 min_foreground = 0.25    # part of the base disc that must be changed
+
+[ident]
+# Operative identity: a crop around each base goes through DINOv2 and is
+# compared with the gallery photos (data/gallery/<team>/<operative>/).
+model = "facebook/dinov2-small"   # Hugging Face name; "color-hist" = colour histogram, no ML
+crop_pad_mm = 25.0       # board around the base in the crop, each side (the model leans out by parallax), at most 40
+input_px = 224           # crop size for the model (multiple of 14 for DINOv2)
+rotations = 8            # each gallery photo is compared at this many angles
+top_k = 3                # score = mean of the best top_k gallery photos of an operative
+min_score = 0.5          # under this score the base stays unknown
+min_margin = 0.03        # under this lead over the second name the label is unsure (yellow)

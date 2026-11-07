@@ -9,7 +9,7 @@ Battle Sight is an augmented reality overlay for Warhammer 40k: Kill Team. A fix
 Read these before design work:
 
 - `specs/about-project`: the owner's goals, in their own words.
-- `specs/plan.md`: decisions, the 7 priorities with "done when" tests, risks, stack, and target layout. The plan is the source of truth for scope. Priorities 1 (board corners) and 2 (rectify) are done. Priority 3 (bases) is in code; its done test waits for a test photo with an empty-board reference.
+- `specs/plan.md`: decisions, the 7 priorities with "done when" tests, risks, stack, and target layout. The plan is the source of truth for scope. Priorities 1 (board corners) and 2 (rectify) are done. Priority 3 (bases) is in code; its done test waits for a test photo with an empty-board reference. Priority 4 (operative ID) is in code; its done test waits for a real gallery and a labelled game photo.
 
 Work goes in priority order (1 corners, 2 undistort and rectify, 3 bases, 4 operative ID, 5 rings and distances, 6 tokens, 7 doors). Each priority has a measurable done test in the plan. Use it as the acceptance check.
 
@@ -34,6 +34,10 @@ uv run pytest tests/test_calib.py::test_detects_four_tags_flat   # one test
 uv run battlesight corners                # live corner tracking, saved camera
 uv run battlesight rectify                # live top-down view with map grid
 uv run battlesight bases                  # live snapshot base detection, e = empty-board reference
+uv run battlesight ident --team kommandos # live snapshot naming, click base + name = fix (feeds gallery)
+uv run battlesight enroll --team kommandos --operative "Boss Nob"   # gallery crops, live or --images
+uv run battlesight gallery --team kommandos   # list gallery, leave-one-out check
+uv run battlesight image shot.jpg --team kommandos --json -   # ident stage on saved photos
 uv run battlesight calibrate              # lens calibration -> [lens] in data/camera.toml
 uv run battlesight image data/snapshots/tests              # pipeline on saved photos, exit 0/1/2
 uv run battlesight image shot.jpg --out out/ --json -     # overlays + per-image JSON, report on stdout
@@ -62,6 +66,7 @@ No linter or formatter is configured.
 - `src/battlesight/` is the package (hatchling, `src` layout). Entry point `battlesight = battlesight.app:main`. `app.py` holds argparse subcommands. Add new modes as new subcommands there.
 - `pipeline.py`: single-frame analysis, no camera or window. Stages are `corners`, `rectify`, `bases`. Stages register in run order with `@stage(name, draw=..., views=...)` (`views` returns extra named images, `--out` writes them as `<name>.<view>.jpg`) and return a `StageResult` (ok, message, JSON-safe `data`). A failed stage skips the later ones. `Pipeline.analyze` gives a `FrameResult` (`to_dict()` is the JSON report, with `schema` version), `Pipeline.annotate` draws all stage overlays. Add each new priority as a stage here, so the `image` subcommand and tests pick it up. The `image` subcommand exit codes: 0 all stages ok, 1 a stage failed, 2 bad input.
 - `circles.py` (priority 3): `find_circles` finds round bases of the known diameters (`[bases]` in `data/board.toml`, base bottom) in a top-down image at `bases.px_per_mm` (4). Edge votes along the gradient for proposals, 120 rays with a dark-rim test, robust free fit, nearest size class, fixed-radius refit, `coverage` = visible rim part. `foreground_mask` diffs against an empty-board reference. `Pipeline(reference=frame)` / `set_reference` warps the reference from its own tags into `cache["bases_reference"]`; the `bases` stage then runs in `reference` mode, else `single_frame` (finds some dark-ringed tokens and barricades). The stage puts `bases` (list of `Circle`) in `scratch`. Bottom edge lies on the play surface: no parallax correction. `docs/cli.md` "Base detection" has the steps and config keys.
+- `ident.py` (priority 4): crop around each base from the bases image (`store_crop` keeps 40 mm board each side, `prepare` cuts `ident.crop_pad_mm`, turns, masks a circle, resizes to `input_px`), `Embedder` (`DinoEmbedder` = DINOv2 via `transformers`, MPS, lazy load; `ColorEmbedder` = `model = "color-hist"`, no ML, used by all unit tests), `Gallery` (`data/gallery/<team>/team.toml` with `base_mm`, `<operative>/*.png`, `embeddings.npz` cache, `rotations` angles per crop, score = mean of `top_k` best photos, `leave_one_out`), `assign` (size-class limit, Hungarian one-to-one, `min_score` unknown, `min_margin` unsure), `LabelSession` (click fix logic, no window calls), `IdentTruth` / `score_truth` (done test). Labels are `<team>/<operative>`. Stage `ident` after `bases`: always ok, names nothing without a gallery (`Pipeline(gallery=...)`, `image --team`). The bases stage puts `bases_image` in `scratch`, the ident stage `base_crops` and `idents`. `overlay.Menu` is the click menu (hit test unit tested). `docs/cli.md` "Operative identity" has the steps and config keys.
 - `bench.py`: bases benchmark, pure functions. Ground truth `<name>.bases.json` schema 2 (`Truth`, `Decoy` = `not_bases`, schema 1 still loads), `match` (one-to-one global greedy within `tol_mm`, false detections get a `kind`, `inside_base` or `other`), `PhotoScore` (`done_ok` = priority 3 done test), `metrics` / `total` (recall, precision, f1, size accuracy, centre error of clear clicked or detector rims), `report` (`bench.json`), `compare` (baseline rules), text table. Also the photo file rules (`find_photos`, `reference_path`: `<name>.empty.*` is a reference). `pipeline.detect_bases(img, cfg, reference)` is the body of the bases stage, so `tools/bench_bases.py` runs corners and rectify once and sweeps `[bases]` values cheaply. `tools/annotate_bases.py` holds the click logic in `Annotator` (no window calls, unit tested).
 - `tests/test_photos.py` (marker `photos`, off by default through `addopts` in `pyproject.toml`): runs the pipeline on each photo in `data/snapshots/tests` and compares with the reviewed `<name>.expected.json` next to it (the `--out` report), corners within `CORNER_TOL_MM` (1 mm, converted with the tag's pixel size). Never update an expected file only to make a test pass. Bases: `<name>.bases.json` is ground truth (`clear` / `hidden` rims, `tol_mm`, `source`, `not_bases`), `<name>.empty.jpg` an optional empty-board reference; `test_bases_done_criteria` runs only with both. `test_bases_benchmark_no_worse` compares the benchmark totals with `data/snapshots/tests/bases_baseline.json`; `pytest -m photos` prints the metrics table. The baseline moves only on purpose (`tools/bench_bases.py --write-baseline`, new numbers in the commit message), never only to make a test pass.
 - `config.py`: `BoardConfig` (frozen dataclass) loads `data/board.toml`. All lengths are in mm. Board coordinates: origin at the top-left board corner, x right, y down. Corner index 0..3 = TL, TR, BR, BL, and `tags.ids[k]` is the tag at corner k.
@@ -80,16 +85,16 @@ No linter or formatter is configured.
 Layout:
 
 ```
-src/battlesight/   config.py camera.py calib.py rectify.py circles.py bench.py overlay.py pipeline.py app.py
+src/battlesight/   config.py camera.py calib.py rectify.py circles.py ident.py bench.py overlay.py pipeline.py app.py
 tools/             make_tags.py make_charuco.py list_cameras.py bench_bases.py annotate_bases.py
 tests/             synthetic-board tests, test-photo tests, no camera needed
-data/              board.toml, tags/, snapshots/ (snapshots/tests/ = test photos), calib/
+data/              board.toml, tags/, snapshots/ (snapshots/tests/ = test photos), calib/, gallery/<team>/
 docs/              setup.md (user setup), cli.md, testing.md
 ```
 
 `specs/bases-benchmark.md` is the plan for the bases benchmark tool, ground truth click tool, and metric baseline (parts 1 to 4 done; section 11 tuning and re-annotation are next).
 
-Target modules for later priorities (`ident.py`, `doors.py`, `measure.py`, `ui/`) and data folders are listed in `specs/plan.md` section 7.
+Target modules for later priorities (`doors.py`, `measure.py`, `ui/`) and data folders are listed in `specs/plan.md` section 7.
 
 ## Design constraints from the plan
 
