@@ -1,7 +1,6 @@
 # Battle Sight CLI
 
-The `battlesight` command has one subcommand for each mode. Run all commands
-with `uv run` from the repository root.
+Run all commands with `uv run` from the repository root.
 
 ```
 uv run battlesight --help
@@ -9,165 +8,143 @@ uv run battlesight <command> --help
 uv run battlesight --version
 ```
 
+## All commands
+
 | Command | Input | Use |
 |---|---|---|
-| `corners` | live camera | Track the four corner tags. Warn when a tag is lost or the board moved. |
-| `rectify` | live camera | Show the board top-down, with the map grid. |
-| `bases` | live camera | Find the operative bases on a key push (snapshot). Take the empty-board reference. |
-| `calibrate` | live camera or saved photos | Calibrate the lens with the ChArUco sheet. Write the `[lens]` table of `data/camera.toml`. |
-| `image` | saved photos | Run the analysis pipeline on photos. Write a JSON report and overlay images. Use it for tests and automation. |
+| `battlesight` (no command) | live camera | The app. Tracks the corner cards, shows the camera or the board from above with the grid, finds the bases and names the operatives on a key push. |
+| `battlesight enroll` | live camera or saved photos | Add gallery photos of one operative. |
+| `battlesight gallery` | gallery folder | List the gallery and check each photo against the rest. |
+| `battlesight calibrate` | live camera or saved photos | Calibrate the lens with the ChArUco sheet. Write the `[lens]` table of `data/camera.toml`. |
+| `battlesight image-pipeline` | saved photos | Run all stages on photos. Write a JSON report and overlay images. Use it for tests and automation. |
+| `tools/list_cameras.py` | cameras | Find the camera and save its source, frame size and frame rate to `data/camera.toml`. |
+| `tools/make_tags.py` | none | Print sheet of the corner cards: `data/print/corner_tags.pdf`. |
+| `tools/make_charuco.py` | none | Lens calibration sheet: `data/print/charuco.pdf`. |
+| `tools/bench_bases.py` | test photos | Bases benchmark: metrics, parameter sweeps, baseline check. |
+| `tools/annotate_bases.py` | one test photo | Click the base ground truth of a test photo. |
 
-## `corners`: live camera
+## Option rule
+
+The commands have as few options as possible. A feature that a key (later a
+UI button) turns on or off, or a mode or view that a key changes, has no
+option. Options are only for values that do not change while the app runs.
+
+## Camera values
+
+The camera values are not command options. They are in `data/camera.toml`
+(see "Camera file" below):
+
+| Value | Where to change it |
+|---|---|
+| Source (device index or stream URL) | `tools/list_cameras.py --use INDEX` or `--url URL`. For one run: `--source`. |
+| Frame size | `tools/list_cameras.py --use INDEX --width W --height H`. A stream gets its size from the phone app. |
+| Frame rate | `tools/list_cameras.py --use INDEX --fps N`. |
+| Lens | `battlesight calibrate` (`[lens]`), or `focal_35mm` by hand for the nominal lens. |
+
+You can also edit the `[camera]` table in the file with a text editor. The
+windows are resizable: drag the window edge to change the size on screen.
+The analysis always uses the full camera frame.
+
+## `battlesight`: the live app
 
 ```
-uv run battlesight corners [--source 0] [--width 1920] [--height 1080] [--fps N]
-                           [--camera-file data/camera.toml]
-                           [--config data/board.toml] [--display-width 1600]
+uv run battlesight [--team NAME [NAME2]] [--gallery-root data/teams]
+                   [--reference data/snapshots/empty_board.png]
+                   [--source S] [--camera-file data/camera.toml] [--config data/board.toml]
 ```
-
-The camera options come from three places. The first that has a value wins:
-
-1. the command line option,
-2. the camera file (`data/camera.toml`, saved by `tools/list_cameras.py`),
-3. the built-in default in the table below.
-
-The command prints the camera file path when it uses one.
 
 | Option | Default | Meaning |
 |---|---|---|
-| `--source` | `0` | Camera index (Camo, built-in camera) or network stream URL (`http://...`, `rtsp://...`). A stream is read on a background thread that keeps only the newest frame. The phone app sets its size, so `--width` and `--height` have no effect. See [setup.md](setup.md), step 4. |
-| `--width`, `--height` | `1920`, `1080` | Requested frame size. The camera can give a different size. The command prints the real size. |
-| `--fps` | camera default | Requested frame rate. |
-| `--camera-file` | `data/camera.toml` | Saved camera settings. A missing file is not an error: the built-in defaults apply. |
-| `--config` | `data/board.toml` | Board and tag config. |
-| `--display-width` | `1600` | Window width on screen. The analysis always uses the full frame. |
-
-Keys in the window:
-
-| Key | Action |
-|---|---|
-| `q`, `Esc` | Quit. |
-| `r` | Reset the reference. Use it after you move the board on purpose. |
-| `s` | Save the current frame to `data/snapshots/snap_<date>_<time>.png`. |
-
-The README section "What you see" tells what the overlay shows.
-
-## `rectify`: live top-down view
-
-```
-uv run battlesight rectify [--source 0] [--width 1920] [--height 1080] [--fps N]
-                           [--camera-file data/camera.toml]
-                           [--config data/board.toml] [--display-width 1600]
-```
-
-The options are the same as for `corners`. The command finds the four tags,
-fits the board plane, and shows the board from straight above at
-`rectify.px_per_mm`, with the lens distortion removed and the map grid on
-top (see "Map grid" below).
-
-When the drift reference is locked and the status is OK, the view uses the
-locked reference. Thus the image does not jitter. When the board moved, the
-view follows the tags in each frame, and the banner shows "BOARD MOVED".
-Push `r` to lock the new position.
-
-| Key | Action |
-|---|---|
-| `q`, `Esc` | Quit. |
-| `v` | Change between the top-down view and the camera view with the grid. |
-| `g` | Grid on or off. |
-| `r` | Reset the drift reference. |
-| `s` | Save the current camera frame to `data/snapshots/`. |
-
-The banner on the right tells which lens is in use: `calibrated` (from the
-`[lens]` table of `data/camera.toml`) or `nominal`.
-
-## `bases`: find the bases
-
-```
-uv run battlesight bases [--reference data/snapshots/empty_board.png]
-                         [--source 0] [--width 1920] [--height 1080] [--fps N]
-                         [--camera-file data/camera.toml]
-                         [--config data/board.toml] [--display-width 1600]
-```
-
-Snapshot mode (plan section 1, "Measure mode"): the command shows the live
-camera, and runs the full pipeline (`corners`, `rectify`, `bases`) on one
-frame when you push `space`. The result stays on the screen until the next
-`space`. The command prints each base to stdout: diameter class, centre in
-board mm, rim coverage.
-
-| Option | Default | Meaning |
-|---|---|---|
+| `--team` | all teams in `--gallery-root` | One or two team folders (two teams play). Labels are `<team>/<operative>`. More than two names: exit 2. |
+| `--gallery-root` | `data/teams` | Folder with one folder per team. |
 | `--reference` | `data/snapshots/empty_board.png` | Empty-board reference. Loaded at start when the file exists. The `e` key writes it. Git ignores the file (`data/snapshots/*.png`). |
+| `--source` | from the camera file, else `0` | Camera index (Camo, built-in camera) or network stream URL (`http://...`, `rtsp://...`), for this run only. A stream is read on a background thread that keeps only the newest frame. See [setup.md](setup.md), step 4. |
+| `--camera-file` | `data/camera.toml` | Saved camera settings. A missing file is not an error: the built-in defaults apply (camera 0, 1920 x 1080, nominal 24 mm lens). |
+| `--config` | `data/board.toml` | Board and tag config. |
 
-The other options are the same as for `corners`.
+### Live view
 
-| Key | Action |
+On every frame the app finds the four corner tags and runs the drift
+monitor. It shows the camera frame (tags, board corners, grid) or, after
+`v`, the board from above at `rectify.px_per_mm`, with the lens distortion
+removed and the map grid on top (see "Map grid" below). The banner shows the
+drift status and the lens in use: `calibrated` (from `[lens]`) or `nominal`.
+
+Drift status (`calib.DriftMonitor`):
+
+| Status | Meaning |
 |---|---|
-| `space` | Detect on the current frame. |
-| `e` | Use the current frame as the empty-board reference and write it to `--reference`. The frame must pass `corners` and `rectify`, else the command keeps the old reference and prints why. |
-| `c` | Clear the reference: single-frame mode. |
-| `v` | Change between the top-down view (`bases` view) and the camera view with all overlays. |
-| `s` | Save the current camera frame to `data/snapshots/`. |
-| `q`, `Esc` | Quit. |
+| `locking reference` | The app saves the tag positions after `drift.settle_frames` still frames with all four tags. |
+| `4 corners OK` | All tags are within `drift.tolerance_mm` of the saved positions. The top-down view uses the saved positions, so it does not jitter. |
+| `BOARD MOVED` | One or more tags moved more than `drift.tolerance_mm`. The view follows the tags in each frame. |
+| `board position updated` | After a move the tags were still for `settle_frames` frames, and all four cards moved as one piece (the board or the camera moved). The app saved the new positions by itself. |
+| `CARD MOVED` | After a move, one card moved relative to the other three by more than `drift.tolerance_mm`: it is no longer on its board corner. The status stays until the card is back. |
+| `TAG LOST` | A tag was not seen for `drift.lost_after_frames` frames. |
 
-## `ident`: name the operatives
+The one-card check (`calib.card_offset_mm`): for each tag, a homography from
+the other three tags (12 corners, saved -> now) predicts its corners. When
+the board or the camera moves, all four predictions fit. A bumped card is
+off by its shift.
 
-```
-uv run battlesight ident --team NAME [--team NAME2] [--gallery-root data/teams]
-                         [--reference data/snapshots/empty_board.png]
-                         [--source 0] [--width 1920] [--height 1080] [--fps N]
-                         [--camera-file data/camera.toml]
-                         [--config data/board.toml] [--display-width 1600]
-```
+### Snapshot
 
-Snapshot mode, like `bases`: `space` runs all stages (`corners`, `rectify`,
-`bases`, `ident`) on one frame. The window shows each base with its operative
-name and score: green = sure, yellow = unsure (the lead over the second name
-is less than `ident.min_margin`, or the one-to-one assignment gave the base
-its second choice), red `?` = unknown (score under `ident.min_score`, or no
-operative of this base size is left). The command prints each base to stdout.
+`space` runs all stages (`corners`, `rectify`, `bases`, `ident`) on one
+frame. `b` runs only up to `bases`: no names, and the gallery and the model
+do not load. The snapshot stays on the screen until the next `space` or `b`,
+or `Esc`. The command prints each base to stdout.
 
-On every third live frame the command looks for the four corner cards. When
-a card is not seen, a red second strip under the status strip names the
-missing cards (`CORNERS NOT SEEN: 3/4 cards, missing 2 bottom-right`), also
-over a shown snapshot. `enroll` does the same. `app.corner_warning` and
-`app._CornerCheck` hold the logic.
+The gallery and the model load on the first `space`, not at start. No team
+folder: the app says so, and the bases have no names.
 
-Messages of keys and clicks (a failed stage, no base found, nothing to undo,
-a name set, a photo added) print to the Terminal as before, and also show
-for 6 seconds as a strip under the banner, under the corner warning when it
-shows: red for an error, yellow for a hint, green for done. `app._Notice`
+The snapshot shows each base with its operative name and score: green =
+sure, yellow = unsure (the lead over the second name is less than
+`ident.min_margin`, or the one-to-one assignment gave the base its second
+choice), red `?` = unknown (score under `ident.min_score`, or no operative
+of this base size is left).
+
+Over a snapshot, the live drift status shows in a second strip when it is
+not OK (for example `TAG LOST`, `CARD MOVED`). Messages of keys and clicks (a
+failed stage, no base found, nothing to undo, a name set, a photo added)
+print to the Terminal and also show for 6 seconds as a strip under the
+banner: red for an error, yellow for a hint, green for done. `app._Notice`
 holds the last message.
 
-Fixes (plan priority 4, "user confirms or fixes with one click"): click a
-base, then click a name in the menu. The menu lists the operatives of this
-base size, best score first, then the operatives without gallery photos. The
-crop of the base goes into the gallery of that operative. A name that another
-base held moves to the clicked base; the other base becomes unknown.
+Fixes (plan priority 4, "user confirms or fixes with one click"): after
+`space`, click a base, then click a name in the menu. The menu lists the
+operatives of this base size, best score first, then the operatives without
+gallery photos. The crop of the base goes into the gallery of that operative.
+A name that another base held moves to the clicked base; the other base
+becomes unknown. A click outside the menu closes it.
 
-| Option | Default | Meaning |
-|---|---|---|
-| `--team` | required | Team folder under `--gallery-root`. Repeat it for the second team. Labels are `<team>/<operative>`. |
-| `--gallery-root` | `data/teams` | Folder with one folder per team. |
-| `--reference` | `data/snapshots/empty_board.png` | Empty-board reference, as for `bases`. |
+### Keys
 
 | Key or mouse | Action |
 |---|---|
-| `space` | Detect and name on the current frame. |
-| left click on a base | Open the name menu. |
+| `space` | Snapshot: find the bases and name them. |
+| `b` | Snapshot: find the bases only. |
+| `v` | Change between the camera view and the top-down view (live and snapshot). |
+| `g` | Grid on or off. |
+| `e` | Use the current frame as the empty-board reference and write it to `--reference`. The frame must pass `corners` and `rectify`, else the app keeps the old reference and says why. |
+| `c` | Clear the empty-board reference: single-frame detection. |
+| left click on a base | Open the name menu (after `space`). |
 | left click on a name | Set the name, add the crop to the gallery. |
-| right click | Close the menu. |
 | `a` | Accept all names that are not confirmed: add their crops to the gallery. |
 | `u` | Undo the last gallery photo of this snapshot (deletes the file, gives the old name back). |
-| `e`, `c`, `v`, `s`, `q` | As in `bases`. |
+| `s` | Save the current camera frame to `data/snapshots/snap_<date>_<time>.png`. |
+| `h` | Show or hide the key list on the screen. |
+| `Esc` | Close the menu. When no menu is open, close the snapshot and go back to the live view. |
+| `q` | Quit. |
+
+The README section "What you see" tells what the overlay shows. The key
+logic is in `app.cmd_live` and `app._Live`.
 
 ## `enroll`: gallery photos of one operative
 
 ```
 uv run battlesight enroll --team NAME --operative NAME [--base-mm 32]
                           [--images PATH ...] [--reference FILE]
-                          [--gallery-root data/teams] [camera options]
+                          [--gallery-root data/teams]
+                          [--source S] [--camera-file FILE] [--config FILE]
 ```
 
 Adds crops of one operative to `data/teams/<team>/<operative>/` and its base
@@ -176,7 +153,8 @@ size to `data/teams/<team>/team.toml` (created when new). Live: push
 the crop goes in at once; with more, click the base. Turn and move the model
 between grabs: 10 to 20 crops from different places on the board (the
 parallax changes the look near the edges). `u` undoes the last crop, `v`
-changes the view, `q` quits.
+changes the view, `q` quits. When a corner card is not seen, a red strip
+names the missing cards (`app.corner_warning`, `app._CornerCheck`).
 
 `--images`: takes the crop from saved photos. A photo with no base or more
 than one base of the size is skipped with a message. Exit 0 when at least one
@@ -187,7 +165,7 @@ from `team.toml` is an error.
 ## `gallery`: check the gallery
 
 ```
-uv run battlesight gallery --team NAME [--team NAME2] [--gallery-root data/teams] [--config FILE]
+uv run battlesight gallery --team NAME [NAME2] [--gallery-root data/teams] [--config FILE]
 ```
 
 Lists each operative with its base size and photo count. Then it checks each
@@ -198,8 +176,7 @@ B`). A miss shows which operatives need more or better photos.
 ## `calibrate`: lens calibration
 
 ```
-uv run battlesight calibrate [--source 0] [--width 1920] [--height 1080]
-                             [--camera-file data/camera.toml]
+uv run battlesight calibrate [--source S] [--camera-file data/camera.toml]
                              [--images PATH [PATH ...]]
                              [--min-views 10]
 ```
@@ -215,8 +192,8 @@ distortion in the phone, but a calibration is better.
    values (focal length, centre, distortion): they are in pixels and do not
    depend on the square size. The scale must be the same in both directions.
 2. Glue the print to something flat and stiff.
-3. Run the command with the same camera as for play. With no camera
-   options, it uses the saved camera file.
+3. Run the command with the same camera as for play. It uses the saved
+   camera file (`--source` for another source).
 4. Hold the target in the camera view. Green dots show the found corners.
    Push `space` to keep the view. Keep 10 to 20 views: the target at the
    centre, at each edge and corner of the frame, some tilted 20 to 40 deg.
@@ -229,7 +206,8 @@ All images must have the same size.
 | Option | Default | Meaning |
 |---|---|---|
 | `--images` | none | Image files or folders. Use them instead of the camera. |
-| `--camera-file` | `data/camera.toml` | Camera file. The camera options come from it, and the command writes `[lens]` to it. |
+| `--source` | from the camera file | Camera for this run. |
+| `--camera-file` | `data/camera.toml` | Camera file. The camera values come from it, and the command writes `[lens]` to it. |
 | `--min-views` | `10` | Fewest views with the target. The command always needs at least 3. |
 
 The command prints the reprojection error (`rms`). Under 0.5 px is good.
@@ -241,13 +219,15 @@ The app uses `[lens]` only for frames with the same aspect ratio as the
 calibration images. It scales it to other sizes with that aspect ratio (4K
 calibration, 1080p frames). For other frames it uses the nominal lens.
 
-## `image`: saved photos
+## `image-pipeline`: saved photos
 
 ```
-uv run battlesight image PATH [PATH ...] [--until STAGE] [--config FILE] [--camera-file FILE]
-                         [--reference FILE] [--team NAME ...] [--gallery-root DIR] [--no-ident]
-                         [--out DIR] [--json FILE|-] [--show] [--display-width 1600] [-q]
+uv run battlesight image-pipeline PATH [PATH ...] [--config FILE] [--camera-file FILE]
+                                  [--reference FILE] [--team NAME [NAME2]] [--gallery-root DIR]
+                                  [--out DIR] [--json FILE|-] [--show] [-q]
 ```
+
+The command always runs all stages.
 
 `PATH` is an image file or a folder. For a folder, the command reads all
 images directly in it (not in subfolders), in name order. Accepted types:
@@ -256,17 +236,14 @@ the EXIF orientation of phone photos.
 
 | Option | Default | Meaning |
 |---|---|---|
-| `--until STAGE` | all stages | Run the stages up to and including `STAGE`, then stop. |
 | `--config` | `data/board.toml` | Board and tag config. |
 | `--camera-file` | `data/camera.toml` | Camera file. Only the lens (`focal_35mm`, `[lens]`) is used. The photo tests do not read it: they always use the nominal 24 mm lens. |
 | `--reference FILE` | none | Empty-board photo (terrain set up, no operatives) from the same camera and light. The `bases` stage then runs in reference mode for all images. An unreadable file, or one where `corners` or `rectify` fails, gives exit code 2. |
-| `--team NAME` | all teams | Gallery team for the `ident` stage. Repeat for two teams. Without it the command uses every team folder in `--gallery-root` (a folder with a `team.toml` or operative folders). No team folder: the `ident` stage names nothing. An unreadable gallery gives exit code 2. The gallery (and the model) loads only when the `ident` stage runs (not with `--until bases` or earlier). |
-| `--no-ident` | off | Do not load the gallery. The `ident` stage names nothing. |
-| `--gallery-root` | `data/teams` | Folder with one folder per team. |
+| `--team NAME [NAME2]` | all teams | One or two gallery teams for the `ident` stage. Without it the command uses every team folder in `--gallery-root` (a folder with a `team.toml` or operative folders). An unreadable gallery, or more than two names, gives exit code 2. |
+| `--gallery-root` | `data/teams` | Folder with one folder per team. No team folder in it: the `ident` stage names nothing and the model does not load. Point it at an empty folder to skip the names. |
 | `--out DIR` | none | Write `<name>.overlay.jpg`, one `<name>.<view>.jpg` per stage view, and `<name>.json` for each image to `DIR`. The command makes `DIR` if it does not exist. |
 | `--json FILE` | none | Write one report for all images to `FILE`. Use `-` to write it to stdout. |
 | `--show` | off | Show each overlay in a window. Push a key for the next image. Push `q` or `Esc` to stop. |
-| `--display-width` | `1600` | Window width for `--show`. |
 | `-q`, `--quiet` | off | Do not print a status line for each image. |
 
 ### Examples
@@ -274,13 +251,13 @@ the EXIF orientation of phone photos.
 Check all test photos:
 
 ```
-uv run battlesight image tests/images
+uv run battlesight image-pipeline tests/images
 ```
 
 Write overlays and JSON files to a folder:
 
 ```
-uv run battlesight image tests/images --out out/
+uv run battlesight image-pipeline tests/images --out out/
 ```
 
 `--out` writes `<name>.overlay.jpg` (camera frame with all overlays),
@@ -291,19 +268,19 @@ and `<name>.json`.
 Find the bases with an empty-board reference:
 
 ```
-uv run battlesight image game.jpg --reference empty.jpg --out out/
+uv run battlesight image-pipeline game.jpg --reference empty.jpg --out out/
 ```
 
 Send the report to another tool:
 
 ```
-uv run battlesight image shot.jpg --json - | jq '.images[0].stages.corners.data.board_corners_px'
+uv run battlesight image-pipeline shot.jpg --json - | jq '.images[0].stages.corners.data.board_corners_px'
 ```
 
-Look at one photo after the corners stage only:
+Look at the overlays of one photo:
 
 ```
-uv run battlesight image shot.jpg --until corners --show
+uv run battlesight image-pipeline shot.jpg --show
 ```
 
 ### Output
@@ -340,10 +317,11 @@ it on that image.
 | `corners` | 1 | All four corner tags are found. |
 | `rectify` | 2 | The board plane fits the 16 tag corners: the largest error is not more than `rectify.max_reproj_mm`. |
 | `bases` | 3 | Always, when it runs (no bases is a valid result). Fails only when the reference has another image size. |
-| `ident` | 4 | Always, when it runs. Without a gallery (no team folder, or `--no-ident`) or with an empty gallery it names nothing. Views: `ident` (top-down image with names). |
+| `ident` | 4 | Always, when it runs. Without a gallery (no team folder) or with an empty gallery it names nothing. Views: `ident` (top-down image with names). |
 
-Each new priority adds a stage to this list. `--until` accepts only the
-stages that exist. `uv run battlesight image --help` shows them.
+Each new priority adds a stage to this list. The live app runs all stages
+on `space` and the stages up to `bases` on `b` (`Pipeline.analyze(...,
+until=...)`).
 
 ### JSON report
 
@@ -574,10 +552,10 @@ photo tests use the `<name>.json` files from `--out` as expected results.
 The bases benchmark (`tools/bench_bases.py`, below) gives metrics and a
 baseline for the bases stage.
 
-In CI or a shell script, use the exit code of the `image` command:
+In CI or a shell script, use the exit code of the `image-pipeline` command:
 
 ```
-uv run battlesight image tests/images -q --json report.json || echo "pipeline failed"
+uv run battlesight image-pipeline tests/images -q --json report.json || echo "pipeline failed"
 ```
 
 ## Add a stage
@@ -610,8 +588,8 @@ Rules:
 - `views` is optional. It returns extra named images. `--out` writes each as
   `<name>.<view>.jpg`, `--show` shows each in its own window.
 
-The `image` command, `--until`, and `test_photo_passes_all_stages` use the
-new stage with no other change. Add the stage to the "Stages" table above.
+The `image-pipeline` command, the live app, and `test_photo_passes_all_stages`
+use the new stage with no other change. Add the stage to the "Stages" table above.
 Then update the photo test expected files (see [testing.md](testing.md),
 "New stages").
 
@@ -788,12 +766,13 @@ date = "2026-11-03 14:20:11"
 ```
 
 `CameraSettings` in `src/battlesight/camera.py` reads and writes it. The
-live commands and `image` read the lens from it (`--camera-file`). The board
+live commands and `image-pipeline` read the lens from it (`--camera-file`). The board
 config (`data/board.toml`) must not have a `[camera]` table: the app stops
 with an error that tells you to move it.
 
 ## Add a command
 
 Add a `cmd_<name>(args)` function and a subparser in `main()` in
-`src/battlesight/app.py`. Return the exit code from the function. Add a
-section for the command to this document.
+`src/battlesight/app.py`. Return the exit code from the function. Add the
+command to "All commands" at the top and a section for it to this document.
+Follow the option rule: no option for a thing that a key can change.

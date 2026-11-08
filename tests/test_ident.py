@@ -281,7 +281,7 @@ def test_cli_enroll_images_then_image(tmp_path, capsys):
     game.mkdir()
     cv2.imwrite(str(game / "g.png"), paint_board(cfg, SECOND))
     capsys.readouterr()
-    code = main(["image", str(game), "--config", str(cfg_file), "--team", "orks", "--gallery-root", str(root), "--json", "-", "-q"])
+    code = main(["image-pipeline", str(game), "--config", str(cfg_file), "--team", "orks", "--gallery-root", str(root), "--json", "-", "-q"])
     assert code == 0
     report = json.loads(capsys.readouterr().out)
     assert report["teams"] == ["orks"]
@@ -391,10 +391,12 @@ def test_cli_image_uses_all_gallery_teams_by_default(tmp_path, capsys):
     game = tmp_path / "game.png"
     cv2.imwrite(str(game), paint_board(cfg, SECOND))
     capsys.readouterr()
-    assert main(["image", str(game), "--config", str(cfg_file), "--json", "-", "-q"]) == 0
+    assert main(["image-pipeline", str(game), "--config", str(cfg_file), "--json", "-", "-q"]) == 0
     report = json.loads(capsys.readouterr().out)
     assert report["teams"] == ["orks"]
     assert report["images"][0]["stages"]["ident"]["message"].startswith("3/3 named")
-    assert main(["image", str(game), "--config", str(cfg_file), "--json", "-", "-q", "--no-ident"]) == 0
+    empty = tmp_path / "no_teams"
+    empty.mkdir()
+    assert main(["image-pipeline", str(game), "--config", str(cfg_file), "--json", "-", "-q", "--gallery-root", str(empty)]) == 0
     report = json.loads(capsys.readouterr().out)
     assert report["teams"] is None and report["images"][0]["stages"]["ident"]["message"] == "no gallery"

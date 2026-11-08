@@ -71,14 +71,14 @@ def test_stage_exception_becomes_failure(cfg, monkeypatch):
     assert not r.ok and "bad frame" in r.stages["corners"].message
 
 
-def test_cli_until_corners_skips_rectify(tmp_path, config_file, capsys):
-    img, _ = render_board(make_config())
-    p = tmp_path / "a.png"
-    cv2.imwrite(str(p), img)
-    assert main(["image", str(p), "--config", str(config_file), "--until", "corners", "--json", "-", "-q"]) == 0
-    report = json.loads(capsys.readouterr().out)
-    assert report["stages"] == ["corners"]
-    assert list(report["images"][0]["stages"]) == ["corners"]
+def test_analyze_until_stops_early():
+    # The live app runs only up to `bases` on the b key.
+    cfg = make_config()
+    img, _ = render_board(cfg)
+    pipe = Pipeline(cfg)
+    assert list(pipe.analyze(img, until="corners").stages) == ["corners"]
+    assert list(pipe.analyze(img, until="bases").stages) == ["corners", "rectify", "bases"]
+    assert list(pipe.analyze(img).stages) == pipe.names
 
 
 def test_unknown_stage_rejected():
@@ -99,7 +99,7 @@ def test_cli_image_ok(tmp_path, config_file, capsys):
     shots.mkdir()
     cv2.imwrite(str(shots / "a.png"), img)
     out = tmp_path / "out"
-    code = main(["image", str(shots), "--config", str(config_file), "--out", str(out), "--json", "-"])
+    code = main(["image-pipeline", str(shots), "--config", str(config_file), "--out", str(out), "--json", "-"])
     assert code == 0
     report = json.loads(capsys.readouterr().out)
     assert report["ok"] and report["stages"] == ["corners", "rectify", "bases", "ident"]
@@ -114,7 +114,7 @@ def test_cli_image_stage_failure_exit_1(tmp_path, config_file):
     p = tmp_path / "blank.png"
     cv2.imwrite(str(p), np.full((400, 400, 3), 160, np.uint8))
     report = tmp_path / "r.json"
-    assert main(["image", str(p), "--config", str(config_file), "--json", str(report), "-q"]) == 1
+    assert main(["image-pipeline", str(p), "--config", str(config_file), "--json", str(report), "-q"]) == 1
     stages = json.loads(report.read_text())["images"][0]["stages"]
     assert stages["corners"]["data"]["missing"] == [0, 1, 2, 3]
     assert stages["rectify"]["skipped"]
@@ -123,5 +123,5 @@ def test_cli_image_stage_failure_exit_1(tmp_path, config_file):
 def test_cli_image_bad_input_exit_2(tmp_path, config_file):
     bad = tmp_path / "not_an_image.jpg"
     bad.write_text("x")
-    assert main(["image", str(tmp_path / "missing.jpg"), "--config", str(config_file)]) == 2
-    assert main(["image", str(bad), "--config", str(config_file)]) == 2
+    assert main(["image-pipeline", str(tmp_path / "missing.jpg"), "--config", str(config_file)]) == 2
+    assert main(["image-pipeline", str(bad), "--config", str(config_file)]) == 2

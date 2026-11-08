@@ -126,3 +126,42 @@ def test_auto_lock_restarts_when_board_moves_during_settle(cfg):
     r = mon.update(b)
     assert r.status is DriftStatus.NO_REFERENCE
     assert r.settle_progress == 1 / cfg.settle_frames
+
+
+def test_drift_relocks_when_board_moved_as_one_piece(cfg):
+    px_per_mm = 2.0
+    img, _ = render_board(cfg, px_per_mm=px_per_mm)
+    det, mon = TagDetector(cfg), DriftMonitor(cfg)
+    mon.set_reference(det.detect(img))
+    moved, _ = render_board(cfg, px_per_mm=px_per_mm, shift_px=(8, 0))  # 4 mm
+    obs = det.detect(moved)
+    for _ in range(cfg.settle_frames - 1):
+        r = mon.update(obs)
+        assert r.status is DriftStatus.MOVED
+    r = mon.update(obs)
+    assert r.status is DriftStatus.OK and r.relocked
+    assert "board position updated" in r.summary()
+    r = mon.update(obs)
+    assert r.status is DriftStatus.OK and not r.relocked
+    assert max(r.shift_mm.values()) < 0.05
+
+
+def test_drift_keeps_warning_when_one_card_moved(cfg):
+    img, _ = render_board(cfg)
+    det, mon = TagDetector(cfg), DriftMonitor(cfg)
+    obs = det.detect(img)
+    mon.set_reference(obs)
+    ref = dict(mon.reference)
+    t = obs[2]
+    px_per_mm = t.side_px / cfg.tag_size_mm
+    off = np.array([0, 4.0 * px_per_mm])  # 4 mm
+    bumped = dict(obs)
+    bumped[2] = type(t)(t.tag_id, t.corners + off, t.center + off, t.side_px)
+    for _ in range(cfg.settle_frames):
+        r = mon.update(bumped)
+    assert r.status is DriftStatus.CARD_MOVED
+    assert r.card == 2 and abs(r.card_mm - 4.0) < 0.5
+    assert "CARD MOVED" in r.summary()
+    assert mon.update(bumped).status is DriftStatus.CARD_MOVED  # stays until the card is back
+    assert all(np.allclose(mon.reference[i].corners, ref[i].corners) for i in cfg.tag_ids)
+    assert mon.update(obs).status is DriftStatus.OK

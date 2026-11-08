@@ -111,7 +111,7 @@ def test_cli_uses_saved_settings(tmp_path, monkeypatch):
     path = tmp_path / "camera.toml"
     CameraSettings(source="http://192.168.0.217:8080/video").save(path)
     seen = _capture_open(monkeypatch)
-    assert main(["corners", "--camera-file", str(path)]) == 2
+    assert main(["--camera-file", str(path)]) == 2
     assert seen["source"] == "http://192.168.0.217:8080/video"
 
 
@@ -121,15 +121,15 @@ def test_cli_options_override_saved_settings(tmp_path, monkeypatch):
     path = tmp_path / "camera.toml"
     CameraSettings(source=1, width=3840, height=2160).save(path)
     seen = _capture_open(monkeypatch)
-    main(["rectify", "--camera-file", str(path), "--source", "0", "--width", "1280"])
-    assert seen == {"source": 0, "width": 1280, "height": 2160, "fps": None}
+    main(["--camera-file", str(path), "--source", "0"])
+    assert seen == {"source": 0, "width": 3840, "height": 2160, "fps": None}
 
 
 def test_cli_without_file_uses_built_in_defaults(tmp_path, monkeypatch):
     from battlesight.app import main
 
     seen = _capture_open(monkeypatch)
-    main(["corners", "--camera-file", str(tmp_path / "none.toml")])
+    main(["--camera-file", str(tmp_path / "none.toml")])
     assert seen == {"source": 0, "width": 1920, "height": 1080, "fps": None}
 
 

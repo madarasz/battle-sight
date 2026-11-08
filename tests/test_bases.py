@@ -214,7 +214,7 @@ def test_cli_image_reference(tmp_path, capsys):
     cv2.imwrite(str(tmp_path / "empty.png"), empty)
     cv2.imwrite(str(tmp_path / "game.png"), img)
     out = tmp_path / "out"
-    args = ["image", str(tmp_path / "game.png"), "--config", str(toml), "--json", "-", "-q", "--out", str(out)]
+    args = ["image-pipeline", str(tmp_path / "game.png"), "--config", str(toml), "--json", "-", "-q", "--out", str(out)]
     assert main(args + ["--reference", str(tmp_path / "empty.png")]) == 0
     report = json.loads(capsys.readouterr().out)
     d = report["images"][0]["stages"]["bases"]["data"]

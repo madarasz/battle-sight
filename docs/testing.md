@@ -21,13 +21,13 @@ default.
 
 | File | Tests |
 |---|---|
-| `tests/test_bases.py` | Circle fit on synthetic boards: each base size (centre within 0.5 mm, right class), neighbour sizes 25, 28, 32, a model over 40 % of the rim, a rim hidden too much (no result), touching bases, a base against a wall, light tokens and other sizes rejected, printed grid gives no bases, region limit. Reference mode: a static dark print is removed, noise is not foreground. Pipeline stage in single-frame and reference mode, no bases, bad reference, `image --reference`, the `[bases]` config table. |
+| `tests/test_bases.py` | Circle fit on synthetic boards: each base size (centre within 0.5 mm, right class), neighbour sizes 25, 28, 32, a model over 40 % of the rim, a rim hidden too much (no result), touching bases, a base against a wall, light tokens and other sizes rejected, printed grid gives no bases, region limit. Reference mode: a static dark print is removed, noise is not foreground. Pipeline stage in single-frame and reference mode, no bases, bad reference, `image-pipeline --reference`, the `[bases]` config table. |
 | `tests/test_bench.py` | Bases benchmark: one-to-one global greedy match (with the case where a per-truth match differs), tolerance, unknown size, decoy and `inside_base` categories. Metrics for a hand-made case, a negative photo, no detections, `done_ok`. Each baseline rule, a new photo, a better run. Ground truth schema 1 and 2, bad `rim` and `kind`. `tools/bench_bases.py` end to end on two synthetic photos (one with a reference): `bench.json`, `--mode`, `--set`, `--sweep`, `--write-baseline` and `--baseline`, exit codes, debug images. Click tool logic: fit of a known circle, class keys, hidden rim, estimate, save and load, undo, delete. |
-| `tests/test_camera.py` | Camera source parsing: device index, stream URL, file path. The stream reader keeps only the newest frame, waits for a new frame, and stops at the end of the stream. Camera settings file: defaults without a file, save and load for a device and a stream, command options override the file, `list_cameras.py` keeps the lens when it saves a new source. No camera or network needed. |
+| `tests/test_camera.py` | Camera source parsing: device index, stream URL, file path. The stream reader keeps only the newest frame, waits for a new frame, and stops at the end of the stream. Camera settings file: defaults without a file, save and load for a device and a stream, `--source` overrides the saved source, `list_cameras.py` keeps the lens when it saves a new source. No camera or network needed. |
 | `tests/test_config.py` | Load of `data/board.toml`. Rejection of bad tag ids and bad grid sections. Grid lines for Tomb World sections and for a Volkus 1 in pitch. |
-| `tests/test_ident.py` | Operative identity with the colour-histogram embedder (no model download): crop size, grey mask, rotation. One-to-one assignment (second choice, size limit, unknown). Gallery: `team.toml`, add, embedding cache reused, remove, two teams, leave-one-out. `ident` stage on synthetic boards with painted models, moved and turned between enrollment and game; no gallery, empty gallery. Fix logic (`LabelSession`: pick, menu order, a name moves, accept all, undo), menu hit test, done-test scoring, `[ident]` config, `enroll --images`, `image --team`, `gallery`. |
-| `tests/test_calib.py` | Tag corner geometry in mm. Tag detection (flat, perspective and blur, low pixel density, wrong tag ids). Board corner position. Drift monitor: reference lock, moved board, one moved tag, lost tag. |
-| `tests/test_pipeline.py` | Pipeline stages: a good board, a missing tag, skip of later stages after a failure, an error in a stage, an unknown stage name. The `image` command: exit codes 0, 1, 2, the JSON report, the `--out` files, `--until corners`. |
+| `tests/test_ident.py` | Operative identity with the colour-histogram embedder (no model download): crop size, grey mask, rotation. One-to-one assignment (second choice, size limit, unknown). Gallery: `team.toml`, add, embedding cache reused, remove, two teams, leave-one-out. `ident` stage on synthetic boards with painted models, moved and turned between enrollment and game; no gallery, empty gallery. Fix logic (`LabelSession`: pick, menu order, a name moves, accept all, undo), menu hit test, done-test scoring, `[ident]` config, `enroll --images`, `image-pipeline --team`, `gallery`. |
+| `tests/test_calib.py` | Tag corner geometry in mm. Tag detection (flat, perspective and blur, low pixel density, wrong tag ids). Board corner position. Drift monitor: reference lock, moved board, one moved tag, lost tag, new position saved after the board moved as one piece, `CARD MOVED` after one card moved. |
+| `tests/test_pipeline.py` | Pipeline stages: a good board, a missing tag, skip of later stages after a failure, an error in a stage, an unknown stage name, `analyze(..., until=...)` (the live `b` key). The `image-pipeline` command: exit codes 0, 1, 2, the JSON report, the `--out` files. |
 | `tests/test_rectify.py` | Board plane fit with an exact virtual camera: homography, camera position, board thickness correction, lens distortion. Top-down image of a rendered board: board edges, corner angles, printed grid lines, a board that slid over still cards, lens distortion removal. Stage report, failure on a bad fit, hint for swapped board width and height. Lens in the camera file: nominal lens and its focal length, calibrated lens at another scale, other aspect ratio. ChArUco lens calibration on virtual camera views, and the `calibrate` command (writes `[lens]`, keeps `[camera]`). |
 
 The unit tests use `render_board` in `tests/conftest.py`. It makes a top-down
@@ -121,7 +121,7 @@ fits (schema 1), checked by eye. Their centre errors in the benchmark are
 thus near 0 and do not show the true error. Click them again with
 `tools/annotate_bases.py` ("Click the ground truth" below).
 
-The expected file is the image report that `battlesight image --out` writes
+The expected file is the image report that `battlesight image-pipeline --out` writes
 (see [cli.md](cli.md), "JSON report"). A person checked the overlay image
 before the report became the expected file.
 
@@ -196,19 +196,19 @@ bases named right on the first try. It runs only when the photo has a
 ```
 
 Each true base matches the nearest found base within `tol_mm`. A missed base
-counts as wrong. Take the centres from `battlesight image <photo> --json -`
+counts as wrong. Take the centres from `battlesight image-pipeline <photo> --json -`
 (the `ident` or `bases` stage). Make the gallery with `battlesight enroll`
 from other photos than the test photo, else the test checks nothing.
 
 ### Add a photo
 
 1. Put the photo in `tests/images`. To get a frame from the real
-   camera, push `s` in `battlesight corners`, then move the file from
+   camera, push `s` in the app (`battlesight`), then move the file from
    `data/snapshots/`.
 2. Run the pipeline on it:
 
    ```
-   uv run battlesight image tests/images/<name>.jpg --out out/
+   uv run battlesight image-pipeline tests/images/<name>.jpg --out out/
    ```
 
 3. Open `out/<name>.overlay.jpg`. Make sure that each white cross is on its

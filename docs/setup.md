@@ -67,9 +67,10 @@ You set up the camera one time. `tools/list_cameras.py` checks the camera
 and saves it in `data/camera.toml`. This file holds all camera settings:
 the camera source and image size (this step), the nominal focal length
 (`focal_35mm`, 24 mm for the Xiaomi 13T main lens), and the lens
-calibration (step 6). After that, all live commands
-(`corners`, `rectify`, `calibrate`) use the saved camera, and you do not
-type `--source`, `--width`, or `--height` again.
+calibration (step 6). After that, the app, `enroll` and `calibrate` use the
+saved camera. The commands have no options for the image size or the frame
+rate: change them only with `tools/list_cameras.py` (below), or edit the
+`[camera]` table of `data/camera.toml` in a text editor.
 
 There are two ways to connect a phone. Use Camo if it works on your Mac.
 Use a Wi-Fi stream if Camo cannot install its camera (for example, on a
@@ -160,16 +161,19 @@ uv run tools/list_cameras.py --use 0 --width 1920 --height 1080
 ### Start the app
 
 ```bash
-uv run battlesight corners
+uv run battlesight
 ```
 
 The first output line tells which settings file the app uses. When the
 banner shows green "4 corners OK", the setup is correct.
 
-Command options override the saved settings for one run, for example
-`uv run battlesight corners --source 0`. To change the saved camera, run
-`tools/list_cameras.py --use` or `--url` again. To only check a camera and
-not save it, add `--no-save`.
+To use another camera for one run, add `--source`, for example
+`uv run battlesight --source 0`. To change the saved camera, its image size,
+or its frame rate, run `tools/list_cameras.py --use` (with `--width`,
+`--height`, `--fps`) or `--url` again. To only check a camera and not save
+it, add `--no-save`.
+
+The window can be resized: drag its edge.
 
 Calibrate the lens again (step 6) when you change between Camo and the
 stream, or change the image size.
@@ -242,15 +246,15 @@ the terrain and the light change.
    the board yet.
 2. Make sure that the light is as it will be in the game. Close the curtains
    or turn on the lamps first.
-3. Start the bases mode:
+3. Start the app:
 
    ```bash
-   uv run battlesight bases
+   uv run battlesight
    ```
 
 4. Keep your hands and other objects out of the image. Push `e`. The app
    saves the photo to `data/snapshots/empty_board.png` and uses it until you
-   take a new one. The next start of `battlesight bases` loads it again.
+   take a new one. The next start of the app loads it again.
 5. Put the operatives on the board and push `space`.
 
 If you move the camera or the light changes much, take the photo again. A
@@ -340,7 +344,7 @@ same light.
 | More of two operatives | `battlesight gallery` shows that the app mixes up these two. |
 
 A fast way to get many photos: enroll each operative with about 5 photos.
-Then use `battlesight ident` in your games. When a name is wrong, click the
+Then use the app (`uv run battlesight`) in your games. When a name is wrong, click the
 base and the correct name. When all names are correct, push `a`. Each
 correction and each `a` adds photos from real games to the gallery.
 

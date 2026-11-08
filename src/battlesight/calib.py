@@ -97,6 +97,7 @@ class DriftStatus(Enum):
     NO_REFERENCE = "no reference"
     OK = "ok"
     MOVED = "moved"
+    CARD_MOVED = "card moved"
     LOST = "lost"
 
 
@@ -107,7 +108,10 @@ class DriftReport:
     moved: dict[int, float] = field(default_factory=dict)  # tag id -> shift in mm, over tolerance
     shift_mm: dict[int, float] = field(default_factory=dict)  # tag id -> shift in mm, all visible
     visible: int = 0
-    settle_progress: float = 0.0  # 0..1 while the reference is locking
+    settle_progress: float = 0.0  # 0..1 while the reference is locking (or locking again after a move)
+    relocked: bool = False  # this frame saved a new reference after the board moved as one piece
+    card: int | None = None  # CARD_MOVED: tag id of the card that moved relative to the others
+    card_mm: float = 0.0  # CARD_MOVED: how far that card is off its place, in mm
 
     @property
     def ok(self) -> bool:
@@ -116,13 +120,37 @@ class DriftReport:
     def summary(self) -> str:
         if self.status is DriftStatus.NO_REFERENCE:
             return f"locking reference {int(self.settle_progress * 100):3d}%  ({self.visible}/4 tags)"
+        if self.status is DriftStatus.CARD_MOVED:
+            return f"CARD MOVED: tag {self.card} is {self.card_mm:.1f} mm off its corner, put it back"
         if self.status is DriftStatus.LOST:
             return "TAG LOST: " + ", ".join(str(i) for i in self.lost)
         if self.status is DriftStatus.MOVED:
             worst = max(self.moved.values())
             return "BOARD MOVED: " + ", ".join(f"tag {i} {mm:.1f} mm" for i, mm in self.moved.items()) + f"  (max {worst:.1f} mm)"
         worst = max(self.shift_mm.values()) if self.shift_mm else 0.0
-        return f"4 corners OK  (max shift {worst:.2f} mm)"
+        text = f"4 corners OK  (max shift {worst:.2f} mm)"
+        return text + "  board position updated" if self.relocked else text
+
+
+def card_offset_mm(cfg: BoardConfig, ref: dict[int, TagObs], now: dict[int, TagObs]) -> tuple[int, float]:
+    """Worst card that moved relative to the other three, between two complete
+    tag sets. For each tag, a homography from the other three tags (12
+    corners, reference -> now) predicts its corners. A board or camera that
+    moved as one piece gives about 0 for all tags; one bumped card gives its
+    shift. Returns (tag id, offset in mm)."""
+    worst, worst_mm = cfg.tag_ids[0], 0.0
+    for k in cfg.tag_ids:
+        others = [i for i in cfg.tag_ids if i != k]
+        src = np.concatenate([ref[i].corners for i in others]).astype(np.float64)
+        dst = np.concatenate([now[i].corners for i in others]).astype(np.float64)
+        H, _ = cv2.findHomography(src, dst, 0)
+        if H is None:
+            return k, float("inf")
+        pred = cv2.perspectiveTransform(ref[k].corners.reshape(-1, 1, 2).astype(np.float64), H).reshape(-1, 2)
+        mm = float(np.linalg.norm(pred - now[k].corners, axis=1).mean() / (now[k].side_px / cfg.tag_size_mm))
+        if mm > worst_mm:
+            worst, worst_mm = k, mm
+    return worst, worst_mm
 
 
 class DriftMonitor:
@@ -132,6 +160,10 @@ class DriftMonitor:
       all four tags visible and still.
     - A tag counts as lost after `lost_after_frames` consecutive misses.
     - A tag counts as moved when its mean corner shift exceeds the tolerance.
+    - After a move the tags must be still for `settle_frames` frames again.
+      When all four cards moved as one piece (board or camera moved), the new
+      position becomes the reference (`relocked`). When one card moved
+      relative to the others, the status is CARD_MOVED until it is back.
     Pixel shift converts to mm with the tag's own apparent size.
     """
 
@@ -140,10 +172,12 @@ class DriftMonitor:
         self.reference: dict[int, TagObs] | None = None
         self._miss = {tag_id: 0 for tag_id in cfg.tag_ids}
         self._settle: list[dict[int, TagObs]] = []
+        self._card: tuple[int, float] | None = None  # last rejected re-lock
 
     def reset(self) -> None:
         self.reference = None
         self._settle.clear()
+        self._card = None
         for k in self._miss:
             self._miss[k] = 0
 
@@ -157,11 +191,12 @@ class DriftMonitor:
         px_per_mm = ref.side_px / self.cfg.tag_size_mm
         return float(np.linalg.norm(now.corners - ref.corners, axis=1).mean() / px_per_mm)
 
-    def _try_auto_lock(self, obs: dict[int, TagObs]) -> float:
-        """Collect still, complete frames. Returns settle progress 0..1."""
+    def _settle_step(self, obs: dict[int, TagObs]) -> tuple[float, dict[int, TagObs] | None]:
+        """Collect still, complete frames. Returns (progress 0..1, the mean tag
+        set when `settle_frames` frames are still, else None)."""
         if not all(tag_id in obs for tag_id in self.cfg.tag_ids):
             self._settle.clear()
-            return 0.0
+            return 0.0, None
         if self._settle:
             first = self._settle[0]
             jitter = max(self._shift_mm(first[i], obs[i]) for i in self.cfg.tag_ids)
@@ -169,18 +204,17 @@ class DriftMonitor:
                 self._settle.clear()
         self._settle.append(obs)
         n = self.cfg.settle_frames
-        if len(self._settle) >= n:
-            # Average the corners over the settle window for a steadier reference.
-            ref: dict[int, TagObs] = {}
-            for tag_id in self.cfg.tag_ids:
-                stack = np.stack([f[tag_id].corners for f in self._settle])
-                mean = stack.mean(axis=0)
-                edges = np.linalg.norm(np.roll(mean, -1, axis=0) - mean, axis=1)
-                ref[tag_id] = TagObs(tag_id, mean, mean.mean(axis=0), float(edges.mean()))
-            self.reference = ref
-            self._settle.clear()
-            return 1.0
-        return len(self._settle) / n
+        if len(self._settle) < n:
+            return len(self._settle) / n, None
+        # Average the corners over the settle window for a steadier reference.
+        mean_obs: dict[int, TagObs] = {}
+        for tag_id in self.cfg.tag_ids:
+            stack = np.stack([f[tag_id].corners for f in self._settle])
+            mean = stack.mean(axis=0)
+            edges = np.linalg.norm(np.roll(mean, -1, axis=0) - mean, axis=1)
+            mean_obs[tag_id] = TagObs(tag_id, mean, mean.mean(axis=0), float(edges.mean()))
+        self._settle.clear()
+        return 1.0, mean_obs
 
     def update(self, obs: dict[int, TagObs]) -> DriftReport:
         for tag_id in self.cfg.tag_ids:
@@ -189,19 +223,35 @@ class DriftMonitor:
         visible = sum(1 for i in self.cfg.tag_ids if i in obs)
 
         if self.reference is None:
-            progress = self._try_auto_lock(obs)
-            if self.reference is None:
+            progress, mean_obs = self._settle_step(obs)
+            if mean_obs is None:
                 return DriftReport(DriftStatus.NO_REFERENCE, lost=lost, visible=visible, settle_progress=progress)
+            self.reference = mean_obs
 
-        shift = {i: self._shift_mm(self.reference[i], obs[i]) for i in self.cfg.tag_ids if i in obs}
+        shift = self._shifts(obs)
         moved = {i: mm for i, mm in shift.items() if mm > self.cfg.drift_tolerance_mm}
         if lost:
-            status = DriftStatus.LOST
-        elif moved:
-            status = DriftStatus.MOVED
-        else:
-            status = DriftStatus.OK
-        return DriftReport(status, lost=lost, moved=moved, shift_mm=shift, visible=visible, settle_progress=1.0)
+            self._settle.clear()
+            return DriftReport(DriftStatus.LOST, lost=lost, moved=moved, shift_mm=shift, visible=visible, settle_progress=1.0)
+        if not moved:
+            self._settle.clear()
+            self._card = None
+            return DriftReport(DriftStatus.OK, shift_mm=shift, visible=visible, settle_progress=1.0)
+        progress, mean_obs = self._settle_step(obs)
+        if mean_obs is not None:
+            card, mm = card_offset_mm(self.cfg, self.reference, mean_obs)
+            if mm <= self.cfg.drift_tolerance_mm:
+                self.reference = mean_obs
+                self._card = None
+                return DriftReport(DriftStatus.OK, shift_mm=self._shifts(obs), visible=visible, settle_progress=1.0, relocked=True)
+            self._card = (card, mm)
+        if self._card is not None:
+            card, mm = self._card
+            return DriftReport(DriftStatus.CARD_MOVED, moved=moved, shift_mm=shift, visible=visible, settle_progress=progress, card=card, card_mm=mm)
+        return DriftReport(DriftStatus.MOVED, moved=moved, shift_mm=shift, visible=visible, settle_progress=progress)
+
+    def _shifts(self, obs: dict[int, TagObs]) -> dict[int, float]:
+        return {i: self._shift_mm(self.reference[i], obs[i]) for i in self.cfg.tag_ids if i in obs}
 
 
 # --- lens model (priority 2) ---------------------------------------------------

@@ -35,117 +35,87 @@ a phone through Camo), a printer, and scissors.
 
 ## How to use
 
-Open the Terminal app and go to the Battle Sight folder. Start one of the
-modes below. The app uses the camera that you saved in setup step 4
+Open the Terminal app and go to the Battle Sight folder. Start the app:
+
+```bash
+uv run battlesight
+```
+
+The app uses the camera that you saved in setup step 4
 (`tools/list_cameras.py`). To use another camera for one run, add
 `--source`, for example `--source 0` for the built-in camera.
 
-### Board view (for a game)
+The app uses all teams that you taught it (setup step 8). To use only the
+two teams of this game, add their names:
 
 ```bash
-uv run battlesight rectify
+uv run battlesight --team kommandos veterans
 ```
 
-The window shows the board from straight above, upright, with the map grid
-on it. The app removes the camera tilt and the lens distortion, so the
-grid lines sit on the printed lines of the board.
+### Live view
 
-| Key | Action |
-|---|---|
-| `v` | Change between the top-down view and the camera view. |
-| `g` | Show or hide the grid. |
-| `r` | Lock the board position again, after you moved the board on purpose. |
-| `s` | Save a photo to `data/snapshots/`. |
-| `q` | Quit. |
+The window shows the camera image with the four corner cards and the map
+grid. Use it to put the camera and the board in position before a game.
+Push `v` to see the board from straight above, upright. The app removes the
+camera tilt and the lens distortion, so the grid lines sit on the printed
+lines of the board.
 
-### Find the bases
+When you move the board or the camera, the app finds the new position by
+itself. Keep the board still for a moment after the move.
 
-```bash
-uv run battlesight bases
-```
+### Find the bases and name the operatives
 
-The app finds the round bases of the operatives on the board. It shows each
-base with a green circle and its size in mm (25, 28, 32, 40 or 50).
+1. Before the operatives go on the board, set up the terrain and the tokens,
+   and push `e`. The app keeps this photo of the empty board. Then it looks
+   for bases only where something changed. Without the empty-board photo,
+   the app also finds some tokens and terrain parts that look like bases.
+2. Put the operatives on the board.
+3. Push `space`. The app finds the bases and writes the name of the
+   operative under each base:
+   - Green name: the app is sure.
+   - Yellow name: the app is not sure. Check it.
+   - Red `?`: the app does not know this operative.
+4. If a name is wrong, click the base, then click the correct name in the
+   list. The app learns from each correction, so it makes fewer errors in
+   the next games.
+5. Push `Esc` to go back to the live view.
 
-Before the operatives go on the board, set up the terrain and push `e`. The
-app keeps this photo of the empty board. Then put the operatives on the
-board and push `space`. The app compares the board with the empty-board
-photo and looks for bases only where something changed. Without the
-empty-board photo the app also finds some tokens and terrain parts that look
-like bases.
+Push `b` to find the bases without names (each base with a green circle and
+its size in mm). The result stays on the screen until the next `space` or
+`b`, or until you push `Esc`. The Terminal window also lists each base.
 
-| Key | Action |
-|---|---|
-| `space` | Find the bases now. The result stays on the screen until the next `space`. |
-| `e` | Keep the current image as the empty-board photo. Do this on the empty board only. |
-| `c` | Forget the empty-board photo. |
-| `v` | Change between the top-down view and the camera view. |
-| `s` | Save a photo to `data/snapshots/`. |
-| `q` | Quit. |
+### Keys
 
-The Terminal window also lists each base: size, position on the board in mm,
-and how much of its edge the camera saw.
-
-### Name the operatives
-
-```bash
-uv run battlesight ident --team kommandos
-```
-
-Do setup step 8 first, one time for each team. For two teams, add the
-second team: `--team kommandos --team veterans`.
-
-Push `space`. The app finds the bases and writes the name of the operative
-under each base:
-
-- Green name: the app is sure.
-- Yellow name: the app is not sure. Check it.
-- Red `?`: the app does not know this operative.
-
-If a name is wrong, click the base, then click the correct name in the list.
-The app learns from each correction, so it makes fewer errors in the next
-games.
+Push `h` to see this list in the window.
 
 | Key or mouse | Action |
 |---|---|
-| `space` | Find and name the operatives now. |
+| `space` | Find the bases and name the operatives. |
+| `b` | Find the bases only, no names. |
+| `v` | Change between the camera view and the top-down view. |
+| `g` | Show or hide the grid. |
+| `e` | Keep the current image as the empty-board photo. Do this on the empty board only. |
+| `c` | Forget the empty-board photo. |
 | Click a base | Show the list of names for this base size. |
 | Click a name | Give this name to the base. The app keeps the photo. |
-| Right click | Close the list. |
 | `a` | All names are correct: the app keeps the photos of all bases. |
 | `u` | Undo the last correction. |
-| `e` | Keep the current image as the empty-board photo. |
-| `c` | Forget the empty-board photo. |
-| `v` | Change between the top-down view and the camera view. |
 | `s` | Save a photo to `data/snapshots/`. |
-| `q` | Quit. |
-
-### Corner check (to set up the table)
-
-```bash
-uv run battlesight corners
-```
-
-The window shows the camera image and the four corner cards. Use this mode
-to put the camera and the board in position before a game.
-
-| Key | Action |
-|---|---|
-| `r` | Lock the board position again, after you moved the board on purpose. |
-| `s` | Save a photo to `data/snapshots/`. |
+| `h` | Show or hide the key list. |
+| `Esc` | Close the list of names. When no list is open, go back to the live view. |
 | `q` | Quit. |
 
 ### Saved photos
 
 ```bash
-uv run battlesight image my-photo.jpg --show
+uv run battlesight image-pipeline my-photo.jpg --show
 ```
 
 The app does the same analysis on a saved photo and shows the result.
 Use it to check a photo that you saved with `s`. To find the bases with an
-empty-board photo, add `--reference empty.jpg`. The app also names the operatives of all teams
-that you taught it (setup step 8). To use only one team, add
-`--team kommandos`.
+empty-board photo, add `--reference empty.jpg`. The app also names the
+operatives of all teams that you taught it (setup step 8). To use only some
+teams, add `--team kommandos veterans`.
 
 ## What you see
 
@@ -155,10 +125,13 @@ The banner at the top tells the board status:
 |---|---|---|
 | Yellow "locking reference" | The app learns the board position. It takes about 10 frames. | Do not touch the board. |
 | Green "4 corners OK" | All four cards are visible. The board did not move. | Play. |
-| Yellow "BOARD MOVED" | A card moved more than 2 mm. | Put the board back, or press `r` if you moved it on purpose. |
+| Yellow "BOARD MOVED" | A card moved more than 2 mm. | Keep the board still. When all four cards moved together, the app saves the new position after about 10 frames. |
+| Green "board position updated" | The board or the camera moved, and the app saved the new position. | Play. |
+| Red "CARD MOVED" | One card moved, but the other cards did not. The card is not on its board corner now. | Put the card back against the board corner. |
 | Red "TAG LOST" | The camera cannot see a card. | Remove what covers the card (a hand, a model, a dice tray). |
-| Red "CORNERS NOT SEEN" (second line, `ident` and `enroll`) | The camera cannot see one or more corner cards now. The line names the cards. `space` cannot find the board. | Remove what covers the card. Move the camera if a card is outside the image. |
-| Message line under the banner (`ident` and `enroll`) | The result of your last key or click, for 6 seconds. Red: it did not work, for example "no base found". Yellow: do the next step, for example "click the base". Green: done, for example "photo 3 added". | Read the message. For a red message, correct the cause and try again. |
+| Second line over a result | The board status of the live camera, when it is not OK. | As for the banner. |
+| Red "CORNERS NOT SEEN" (second line, `enroll`) | The camera cannot see one or more corner cards now. The line names the cards. `space` cannot find the board. | Remove what covers the card. Move the camera if a card is outside the image. |
+| Message line under the banner | The result of your last key or click, for 6 seconds. Red: it did not work, for example "no base found". Yellow: do the next step, for example "click the base". Green: done, for example "photo 3 added". | Read the message. For a red message, correct the cause and try again. |
 
 On the camera image:
 
@@ -168,7 +141,7 @@ On the camera image:
 - Yellow lines: the map grid.
 - Green circle with a number: a base that the app found, and its size in mm.
   The circle is the bottom edge of the base, where it touches the board.
-- Name under a base (`ident` mode): the operative and a score from 0 to 1.
+- Name under a base (after `space`): the operative and a score from 0 to 1.
   Green is sure, yellow is not sure, red `?` is unknown. A white circle
   shows the base that you clicked.
 
@@ -177,8 +150,9 @@ the image, and the grid sits on the printed lines.
 
 ## Problems
 
-- **"BOARD MOVED" does not go away.** The board moved after the app locked
-  its position. Push the board back, or press `r` to lock the new position.
+- **"BOARD MOVED" does not go away.** Something moves the cards, for example
+  a hand or a shaking table. Keep the board still for a moment. If "CARD
+  MOVED" shows, put the named card back on its board corner.
 - **The board slid but there is no warning.** The app measures from the
   cards, not from the board. If the board slides over a card that stays
   still, the app cannot see it. Lift the corner and put it back against the
@@ -196,7 +170,7 @@ the image, and the grid sits on the printed lines.
   hide too much of it. Move the camera nearer to the top of the board, or
   turn the model.
 - **A token or a terrain part shows as a base.** Take the empty-board photo
-  (`e` in `battlesight bases`) after you set up the terrain and the tokens,
+  (`e`) after you set up the terrain and the tokens,
   before the operatives go on the board.
 - **The size of a base is wrong.** Make sure that `diameters_mm` in
   `data/board.toml` lists only the base sizes of your teams.
@@ -206,7 +180,7 @@ the image, and the grid sits on the printed lines.
 - **The name list is empty.** The gallery has no operative with this base
   size. Teach the app this operative (setup step 8), or check `base_mm` in
   `data/teams/<team>/team.toml`.
-- **The first start of `ident` or `enroll` is slow.** The app downloads the
-  recognition model one time. Later starts take a few seconds.
+- **The first `space` or `enroll` is slow.** The app downloads the
+  recognition model one time. Later, the first `space` takes a few seconds.
 - **The grid does not sit on the printed lines.** Check the map settings
   ([docs/setup.md](docs/setup.md), step 5). Then calibrate the lens (step 6).

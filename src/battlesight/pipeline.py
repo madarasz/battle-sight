@@ -11,7 +11,7 @@ Add a priority as a new stage:
         corners = ctx.results["corners"].data["board_corners_px"]
         ...
 
-The `image` subcommand, the tests, and a later FastAPI front end all call
+The `image-pipeline` subcommand, the tests, and a later FastAPI front end all call
 `analyze` and `annotate`. Everything in `StageResult.data` must be JSON-safe
 (plain numbers, strings, lists, dicts).
 """
@@ -171,6 +171,12 @@ class Pipeline:
     def gallery(self) -> idt.Gallery | None:
         return self.cache.get("gallery")
 
+    def set_gallery(self, gallery: idt.Gallery | None) -> None:
+        if gallery is None:
+            self.cache.pop("gallery", None)
+        else:
+            self.cache["gallery"] = gallery
+
     def set_reference(self, frame: np.ndarray) -> None:
         """Use `frame` as the empty-board reference. The reference finds its own
         tags, so a small camera move between it and later frames does not matter.
@@ -187,10 +193,13 @@ class Pipeline:
     def has_reference(self) -> bool:
         return "bases_reference" in self.cache
 
-    def analyze(self, frame: np.ndarray, source: str = "") -> FrameResult:
+    def analyze(self, frame: np.ndarray, source: str = "", until: str | None = None) -> FrameResult:
+        """Run the stages on one frame. `until` stops earlier than the stages
+        of the pipeline (the live app runs `bases` only on one key)."""
         ctx = Context(frame, self.cfg, self.cache, self.camera)
         failed = False
-        for name in self.names:
+        names = self.names if until is None else [n for n in self.names if n in select_stages(until)]
+        for name in names:
             if failed:
                 ctx.results[name] = StageResult(ok=False, skipped=True, message="earlier stage failed")
                 continue

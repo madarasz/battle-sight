@@ -6,8 +6,8 @@
 
 --use and --url write the [camera] table of data/camera.toml (--camera-file to change).
 The other values in the file (focal_35mm, the [lens] calibration) stay. The live commands
-(corners, rectify, calibrate) then use it when --source, --width, --height and --fps are
-not given. --no-save only checks.
+(battlesight, enroll, calibrate) then use the saved values. --source overrides the source
+for one run. --no-save only checks.
 
 macOS asks for camera permission on the first run. Camo shows up as an extra index.
 "out device of bound (0-0): 1" warnings mean OpenCV has only index 0: no extra camera.

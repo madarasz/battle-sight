@@ -21,6 +21,7 @@ _STATUS_COLOR = {
     DriftStatus.NO_REFERENCE: YELLOW,
     DriftStatus.OK: GREEN,
     DriftStatus.MOVED: YELLOW,
+    DriftStatus.CARD_MOVED: RED,
     DriftStatus.LOST: RED,
 }
 

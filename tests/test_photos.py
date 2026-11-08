@@ -1,7 +1,7 @@
 """Regression tests on real photos in tests/images.
 
 Each photo <name>.jpg has a reviewed report <name>.expected.json next to it
-(the <name>.json that `battlesight image --out` writes). The tests run the
+(the <name>.json that `battlesight image-pipeline --out` writes). The tests run the
 pipeline on the photo and compare the result with the expected report, within
 a tolerance in board millimetres.
 
@@ -73,7 +73,7 @@ def load_expected(photo: Path) -> dict:
     path = expected_path(photo)
     if not path.is_file():
         pytest.fail(
-            f"no {path.name}. Run `uv run battlesight image {photo} --out out/`, check the overlay, "
+            f"no {path.name}. Run `uv run battlesight image-pipeline {photo} --out out/`, check the overlay, "
             f"then copy out/{photo.stem}.json to {path}"
         )
     return json.loads(path.read_text())

@@ -86,7 +86,7 @@ class CameraSettings:
     def save(self, path: str | Path = DEFAULT_CAMERA_FILE) -> None:
         lines = [
             "# Camera settings. tools/list_cameras.py writes [camera], battlesight calibrate",
-            "# writes [lens]. Command options (--source, --width, --height, --fps) override them.",
+            "# writes [lens]. The --source option overrides the source for one run.",
             "",
             "[camera]",
             f"source = {json.dumps(self.source)}",
