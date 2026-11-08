@@ -301,6 +301,21 @@ game camera. Read [Good gallery photos](#good-gallery-photos) first.
    If you took a bad photo, push `u` to remove it.
 6. Push `q`. Do steps 2 to 6 for each operative of the team.
 
+To test the gallery during the enroll mode, push `t`. The app compares each
+gallery photo of the team with the other photos. The info bar shows the
+number of correct names and the operatives that the app mixes up. The result
+stays until you add or remove a photo. The right side of the info bar shows
+the video resolution and the frame rate (FPS).
+
+To zoom in, put the mouse pointer on the operative and push `+`. To zoom out,
+push `-`. To remove the zoom, push `0`. When you zoom in, `space` looks for a
+base only in the part of the board that you see.
+
+If `space` finds no base, the app tries again with a wider search. The info
+bar then shows "not sure" and yellow circles. Click a yellow circle only if it
+fits the base of the operative. If no circle fits, zoom in on the operative,
+or move it, and push `space` again.
+
 ### Good gallery photos
 
 The app compares the operatives in a game with the gallery photos. Thus the
@@ -322,7 +337,13 @@ same light.
   finding the base.
 - **Take the empty-board photo first (step 7)** for the board as it is now.
   The enroll mode uses it to find the base. An old empty-board photo of
-  other terrain can give wrong bases.
+  other terrain can give wrong bases. You can also take this photo in the
+  enroll mode: remove all operatives from the board and push `e`. This
+  replaces the saved photo that the game also uses. If you change the
+  terrain for the game, take a new photo before the game. The app keeps the
+  empty board around the base with each gallery photo, so a new empty-board
+  photo does not change your gallery. If the info bar shows "no background
+  saved", take the empty-board photo before you push `space`.
 - **Use the game light.** Lock the focus and the exposure of the camera, as
   for a game.
 - **You do not cut the photos.** The app finds the base and keeps only the
@@ -365,6 +386,34 @@ two operatives.
 
 The first start downloads the recognition model (about 90 MB). This needs
 the internet one time only.
+
+## 9. Change the window layout settings (optional)
+
+Push `l` in the app to change the layout. The app writes your choice in the
+file `data/ui.toml`. You do not have to make this file.
+
+To change the layout settings, open or make this file in a text editor:
+
+```toml
+[ui]
+layout = "inspector"
+
+[layouts.inspector]
+panel_side = "right"
+debug_open = false
+
+[layouts.panel]
+panel_side = "right"
+```
+
+| Setting | Values | Meaning |
+|---|---|---|
+| `layout` | `inspector`, `panel` | The layout when the app starts. |
+| `panel_side` | `left`, `right` | The side of the window for the panel. |
+| `debug_open` | `true`, `false` | Show the debug values at the start (`inspector` only). |
+
+If a value is not correct, the app starts and shows a red message at the
+bottom of the window. It then uses the default value.
 
 ## Troubleshooting
 

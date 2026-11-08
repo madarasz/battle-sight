@@ -15,6 +15,8 @@ from battlesight.pipeline import BASES_MARGIN_MM, Pipeline, analyze, bases_image
 
 from .conftest import Base, make_config, mild_perspective, render_board
 
+from battlesight.pipeline import BasesSearch  # noqa: E402
+
 CENTER_TOL_MM = 0.5  # synthetic images: exact rims, so much tighter than the 2 mm done test
 
 
@@ -239,3 +241,32 @@ def test_config_bases_table(tmp_path: Path):
     p.write_text(head + "[bases]\ndiameters_mm=[]\n")
     with pytest.raises(ValueError):
         BoardConfig.load(p)
+
+
+def test_search_area_keeps_bases_inside_only():
+    cfg = make_config()
+    a, b = (150.0, 150.0), (420.0, 500.0)
+    img, mm2px = render_board(cfg, px_per_mm=2.0, bases=(Base(a, 40.0), Base(b, 40.0)))
+    x0, y0 = (mm2px((a[0] - 60, a[1] - 60))).astype(int)
+    x1, y1 = (mm2px((a[0] + 60, a[1] + 60))).astype(int)
+    r = Pipeline(cfg, "bases").analyze(img, search=BasesSearch(area_px=(int(x0), int(y0), int(x1), int(y1))))
+    assert r.ok and len(r.scratch["bases"]) == 1
+    assert np.linalg.norm(r.scratch["bases"][0].center_mm - a) < CENTER_TOL_MM
+
+
+def test_relaxed_search_finds_a_mostly_hidden_rim():
+    cfg = make_config()
+    c = (300.0, 300.0)
+    img, _ = render_board(cfg, px_per_mm=2.0, bases=(Base(c, 40.0, model_deg=0.0, model_span_deg=225.0),))
+    pipe = Pipeline(cfg, "bases")
+    assert not pipe.analyze(img, search=BasesSearch(diameters_mm=(40.0,))).scratch["bases"]
+    found = pipe.analyze(img, search=BasesSearch(diameters_mm=(40.0,), relaxed=True)).scratch["bases"]
+    assert 1 <= len(found) <= cfg.bases_relaxed_max_found
+    assert min(np.linalg.norm(f.center_mm - c) for f in found) < 2.0
+
+
+def test_default_search_does_not_use_relaxed_values():
+    cfg = make_config()
+    img, _ = render_board(cfg, px_per_mm=2.0, bases=(Base((300.0, 300.0), 40.0),))
+    plain = Pipeline(cfg, "bases").analyze(img)
+    assert len(plain.scratch["bases"]) == 1 and plain.scratch["bases_search"] is None

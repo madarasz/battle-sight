@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-
 import cv2
 import numpy as np
 
@@ -188,47 +186,6 @@ def draw_idents(frame: np.ndarray, bases, idents, to_px, selected: int | None = 
             name += f" {x.score:.2f}"
         bottom = np.rint(to_px((c.center_mm + (0.0, r + 2.0)).reshape(1, 2))[0]).astype(int)
         _label(frame, name, (int(bottom[0]), int(bottom[1])), color, s, thick)
-
-
-@dataclass
-class Menu:
-    """A list of names drawn at `origin` (display pixels), one row each.
-    `hit` gives the row under a point. No window calls, so tests can use it."""
-
-    items: list[str]
-    origin: tuple[int, int]
-    row_h: int = 28
-    width: int = 260
-
-    def rect(self) -> tuple[int, int, int, int]:
-        x, y = self.origin
-        return x, y, x + self.width, y + self.row_h * len(self.items)
-
-    def hit(self, x: float, y: float) -> int | None:
-        x0, y0, x1, y1 = self.rect()
-        if not (x0 <= x < x1 and y0 <= y < y1):
-            return None
-        return int((y - y0) // self.row_h)
-
-    def fit(self, size: tuple[int, int]) -> Menu:
-        """Copy moved inside an image of `size` (width, height)."""
-        w, h = size
-        x0, y0, x1, y1 = self.rect()
-        x = min(max(0, x0), max(0, w - (x1 - x0)))
-        y = min(max(0, y0), max(0, h - (y1 - y0)))
-        return Menu(self.items, (x, y), self.row_h, self.width)
-
-
-def draw_menu(frame: np.ndarray, menu: Menu, hover: int | None = None) -> None:
-    x0, y0, x1, y1 = menu.rect()
-    cv2.rectangle(frame, (x0, y0), (x1, y1), BLACK, -1)
-    cv2.rectangle(frame, (x0, y0), (x1, y1), WHITE, 1)
-    scale = menu.row_h / 40.0
-    for k, item in enumerate(menu.items):
-        y = y0 + k * menu.row_h
-        if k == hover:
-            cv2.rectangle(frame, (x0 + 1, y), (x1 - 1, y + menu.row_h), (90, 90, 90), -1)
-        cv2.putText(frame, item, (x0 + 8, y + int(menu.row_h * 0.72)), cv2.FONT_HERSHEY_SIMPLEX, scale, WHITE, 1, cv2.LINE_AA)
 
 
 def draw_dashed_circle(

@@ -4,6 +4,7 @@ download: the tests use the colour-histogram embedder."""
 from __future__ import annotations
 
 import json
+import re
 
 import cv2
 import numpy as np
@@ -12,7 +13,6 @@ import pytest
 from battlesight import ident as idt
 from battlesight.app import main
 from battlesight.config import BoardConfig
-from battlesight.overlay import Menu
 from battlesight.pipeline import Pipeline
 
 from .conftest import Base, make_config, render_board
@@ -144,6 +144,31 @@ def test_gallery_team_file_add_reload_remove(tmp_path):
     assert len(g2) == 0 and not path.exists()
 
 
+def test_prepare_averages_pixels_when_it_shrinks():
+    crop = ((np.indices((480, 480)).sum(0) % 2) * 255).astype(np.uint8)  # 1 px checker
+    crop = cv2.cvtColor(crop, cv2.COLOR_GRAY2BGR)
+    p = idt.IdentParams(input_px=112, crop_pad_mm=25)
+    for angle in (0.0, 45.0):
+        out = idt.prepare(crop, 40.0, p, angle)
+        assert out.shape == (112, 112, 3)
+        assert out[36:76, 36:76].std() < 25  # no aliasing pattern
+    assert "prepare" in p.cache_key("m")
+
+
+def test_prepare_keeps_the_centre_when_it_shrinks():
+    crop = np.full((480, 480, 3), 200, np.uint8)
+    cv2.circle(crop, (240, 240), 40, (0, 0, 0), -1)
+    out = idt.prepare(crop, 40.0, idt.IdentParams(input_px=112, crop_pad_mm=25), 45.0)
+    dark = np.argwhere(out[..., 0] < 60)
+    assert np.abs(dark.mean(axis=0) - 55.5).max() < 1.0
+
+
+def test_unknown_base_size_uses_configured_crop_scale(tmp_path):
+    g = make_gallery(tmp_path, ident_cfg(bases_px_per_mm=2.0))
+    crop = np.zeros((240, 240, 3), np.uint8)  # (40 + 2 * 40) mm at 2 px per mm
+    assert g._diameter(idt.Operative("orks", "Nob", None), crop) == 40.0
+
+
 def test_two_teams_and_leave_one_out(tmp_path):
     cfg = ident_cfg()
     g = make_gallery(tmp_path, cfg, teams=("orks", "guard"))
@@ -218,15 +243,6 @@ def test_label_session_fix_moves_label_and_feeds_gallery(tmp_path):
     assert g.counts()["orks/Nob"] == 0 and s.idents[1].label is None
 
 
-def test_menu_hit_and_fit():
-    m = Menu(["a", "b", "c"], (100, 50), row_h=20, width=80)
-    assert m.hit(110, 55) == 0 and m.hit(110, 95) == 2
-    assert m.hit(110, 111) is None and m.hit(99, 55) is None
-    f = m.fit((150, 60))
-    x0, y0, x1, y1 = f.rect()
-    assert x1 <= 150 and y0 == 0
-
-
 # --- done test ----------------------------------------------------------------
 
 
@@ -259,16 +275,21 @@ def test_config_ident_table(tmp_path):
     assert idt.IdentParams.from_config(cfg).rotations == 4
 
 
-def test_cli_enroll_images_then_image(tmp_path, capsys):
+def cli_config(tmp_path):
+    """A board config file for the synthetic board size, with the colour embedder."""
     from battlesight.config import DEFAULT_CONFIG
 
-    # A board config for the synthetic board size, with the colour embedder.
     text = DEFAULT_CONFIG.read_text()
     text = text.replace("width_mm = 703.0", "width_mm = 606.0").replace("height_mm = 606.0", "height_mm = 703.0", 1)
     text = text.replace("thickness_mm = 1.0", "thickness_mm = 0.0").replace("printed = true", "printed = false")
     text = text.replace('model = "facebook/dinov2-small"', 'model = "color-hist"')
     cfg_file = tmp_path / "board.toml"
     cfg_file.write_text(text)
+    return cfg_file
+
+
+def test_cli_enroll_images_then_image(tmp_path, capsys):
+    cfg_file = cli_config(tmp_path)
     cfg = BoardConfig.load(cfg_file)
     root = tmp_path / "gallery"
     for name, (c, turn) in FIRST.items():
@@ -292,7 +313,242 @@ def test_cli_enroll_images_then_image(tmp_path, capsys):
     assert "orks/Nob" in capsys.readouterr().out
 
 
+def test_leave_one_out_text():
+    from battlesight.app import leave_one_out_text
+
+    assert "needs two photos" in leave_one_out_text(0, 0, [])
+    assert leave_one_out_text(3, 3, []) == "leave-one-out: 3/3 photos named right (100%)"
+    misses = [("orks/A", "orks/B"), ("orks/C", "orks/A"), ("orks/A", "orks/B"), ("orks/D", "orks/A")]
+    assert leave_one_out_text(4, 8, misses) == "leave-one-out: 4/8 photos named right (50%): A as B x2, C as A, +1 more"
+
+
+def test_enroll_live_shows_resolution_and_leave_one_out(tmp_path, monkeypatch):
+    import battlesight.app as app
+
+    cfg_file = cli_config(tmp_path)
+    cfg = BoardConfig.load(cfg_file)
+    root = tmp_path / "gallery"
+    g = idt.Gallery.for_teams(("orks",), cfg, root)
+    for k in range(3):
+        g.add("orks/Nob", np.full((400, 400, 3), (40, 40, 200 - k), np.uint8), 40)
+    frame = paint_board(cfg, {"Nob": FIRST["Nob"]})
+
+    class FakeCamera:
+        def read(self):
+            return frame.copy()
+
+        def release(self):
+            pass
+
+    keys = iter([ord("t"), -1, ord(" "), -1, ord("q")])
+    frames, current = [], []
+    real_banner = app.draw_text_banner
+
+    def banner(img, text, color, extra="", row=0):
+        current.append((text, extra))
+        real_banner(img, text, color, extra, row)
+
+    def show(_window, _img):
+        frames.append(list(current))
+        current.clear()
+
+    monkeypatch.setattr(app, "_open_camera", lambda _args: FakeCamera())
+    monkeypatch.setattr(app, "draw_text_banner", banner)
+    monkeypatch.setattr(cv2, "namedWindow", lambda *a: None)
+    monkeypatch.setattr(cv2, "setMouseCallback", lambda *a: None)
+    monkeypatch.setattr(cv2, "destroyAllWindows", lambda: None)
+    monkeypatch.setattr(cv2, "imshow", show)
+    monkeypatch.setattr(cv2, "waitKey", lambda _ms: next(keys))
+    code = main(["enroll", "--team", "orks", "--operative", "Nob", "--gallery-root", str(root), "--config", str(cfg_file), "--reference", str(tmp_path / "none.png")])
+    assert code == 0
+    size = f"{frame.shape[1]}x{frame.shape[0]}"
+    assert frames[0][0][1].startswith(f"{size} -- fps, 3 photos")  # one tick: no rate yet
+    assert re.match(rf"{size} \d+ fps, 3 photos", frames[1][0][1])
+    assert ("leave-one-out: 3/3 photos named right (100%)", "") in frames[0]
+    assert ("leave-one-out: 3/3 photos named right (100%)", "") in frames[1]  # it stays
+    assert re.match(rf"{size} \d+ fps, 4 photos", frames[2][0][1])
+    assert not any("leave-one-out" in text for text, _ in frames[2])  # gallery changed
+
+
 # --- live corner warning (ident and enroll windows) -----------------------------
+
+
+def enroll_loop(monkeypatch, app, frame, steps):
+    """Runs the enroll window on `frame`. Each step is a key, or (x, y) for a click.
+    Returns the banner lines of each shown image."""
+    class FakeCamera:
+        def read(self):
+            return frame.copy()
+
+        def release(self):
+            pass
+
+    steps = iter(steps)
+    frames, current, callback = [], [], {}
+    real_banner = app.draw_text_banner
+
+    def banner(img, text, color, extra="", row=0):
+        current.append((text, extra))
+        real_banner(img, text, color, extra, row)
+
+    def show(_window, _img):
+        frames.append(list(current))
+        current.clear()
+
+    def wait(_ms):
+        step = next(steps)
+        if isinstance(step, tuple):
+            callback["fn"](cv2.EVENT_LBUTTONDOWN, step[0], step[1], 0, None)
+            return -1
+        return step
+
+    monkeypatch.setattr(app, "_open_camera", lambda _args: FakeCamera())
+    monkeypatch.setattr(app, "draw_text_banner", banner)
+    monkeypatch.setattr(cv2, "namedWindow", lambda *a: None)
+    monkeypatch.setattr(cv2, "setMouseCallback", lambda _w, fn: callback.update(fn=fn))
+    monkeypatch.setattr(cv2, "destroyAllWindows", lambda: None)
+    monkeypatch.setattr(cv2, "imshow", show)
+    monkeypatch.setattr(cv2, "waitKey", wait)
+    return frames
+
+
+def test_enroll_relaxed_search_needs_a_click(tmp_path, monkeypatch):
+    import battlesight.app as app
+
+    cfg_file = cli_config(tmp_path)
+    cfg = BoardConfig.load(cfg_file)
+    root = tmp_path / "gallery"
+    centre = (300.0, 300.0)
+    frame, _ = render_board(cfg, px_per_mm=2.0, bases=(Base(centre, 40.0, model_deg=0.0, model_span_deg=225.0),))
+    s, m = cfg.rectify_px_per_mm, cfg.rectify_margin_mm
+    click = (int((centre[0] + m) * s), int((centre[1] + m) * s))
+    frames = enroll_loop(monkeypatch, app, frame, [ord(" "), -1, click, -1, ord("q")])
+    code = main(["enroll", "--team", "orks", "--operative", "Nob", "--base-mm", "40", "--gallery-root", str(root), "--config", str(cfg_file), "--reference", str(tmp_path / "none.png")])
+    assert code == 0
+    assert frames[0][0][0].startswith("not sure: click the base") and ", 0 photos" in frames[0][0][1]  # no photo yet
+    assert len(list((root / "orks" / "Nob").glob("*.png"))) == 1  # the click added it
+
+
+def test_enroll_zoom_key_shows_factor_and_limits_search(tmp_path, monkeypatch):
+    import battlesight.app as app
+
+    cfg_file = cli_config(tmp_path)
+    cfg = BoardConfig.load(cfg_file)
+    root = tmp_path / "gallery"
+    frame = paint_board(cfg, {"Nob": FIRST["Nob"]})
+    seen = []
+    real = app.Pipeline.analyze
+
+    def spy(self, *a, **k):
+        seen.append(k.get("search"))
+        return real(self, *a, **k)
+
+    monkeypatch.setattr(app.Pipeline, "analyze", spy)
+    frames = enroll_loop(monkeypatch, app, frame, [ord("+"), -1, ord(" "), -1, ord("0"), -1, ord("q")])
+    code = main(["enroll", "--team", "orks", "--operative", "Nob", "--base-mm", "40", "--gallery-root", str(root), "--config", str(cfg_file), "--reference", str(tmp_path / "none.png")])
+    assert code == 0
+    assert "zoom 1.4x" in frames[1][0][1]
+    assert "zoom" not in frames[-1][0][1]
+    assert seen[0].area_px is not None and seen[0].diameters_mm == (40.0,)
+
+
+def test_gallery_keeps_background_out_of_photos_and_removes_it(tmp_path):
+    cfg = ident_cfg()
+    g = make_gallery(tmp_path, cfg)
+    g.ensure_operative("orks", "Nob", 32)
+    crop, bg = np.full((448, 448, 3), 90, np.uint8), np.full((448, 448, 3), 200, np.uint8)
+    path = g.add("orks/Nob", crop, 32.0, bg)
+    saved = idt.background_path(path)
+    assert saved == path.parent / "bg" / path.name and (cv2.imread(str(saved)) == bg).all()
+    assert len(make_gallery(tmp_path, cfg)) == 1  # the reload does not count bg/ as a photo
+    g.remove(path)
+    assert not path.exists() and not saved.exists()
+
+
+def test_label_session_saves_background_and_undo_removes_it(tmp_path):
+    g = make_gallery(tmp_path, ident_cfg())
+    g.ensure_operative("orks", "Nob", 32)
+    crop, bg = np.full((448, 448, 3), 90, np.uint8), np.full((448, 448, 3), 200, np.uint8)
+    none = idt.Ident(None, float("-inf"), float("-inf"))
+    s = idt.LabelSession(np.array([[100.0, 100.0]]), [32.0], [crop], [none], g, backgrounds=[bg])
+    path = s.choose("orks/Nob", 0)
+    assert idt.background_path(path).exists()
+    s.undo()
+    assert not idt.background_path(path).exists()
+
+
+def test_ident_stage_cuts_backgrounds_only_with_reference():
+    cfg = ident_cfg()
+    empty = paint_board(cfg, {})
+    game = paint_board(cfg, {"Nob": FIRST["Nob"]})
+    without = Pipeline(cfg).analyze(game)
+    assert without.ok and without.scratch["base_backgrounds"] == []
+    result = Pipeline(cfg, reference=empty).analyze(game)
+    assert result.ok and len(result.scratch["bases"]) == 1
+    crop, bg = result.scratch["base_crops"][0], result.scratch["base_backgrounds"][0]
+    assert bg.shape == crop.shape
+    # The same square of the board: the base is in the crop only.
+    centre = crop.shape[0] // 2
+    assert np.abs(crop[centre - 40 : centre + 40].astype(int) - bg[centre - 40 : centre + 40].astype(int)).mean() > 5.0
+
+
+def test_enroll_saves_background_with_reference_and_warns_without(tmp_path, monkeypatch):
+    import battlesight.app as app
+
+    cfg_file = cli_config(tmp_path)
+    cfg = BoardConfig.load(cfg_file)
+    frame = paint_board(cfg, {"Nob": FIRST["Nob"]})
+    ref = tmp_path / "empty.png"
+    cv2.imwrite(str(ref), paint_board(cfg, {}))
+    args = ["enroll", "--team", "orks", "--operative", "Nob", "--base-mm", "40", "--config", str(cfg_file)]
+
+    root = tmp_path / "with"
+    frames = enroll_loop(monkeypatch, app, frame, [ord(" "), -1, ord("q")])
+    assert main([*args, "--gallery-root", str(root), "--reference", str(ref)]) == 0
+    assert "push space" in frames[0][0][0]
+    photos = list((root / "orks" / "Nob").glob("*.png"))
+    assert len(photos) == 1 and idt.background_path(photos[0]).exists()
+
+    root = tmp_path / "without"
+    frames = enroll_loop(monkeypatch, app, frame, [-1, ord("q")])
+    assert main([*args, "--gallery-root", str(root), "--reference", str(tmp_path / "none.png")]) == 0
+    assert "no background saved" in frames[0][0][0]
+
+
+def test_enroll_e_key_saves_reference_and_next_grab_uses_it(tmp_path, monkeypatch):
+    import battlesight.app as app
+
+    cfg_file = cli_config(tmp_path)
+    cfg = BoardConfig.load(cfg_file)
+    root = tmp_path / "gallery"
+    ref = tmp_path / "sub" / "empty.png"
+    frame, _ = render_board(cfg, px_per_mm=2.0)
+    has_reference = []
+    real = app.Pipeline.analyze
+
+    def spy(self, *a, **k):
+        has_reference.append(self.has_reference)
+        return real(self, *a, **k)
+
+    monkeypatch.setattr(app.Pipeline, "analyze", spy)
+    enroll_loop(monkeypatch, app, frame, [ord("e"), ord(" "), ord("q")])
+    code = main(["enroll", "--team", "orks", "--operative", "Nob", "--gallery-root", str(root), "--config", str(cfg_file), "--reference", str(ref)])
+    assert code == 0
+    saved = cv2.imread(str(ref), cv2.IMREAD_COLOR)
+    assert saved is not None and saved.shape == frame.shape
+    assert has_reference[-1] is True
+
+
+def test_enroll_e_key_without_board_writes_nothing(tmp_path, monkeypatch):
+    import battlesight.app as app
+
+    cfg_file = cli_config(tmp_path)
+    ref = tmp_path / "empty.png"
+    frame = np.full((1080, 1920, 3), 200, np.uint8)
+    enroll_loop(monkeypatch, app, frame, [ord("e"), -1, ord("q")])
+    code = main(["enroll", "--team", "orks", "--operative", "Nob", "--gallery-root", str(tmp_path / "gallery"), "--config", str(cfg_file), "--reference", str(ref)])
+    assert code == 0
+    assert not ref.exists()
 
 
 def test_corner_warning_text():
@@ -321,12 +577,27 @@ def test_corner_check_on_live_frames():
     assert out is not covered and not np.array_equal(out, covered)
 
 
+def test_fps_meter_smooths_and_resets():
+    from battlesight.live import FpsMeter
+
+    m = FpsMeter()
+    m.tick(10.0)
+    assert m.fps is None
+    m.tick(10.1)
+    assert m.fps == pytest.approx(10.0)
+    m.tick(10.15)
+    assert m.fps == pytest.approx(0.9 * 10.0 + 0.1 * 20.0)
+    m.reset()
+    m.tick(11.0)
+    assert m.fps is None
+
+
 def test_notice_shows_then_expires(capsys):
-    from battlesight.app import _Notice
+    from battlesight.live import Notice
     from battlesight.overlay import GREEN, RED
 
     now = [100.0]
-    n = _Notice(seconds=5, clock=lambda: now[0])
+    n = Notice(seconds=5, clock=lambda: now[0])
     assert n.current() is None
     n.error("no base found")
     assert n.current() == ("no base found", RED)
@@ -338,12 +609,13 @@ def test_notice_shows_then_expires(capsys):
 
 
 def test_strips_under_banner_corner_warning_first():
-    from battlesight.app import _CornerCheck, _Notice
+    from battlesight.app import _CornerCheck
+    from battlesight.live import Notice
 
     cfg = ident_cfg()
     img = np.full((1080, 1920, 3), 128, np.uint8)
     check = _CornerCheck(cfg)
-    n = _Notice()
+    n = Notice()
     assert check.draw(img, n) is img
     n.error("no base found")
     one = check.draw(img, n)
@@ -355,14 +627,14 @@ def test_strips_under_banner_corner_warning_first():
 
 
 def test_failed_stage_text():
-    from battlesight.app import _failed_stage
+    from battlesight.live import failed_stage
 
     cfg = ident_cfg()
     img, mm2px = render_board(cfg)
     p = mm2px((-25, -25)).astype(int)  # tag 0
     cv2.rectangle(img, tuple(p - 60), tuple(p + 60), (160, 160, 160), -1)
     r = Pipeline(cfg).analyze(img)
-    assert _failed_stage(r).startswith("corners failed: 3/4 tags")
+    assert failed_stage(r).startswith("corners failed: 3/4 tags")
 
 
 def test_list_teams(tmp_path):

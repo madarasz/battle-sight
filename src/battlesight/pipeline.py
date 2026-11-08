@@ -25,6 +25,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
 
+import cv2
 import numpy as np
 
 from .calib import TagDetector, TagObs, board_corners_px, lens_for_frame
@@ -64,6 +65,20 @@ class Context:
     camera: CameraSettings = field(default_factory=CameraSettings)  # lens for the rectify stage
     results: dict[str, StageResult] = field(default_factory=dict)
     scratch: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class BasesSearch:
+    """Limits of one bases search (the enroll mode).
+
+    `area_px` is a rectangle of the camera frame (x0, y0, x1, y1): base centres
+    must lie in it. `diameters_mm` replaces the known base sizes. `relaxed` is
+    the second search: fixed radius, loose thresholds, no reference, few
+    results. It can be wrong, so the caller must ask the user."""
+
+    area_px: tuple[int, int, int, int] | None = None
+    diameters_mm: tuple[float, ...] | None = None
+    relaxed: bool = False
 
 
 @dataclass
@@ -193,10 +208,12 @@ class Pipeline:
     def has_reference(self) -> bool:
         return "bases_reference" in self.cache
 
-    def analyze(self, frame: np.ndarray, source: str = "", until: str | None = None) -> FrameResult:
+    def analyze(self, frame: np.ndarray, source: str = "", until: str | None = None, search: BasesSearch | None = None) -> FrameResult:
         """Run the stages on one frame. `until` stops earlier than the stages
-        of the pipeline (the live app runs `bases` only on one key)."""
+        of the pipeline (the live app runs `bases` only on one key). `search`
+        limits the bases stage."""
         ctx = Context(frame, self.cfg, self.cache, self.camera)
+        ctx.scratch["bases_search"] = search
         failed = False
         names = self.names if until is None else [n for n in self.names if n in select_stages(until)]
         for name in names:
@@ -214,7 +231,7 @@ class Pipeline:
         h, w = frame.shape[:2]
         return FrameResult(source, w, h, ctx.results, ctx.scratch)
 
-    def annotate(self, frame: np.ndarray, result: FrameResult) -> np.ndarray:
+    def annotate(self, frame: np.ndarray, result: FrameResult, banner: bool = True) -> np.ndarray:
         """Copy of the frame with every stage's overlay and a status banner."""
         from .overlay import GREEN, RED, draw_text_banner
 
@@ -223,7 +240,8 @@ class Pipeline:
             draw = STAGES[name].draw
             if draw is not None and not r.skipped:
                 draw(out, result, self.cfg)
-        draw_text_banner(out, result.summary(), GREEN if result.ok else RED, f"{result.width}x{result.height}")
+        if banner:
+            draw_text_banner(out, result.summary(), GREEN if result.ok else RED, f"{result.width}x{result.height}")
         return out
 
     def views(self, frame: np.ndarray, result: FrameResult) -> dict[str, np.ndarray]:
@@ -399,17 +417,56 @@ def _views_bases(frame: np.ndarray, result: FrameResult, cfg: BoardConfig) -> di
     return {"bases": img}
 
 
-def detect_bases(img: np.ndarray, cfg: BoardConfig, reference: np.ndarray | None) -> tuple[list[circles.Circle], np.ndarray | None]:
+def _search_area(area_px: tuple[int, int, int, int], view: rect.BoardView, cfg: BoardConfig, shape: tuple[int, ...]) -> np.ndarray:
+    """Pixels of the bases image inside a rectangle of the camera frame."""
+    x0, y0, x1, y1 = area_px
+    mm = view.px_to_mm(np.array([[x0, y0], [x1, y0], [x1, y1], [x0, y1]], float))
+    mask = np.zeros(shape[:2], np.uint8)
+    cv2.fillConvexPoly(mask, np.rint(rect.mm_to_rect(bases_config(cfg), mm)).astype(np.int32), 1)
+    return mask > 0
+
+
+def _center_in(mask: np.ndarray, c: circles.Circle, cfg: BoardConfig) -> bool:
+    x, y = np.rint(rect.mm_to_rect(bases_config(cfg), c.center_mm[None])[0]).astype(int)
+    return 0 <= y < mask.shape[0] and 0 <= x < mask.shape[1] and bool(mask[y, x])
+
+
+def detect_bases(
+    img: np.ndarray,
+    cfg: BoardConfig,
+    reference: np.ndarray | None,
+    search: BasesSearch | None = None,
+    area: np.ndarray | None = None,
+) -> tuple[list[circles.Circle], np.ndarray | None]:
     """Bases in the bases image `img` (`bases_image`). `reference` is the
-    bases image of the empty board, or None. Returns (circles, foreground
-    mask or None). Raises ValueError when the reference has another size."""
+    bases image of the empty board, or None. `search` and `area` (bool mask of
+    `search.area_px`) limit the search. Returns (circles, foreground mask or
+    None). Raises ValueError when the reference has another size."""
     region = _board_region(cfg, img.shape)
+    if area is not None:
+        region &= area
     fg = None
     if reference is not None:
         if reference.shape != img.shape:
             raise ValueError("empty-board reference has another size: set it again")
         fg = circles.foreground_mask(img, reference, cfg.bases_diff_threshold)
-    return circles.find_circles(img, circles.CircleParams.from_config(cfg, BASES_MARGIN_MM), region, fg), fg
+    params = circles.CircleParams.from_config(cfg, BASES_MARGIN_MM)
+    if search is not None and search.diameters_mm is not None:
+        params = dataclasses.replace(params, diameters_mm=search.diameters_mm)
+    relaxed = search is not None and search.relaxed
+    if relaxed:
+        params = dataclasses.replace(
+            params,
+            min_coverage=cfg.bases_relaxed_min_coverage,
+            min_contrast=cfg.bases_relaxed_min_contrast,
+            rim_ratio=cfg.bases_relaxed_rim_ratio,
+            fixed_radius=True,
+        )
+    # An old reference can hide the base: the relaxed search does not use it.
+    found = circles.find_circles(img, params, region, None if relaxed else fg)
+    if area is not None:  # the fit can move a centre out of the area
+        found = [c for c in found if _center_in(area, c, cfg)]
+    return (found[: cfg.bases_relaxed_max_found] if relaxed else found), fg
 
 
 def changed_fraction(fg: np.ndarray | None, cfg: BoardConfig) -> float | None:
@@ -424,7 +481,9 @@ def _bases(ctx: Context) -> StageResult:
     img = bases_image(ctx.frame, view, cfg)
     ref = ctx.cache.get("bases_reference")
     try:
-        found, fg = detect_bases(img, cfg, ref)
+        search: BasesSearch | None = ctx.scratch.get("bases_search")
+        area = None if search is None or search.area_px is None else _search_area(search.area_px, view, cfg, img.shape)
+        found, fg = detect_bases(img, cfg, ref, search, area)
     except ValueError as exc:
         return StageResult(ok=False, message=str(exc))
     ctx.scratch["bases"] = found
@@ -482,6 +541,8 @@ def _ident(ctx: Context) -> StageResult:
     found: list[circles.Circle] = ctx.scratch["bases"]
     crops = base_crops(ctx.scratch["bases_image"], found, ctx.cfg)
     ctx.scratch["base_crops"] = crops
+    ref = ctx.cache.get("bases_reference")
+    ctx.scratch["base_backgrounds"] = [] if ref is None else base_crops(ref, found, ctx.cfg)
     if gallery is None:
         return StageResult(ok=True, message="no gallery", data={"teams": None, "bases": []})
     data: dict[str, Any] = {"teams": sorted(gallery.team_dirs), "model": gallery.embedder.name, "gallery_photos": len(gallery), "bases": []}

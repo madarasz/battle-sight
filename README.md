@@ -32,6 +32,7 @@ a phone through Camo), a printer, and scissors.
 6. Calibrate the lens (optional).
 7. Take a photo of the empty board (for base detection).
 8. Teach the app your operatives (for operative names).
+9. Change the window layout settings (optional).
 
 ## How to use
 
@@ -52,13 +53,31 @@ two teams of this game, add their names:
 uv run battlesight --team kommandos veterans
 ```
 
+### The window
+
+The video is at the left. The panel at the right has a control for the
+functions that you can use now. The keys and the menus always work. Hold the
+mouse pointer on a control to see its key.
+
+The window has two layouts. Push `l`, or use the menu View > Layout, to change
+the layout. The app keeps your choice for the next start. The video, the
+result on the screen and the names do not change.
+
+| Layout | Panel |
+|---|---|
+| `inspector` | The panel changes with your work: live view, result, or the base that you clicked. |
+| `panel` | The panel is always the same and has all the controls. |
+
 ### Live view
 
-The window shows the camera image with the four corner cards and the map
-grid. Use it to put the camera and the board in position before a game.
-Push `v` to see the board from straight above, upright. The app removes the
+The window shows the board from straight above, upright. The app removes the
 camera tilt and the lens distortion, so the grid lines sit on the printed
-lines of the board.
+lines of the board. The name of this function is "Adjust perspective".
+
+Push `v` to turn "Adjust perspective" off. The window then shows the camera
+image with the four corner cards and the map grid. Use it to put the camera
+and the board in position before a game. The window also shows the camera
+image when the camera cannot see all four cards.
 
 When you move the board or the camera, the app finds the new position by
 itself. Keep the board still for a moment after the move.
@@ -76,8 +95,10 @@ itself. Keep the board still for a moment after the move.
    - Yellow name: the app is not sure. Check it.
    - Red `?`: the app does not know this operative.
 4. If a name is wrong, click the base, then click the correct name in the
-   list. The app learns from each correction, so it makes fewer errors in
-   the next games.
+   list. In the `inspector` layout, you can also click the row of the
+   operative in the panel. The panel then shows a photo of the base and the
+   list of names. In the `panel` layout, the list opens at the base. The app
+   learns from each correction, so it makes fewer errors in the next games.
 5. Push `Esc` to go back to the live view.
 
 Push `b` to find the bases without names (each base with a green circle and
@@ -86,13 +107,13 @@ its size in mm). The result stays on the screen until the next `space` or
 
 ### Keys
 
-Push `h` to see this list in the window.
+Push `h` to see this list in the window. The menus have the same actions.
 
 | Key or mouse | Action |
 |---|---|
 | `space` | Find the bases and name the operatives. |
 | `b` | Find the bases only, no names. |
-| `v` | Change between the camera view and the top-down view. |
+| `v` | Turn "Adjust perspective" on or off. On: the board from straight above. Off: the camera image. A result always opens with it on. |
 | `g` | Show or hide the grid. |
 | `e` | Keep the current image as the empty-board photo. Do this on the empty board only. |
 | `c` | Forget the empty-board photo. |
@@ -101,7 +122,8 @@ Push `h` to see this list in the window.
 | `a` | All names are correct: the app keeps the photos of all bases. |
 | `u` | Undo the last correction. |
 | `s` | Save a photo to `data/snapshots/`. |
-| `h` | Show or hide the key list. |
+| `l` | Change to the next window layout. |
+| `h` | Show the key list. |
 | `Esc` | Close the list of names. When no list is open, go back to the live view. |
 | `q` | Quit. |
 
@@ -119,9 +141,10 @@ teams, add `--team kommandos veterans`.
 
 ## What you see
 
-The banner at the top tells the board status:
+The video has no status text. The status line at the bottom of the window
+tells the board status, in all layouts. While the app finds the bases, it shows "working ...", and the keys do not work.
 
-| Banner | Meaning | What to do |
+| Status line | Meaning | What to do |
 |---|---|---|
 | Yellow "locking reference" | The app learns the board position. It takes about 10 frames. | Do not touch the board. |
 | Green "4 corners OK" | All four cards are visible. The board did not move. | Play. |
@@ -129,9 +152,21 @@ The banner at the top tells the board status:
 | Green "board position updated" | The board or the camera moved, and the app saved the new position. | Play. |
 | Red "CARD MOVED" | One card moved, but the other cards did not. The card is not on its board corner now. | Put the card back against the board corner. |
 | Red "TAG LOST" | The camera cannot see a card. | Remove what covers the card (a hand, a model, a dice tray). |
-| Second line over a result | The board status of the live camera, when it is not OK. | As for the banner. |
+| Red "camera down" | The app gets no image from the camera. It tries again by itself. | Check the camera and its cable or network. |
 | Red "CORNERS NOT SEEN" (second line, `enroll`) | The camera cannot see one or more corner cards now. The line names the cards. `space` cannot find the board. | Remove what covers the card. Move the camera if a card is outside the image. |
-| Message line under the banner | The result of your last key or click, for 6 seconds. Red: it did not work, for example "no base found". Yellow: do the next step, for example "click the base". Green: done, for example "photo 3 added". | Read the message. For a red message, correct the cause and try again. |
+| Message at the right of the status line | The result of your last key or click, for 6 seconds. Red: it did not work, for example "no base found". Yellow: do the next step, for example "click the base". Green: done, for example "photo 3 added". | Read the message. For a red message, correct the cause and try again. |
+
+In the `inspector` layout, the panel shows:
+
+- At the top: the board status, and the view controls.
+- In the live view: the buttons to find bases, and if the app has an
+  empty-board photo.
+- With a result: how many operatives have a name, and one row for each base.
+  Green is sure, yellow is not sure, red `?` is unknown.
+- After a click on a base: the size of the base, a photo of it, and the names
+  with their scores. Push `Esc` to close this.
+- Debug (click it to open): tags found, fit error, frames per second, and the
+  time for tag detection. The `panel` layout always shows these values.
 
 On the camera image:
 
@@ -145,7 +180,7 @@ On the camera image:
   Green is sure, yellow is not sure, red `?` is unknown. A white circle
   shows the base that you clicked.
 
-In the top-down view, the board is upright, the cards are in the corners of
+With "Adjust perspective" on, the board is upright, the cards are in the corners of
 the image, and the grid sits on the printed lines.
 
 ## Problems

@@ -50,6 +50,11 @@ class BoardConfig:
     bases_rim_ratio: float = 0.75
     bases_diff_threshold: float = 25.0
     bases_min_foreground: float = 0.25
+    # Second search of the enroll mode, when the normal search finds no base.
+    bases_relaxed_min_coverage: float = 0.3
+    bases_relaxed_min_contrast: float = 6.0
+    bases_relaxed_rim_ratio: float = 0.9
+    bases_relaxed_max_found: int = 5
     # Operative identity (ident.py): crop around each base, DINOv2 embedding,
     # nearest operatives in the enrolled gallery.
     ident_model: str = "facebook/dinov2-small"
@@ -104,6 +109,10 @@ class BoardConfig:
             bases_rim_ratio=float(bases.get("rim_ratio", 0.75)),
             bases_diff_threshold=float(bases.get("diff_threshold", 25.0)),
             bases_min_foreground=float(bases.get("min_foreground", 0.25)),
+            bases_relaxed_min_coverage=float(bases.get("relaxed_min_coverage", 0.3)),
+            bases_relaxed_min_contrast=float(bases.get("relaxed_min_contrast", 6.0)),
+            bases_relaxed_rim_ratio=float(bases.get("relaxed_rim_ratio", 0.9)),
+            bases_relaxed_max_found=int(bases.get("relaxed_max_found", 5)),
             ident_model=str(ident.get("model", "facebook/dinov2-small")),
             ident_crop_pad_mm=float(ident.get("crop_pad_mm", 25.0)),
             ident_input_px=int(ident.get("input_px", 224)),

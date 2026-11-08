@@ -52,7 +52,9 @@ CACHE_FILE = "embeddings.npz"
 # change of `ident.crop_pad_mm` (up to this value) does not need new photos.
 STORE_PAD_MM = 40.0
 MASK_GRAY = 127
+PREPARE_VERSION = 2  # add 1 when `prepare` changes: the cached embeddings are old then
 CROP_SUFFIXES = {".png", ".jpg", ".jpeg"}
+BACKGROUND_DIR = "bg"  # subfolder of an operative folder: the gallery scan skips folders
 _BAD_NAME = re.compile(r"[/\\:]|^\.|^$")
 
 
@@ -65,6 +67,7 @@ class IdentParams:
     top_k: int = 3
     min_score: float = 0.5
     min_margin: float = 0.03
+    store_px_per_mm: float = 4.0  # scale of the saved crops (`bases.px_per_mm`)
 
     @classmethod
     def from_config(cls, cfg: BoardConfig) -> IdentParams:
@@ -76,10 +79,11 @@ class IdentParams:
             top_k=cfg.ident_top_k,
             min_score=cfg.ident_min_score,
             min_margin=cfg.ident_min_margin,
+            store_px_per_mm=cfg.bases_px_per_mm,
         )
 
     def cache_key(self, embedder: str) -> str:
-        return f"{embedder}|pad {self.crop_pad_mm:g}|px {self.input_px}|rot {self.rotations}"
+        return f"{embedder}|pad {self.crop_pad_mm:g}|px {self.input_px}|rot {self.rotations}|store {self.store_px_per_mm:g}|prepare {PREPARE_VERSION}"
 
 
 # --- crops --------------------------------------------------------------------
@@ -100,16 +104,28 @@ def prepare(crop: np.ndarray, diameter_mm: float, p: IdentParams, angle_deg: flo
     side = crop.shape[1]
     stored_mm = diameter_mm + 2 * STORE_PAD_MM
     want_mm = diameter_mm + 2 * min(p.crop_pad_mm, STORE_PAD_MM)
-    scale = p.input_px / (side * want_mm / stored_mm)
+    want_px = side * want_mm / stored_mm
+    scale = p.input_px / want_px
     c = (side / 2.0, side / 2.0)
-    M = cv2.getRotationMatrix2D(c, angle_deg, scale)
-    M[:, 2] += (p.input_px / 2.0 - c[0], p.input_px / 2.0 - c[1])
-    out = cv2.warpAffine(crop, M, (p.input_px, p.input_px), flags=cv2.INTER_AREA if scale < 1 else cv2.INTER_LINEAR,
-                         borderMode=cv2.BORDER_CONSTANT, borderValue=(MASK_GRAY,) * 3)
+    # warpAffine cannot average pixels (it treats INTER_AREA as linear): turn
+    # at the full size, then shrink with resize.
+    size = int(round(want_px)) if scale < 1 else p.input_px
+    M = cv2.getRotationMatrix2D(c, angle_deg, 1.0 if scale < 1 else scale)
+    M[:, 2] += (size / 2.0 - c[0], size / 2.0 - c[1])
+    out = cv2.warpAffine(crop, M, (size, size), flags=cv2.INTER_LINEAR, borderMode=cv2.BORDER_CONSTANT, borderValue=(MASK_GRAY,) * 3)
+    if size != p.input_px:
+        out = cv2.resize(out, (p.input_px, p.input_px), interpolation=cv2.INTER_AREA)
     yy, xx = np.mgrid[: p.input_px, : p.input_px]
     r = p.input_px / 2.0
     out[(xx + 0.5 - r) ** 2 + (yy + 0.5 - r) ** 2 > r * r] = MASK_GRAY
     return out
+
+
+def background_path(crop_path: Path) -> Path:
+    """Empty-board crop of a gallery photo: same square of the board, from the
+    reference in use when the photo was taken. The file may not exist."""
+    crop_path = Path(crop_path)
+    return crop_path.parent / BACKGROUND_DIR / crop_path.name
 
 
 def rotation_angles(p: IdentParams) -> list[float]:
@@ -366,8 +382,8 @@ class Gallery:
     def _diameter(self, op: Operative, crop: np.ndarray) -> float:
         if op.base_mm is not None:
             return op.base_mm
-        # Unknown size: assume the crop is at 4 px per mm.
-        return max(1.0, crop.shape[1] / 4.0 - 2 * STORE_PAD_MM)
+        # Unknown size: get it from the crop side at the configured scale.
+        return max(1.0, crop.shape[1] / self.params.store_px_per_mm - 2 * STORE_PAD_MM)
 
     def _embed_crop(self, crop: np.ndarray, op: Operative) -> np.ndarray:
         d = self._diameter(op, crop)
@@ -419,9 +435,11 @@ class Gallery:
             emb=np.stack([per_file[i] for i in idx]),
         )
 
-    def add(self, label: str, crop: np.ndarray, base_mm: float | None) -> Path:
+    def add(self, label: str, crop: np.ndarray, base_mm: float | None, background: np.ndarray | None = None) -> Path:
         """Save `crop` (`store_crop`) as a new gallery photo of `label` and add
-        its embeddings. Creates the operative when new. Returns the file."""
+        its embeddings. Creates the operative when new. `background` is the
+        same square of the empty board, kept at `background_path`, not embedded.
+        Returns the file."""
         team, name = split_label(label)
         op = self.ensure_operative(team, name, base_mm)
         folder = self.team_dirs[team] / op.name
@@ -433,6 +451,10 @@ class Gallery:
             path = folder / f"{stem}_{n}.png"
             n += 1
         cv2.imwrite(str(path), crop)
+        if background is not None:
+            bg = background_path(path)
+            bg.parent.mkdir(exist_ok=True)
+            cv2.imwrite(str(bg), background)
         emb = self._embed_crop(crop, op)
         self.files.append(path)
         self.file_op.append(self.index(op.label))  # type: ignore[arg-type]
@@ -446,6 +468,7 @@ class Gallery:
         i = self.files.index(path)
         team = self.operatives[self.file_op[i]].team
         path.unlink(missing_ok=True)
+        background_path(path).unlink(missing_ok=True)
         del self.files[i], self.file_op[i]
         per_file = self._per_file[:i] + self._per_file[i + 1 :]
         self._set_views(per_file)
@@ -615,6 +638,7 @@ class LabelSession:
     gallery: Gallery
     selected: int | None = None
     added: list[tuple[int, Path, Ident]] = field(default_factory=list)
+    backgrounds: list[np.ndarray] = field(default_factory=list)  # empty: no reference
 
     def base_at(self, at_mm: Sequence[float]) -> int | None:
         """Base whose disc (plus 5 mm) holds the point, nearest centre first."""
@@ -646,7 +670,7 @@ class LabelSession:
         i = self.selected if i is None else i
         if i is None:
             raise ValueError("no base selected")
-        path = self.gallery.add(label, self.crops[i], self.diameters_mm[i])
+        path = self.gallery.add(label, self.crops[i], self.diameters_mm[i], self.backgrounds[i] if self.backgrounds else None)
         self.added.append((i, path, self.idents[i]))
         for k, x in enumerate(self.idents):
             if k != i and x.label == label:

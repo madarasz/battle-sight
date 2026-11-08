@@ -168,6 +168,32 @@ class LatestFrameReader:
         self._thread.join(timeout=STREAM_OPEN_TIMEOUT_MS / 1000 + 1.0)
 
 
+class ImageSource:
+    """One image file that acts as a camera, for debugging: `read` gives the
+    same frame each time, at `fps`. The EXIF orientation of phone photos is
+    applied, as in the image-pipeline command."""
+
+    def __init__(self, path: str | Path, fps: float = 30.0):
+        self.path = Path(path)
+        self.period = 1.0 / fps
+        self.frame = None
+
+    def open(self) -> bool:
+        self.frame = cv2.imread(str(self.path), cv2.IMREAD_COLOR) if self.path.is_file() else None
+        return self.frame is not None
+
+    @property
+    def size(self) -> tuple[int, int]:
+        return self.frame.shape[1], self.frame.shape[0]
+
+    def read(self):
+        time.sleep(self.period)
+        return self.frame
+
+    def release(self) -> None:
+        self.frame = None
+
+
 class Camera:
     def __init__(
         self,

@@ -36,6 +36,7 @@ N_RAYS = 120
 # narrow on the side away from the camera, so the samples stay near the edge.
 RIM_IN_MM = (0.5, 1.0)
 RIM_OUT_MM = 1.25  # board sample outside the edge
+FIXED_MIN_RAYS = 0.25  # part of the rays with an edge, fixed-radius fit
 
 
 @dataclass(frozen=True)
@@ -50,6 +51,7 @@ class CircleParams:
     search_mm: float = 3.5  # ray search band around the proposal radius
     max_proposals: int = 150  # per diameter
     min_foreground: float = 0.25  # with a reference: part of the disc that changed
+    fixed_radius: bool = False  # keep the class radius in the fit (the search for one known base)
 
     @classmethod
     def from_config(cls, cfg: BoardConfig, origin_mm: float) -> CircleParams:
@@ -269,6 +271,44 @@ def _verify(g: np.ndarray, x0: float, y0: float, d_mm: float, p: CircleParams) -
     return Circle(center_mm, float(classes[k]), float(fit_d), coverage, rms, contrast)
 
 
+def _verify_fixed(g: np.ndarray, x0: float, y0: float, d_mm: float, p: CircleParams) -> Circle | None:
+    """`_verify` with the radius of the class from the start: a free fit goes
+    to the model or a shadow when most of the rim is hidden."""
+    s = p.px_per_mm
+    a = np.linspace(0, 2 * np.pi, N_RAYS, endpoint=False)
+    dirs = np.c_[np.cos(a), np.sin(a)]
+    seed = np.array([x0, y0], dtype=np.float64)
+    c = seed
+    r = 0.5 * d_mm * s
+    tol = 1.0 * s
+    min_rays = FIXED_MIN_RAYS * N_RAYS
+    for _ in range(4):  # rays from the better centre each round
+        rad, inner, outer = _ray_edges(g, c[0], c[1], r, p)
+        good = ~np.isnan(rad)
+        if good.sum() < min_rays:
+            return None
+        pts = c + dirs[good] * rad[good, None]
+        keep = np.abs(rad[good] - r) < 2.5 * tol
+        if keep.sum() < min_rays:
+            return None
+        cc = c
+        for _ in range(3):
+            cc, _r = _fit_circle(pts[keep], r, cc)
+            res = np.abs(np.linalg.norm(pts - cc, axis=1) - r)
+            keep = res < tol
+            if keep.sum() < min_rays:
+                return None
+        if np.linalg.norm(cc - seed) > 0.5 * r:
+            return None
+        c = cc
+    coverage = float(keep.sum()) / N_RAYS
+    if coverage < p.min_coverage:
+        return None
+    contrast = float(np.median((outer[good] - inner[good])[keep]))
+    rms = float(np.sqrt((res[keep] ** 2).mean())) / s
+    return Circle(c / s - p.origin_mm, float(d_mm), float(d_mm), coverage, rms, contrast)
+
+
 def find_circles(img: np.ndarray, p: CircleParams, region: np.ndarray | None = None, foreground: np.ndarray | None = None) -> list[Circle]:
     """Circles of the known diameters in the rectified image `img` (BGR or grey).
 
@@ -285,8 +325,9 @@ def find_circles(img: np.ndarray, p: CircleParams, region: np.ndarray | None = N
         allowed &= cv2.dilate(foreground.astype(np.uint8), np.ones((k, k), np.uint8)) > 0
     props = _proposals(g, gx, gy, p, allowed, edge_min=0.5 * p.min_contrast / p.px_per_mm)
     found: list[Circle] = []
+    verify = _verify_fixed if p.fixed_radius else _verify
     for x, y, d in props:
-        c = _verify(g, x, y, d, p)
+        c = verify(g, x, y, d, p)
         if c is not None:
             found.append(c)
     if foreground is not None:

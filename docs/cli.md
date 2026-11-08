@@ -12,7 +12,7 @@ uv run battlesight --version
 
 | Command | Input | Use |
 |---|---|---|
-| `battlesight` (no command) | live camera | The app. Tracks the corner cards, shows the camera or the board from above with the grid, finds the bases and names the operatives on a key push. |
+| `battlesight` (no command) | live camera, or one image for debugging | The app. Tracks the corner cards, shows the camera or the board from above with the grid, finds the bases and names the operatives on a key push. |
 | `battlesight enroll` | live camera or saved photos | Add gallery photos of one operative. |
 | `battlesight gallery` | gallery folder | List the gallery and check each photo against the rest. |
 | `battlesight calibrate` | live camera or saved photos | Calibrate the lens with the ChArUco sheet. Write the `[lens]` table of `data/camera.toml`. |
@@ -50,25 +50,53 @@ The analysis always uses the full camera frame.
 ```
 uv run battlesight [--team NAME [NAME2]] [--gallery-root data/teams]
                    [--reference data/snapshots/empty_board.png]
-                   [--source S] [--camera-file data/camera.toml] [--config data/board.toml]
+                   [--source S | --image-source FILE]
+                   [--camera-file data/camera.toml] [--config data/board.toml]
 ```
 
 | Option | Default | Meaning |
 |---|---|---|
 | `--team` | all teams in `--gallery-root` | One or two team folders (two teams play). Labels are `<team>/<operative>`. More than two names: exit 2. |
 | `--gallery-root` | `data/teams` | Folder with one folder per team. |
-| `--reference` | `data/snapshots/empty_board.png` | Empty-board reference. Loaded at start when the file exists. The `e` key writes it. Git ignores the file (`data/snapshots/*.png`). |
+| `--reference` | `data/snapshots/empty_board.png`. With `--image-source`: none. | Empty-board reference. Loaded at start when the file exists. The `e` key writes it. Git ignores the file (`data/snapshots/*.png`). |
 | `--source` | from the camera file, else `0` | Camera index (Camo, built-in camera) or network stream URL (`http://...`, `rtsp://...`), for this run only. A stream is read on a background thread that keeps only the newest frame. See [setup.md](setup.md), step 4. |
+| `--image-source` | none | One image file to use instead of the camera, for debugging and tests. See "Image source" below. Not with `--source`, and not with a command. An image that the app cannot read: exit 2. |
 | `--camera-file` | `data/camera.toml` | Saved camera settings. A missing file is not an error: the built-in defaults apply (camera 0, 1920 x 1080, nominal 24 mm lens). |
 | `--config` | `data/board.toml` | Board and tag config. |
+
+### Image source
+
+```
+uv run battlesight --image-source tests/images/tomb-world-1.jpg
+```
+
+The app reads one image file and uses it as the camera. It gives the same frame
+30 times per second (`camera.ImageSource`), so the drift status locks and all
+keys, clicks and views work as with a camera. The app applies the EXIF
+orientation of phone photos, and it accepts the image types of
+`image-pipeline`. To use a frame of the real camera, push `s` in the live app
+and give the saved file from `data/snapshots/`.
+
+To get a report and no window, use `image-pipeline`.
+
+| Item | With `--image-source` |
+|---|---|
+| Lens | From `--camera-file`, as with a camera. The calibration applies only when the image has the same aspect ratio. Else the nominal lens applies. Use `--camera-file` with a missing file to get the nominal lens, as in the photo tests. |
+| Reference | The saved `empty_board.png` comes from the live camera, so the app does not load it. To use a reference, give `--reference FILE`. Without `--reference`, the `e` key sets the reference for this run only and writes no file. With `--reference`, the `e` key writes that file. |
+| Gallery | A name fix, `a` and `u` change the real gallery in `--gallery-root`. To keep the gallery clean during a test, give another folder. |
+| `s` key | Writes a copy of the image to `data/snapshots/`. |
 
 ### Live view
 
 On every frame the app finds the four corner tags and runs the drift
-monitor. It shows the camera frame (tags, board corners, grid) or, after
-`v`, the board from above at `rectify.px_per_mm`, with the lens distortion
-removed and the map grid on top (see "Map grid" below). The banner shows the
-drift status and the lens in use: `calibrated` (from `[lens]`) or `nominal`.
+monitor. By default it shows the board from above at `rectify.px_per_mm`, with
+the lens distortion removed and the map grid on top (see "Map grid" below).
+The UI calls this "Adjust perspective". `v` changes to the camera frame (tags,
+board corners, grid). The camera frame also shows when the app has no board
+fit, for example when a tag is not visible. The status bar under
+the image shows the drift status and the lens in use: `calibrated` (from
+`[lens]`) or `nominal`, and the result count of a snapshot. It has no key
+hints. The video has no status text.
 
 Drift status (`calib.DriftMonitor`):
 
@@ -102,19 +130,27 @@ sure, yellow = unsure (the lead over the second name is less than
 choice), red `?` = unknown (score under `ident.min_score`, or no operative
 of this base size is left).
 
-Over a snapshot, the live drift status shows in a second strip when it is
-not OK (for example `TAG LOST`, `CARD MOVED`). Messages of keys and clicks (a
-failed stage, no base found, nothing to undo, a name set, a photo added)
-print to the Terminal and also show for 6 seconds as a strip under the
-banner: red for an error, yellow for a hint, green for done. `app._Notice`
-holds the last message.
+A snapshot opens in the top-down view. `v` changes its view. The live view
+keeps its own view.
+
+While a snapshot runs, the status bar shows `working ...`, the window stays
+usable, and the app ignores keys and clicks. Only `q` works: the window closes
+when the snapshot ends.
+
+Over a snapshot, the status bar still shows the live drift status (for example
+`TAG LOST`, `CARD MOVED`). Messages of keys and clicks (a failed stage, no
+base found, nothing to undo, a name set, a photo added) print to the Terminal
+and also show for 6 seconds at the right of the status bar: red for an error,
+yellow for a hint, green for done. `live.Notice` holds the last message.
 
 Fixes (plan priority 4, "user confirms or fixes with one click"): after
-`space`, click a base, then click a name in the menu. The menu lists the
+`space`, click a base, then click a name in the list (a popup at the base in
+`panel`, the panel list in `inspector`). The list has the
 operatives of this base size, best score first, then the operatives without
 gallery photos. The crop of the base goes into the gallery of that operative.
 A name that another base held moves to the clicked base; the other base
-becomes unknown. A click outside the menu closes it.
+becomes unknown. A click outside the popup closes it. In `inspector`, `Esc`
+clears the selected base.
 
 ### Keys
 
@@ -122,21 +158,53 @@ becomes unknown. A click outside the menu closes it.
 |---|---|
 | `space` | Snapshot: find the bases and name them. |
 | `b` | Snapshot: find the bases only. |
-| `v` | Change between the camera view and the top-down view (live and snapshot). |
+| `v` | "Adjust perspective": change between the top-down view (default) and the camera view (live and snapshot). A snapshot opens top-down. |
 | `g` | Grid on or off. |
 | `e` | Use the current frame as the empty-board reference and write it to `--reference`. The frame must pass `corners` and `rectify`, else the app keeps the old reference and says why. |
 | `c` | Clear the empty-board reference: single-frame detection. |
-| left click on a base | Open the name menu (after `space`). |
+| left click on a base | Show the names for this base (after `space`). |
 | left click on a name | Set the name, add the crop to the gallery. |
 | `a` | Accept all names that are not confirmed: add their crops to the gallery. |
 | `u` | Undo the last gallery photo of this snapshot (deletes the file, gives the old name back). |
 | `s` | Save the current camera frame to `data/snapshots/snap_<date>_<time>.png`. |
-| `h` | Show or hide the key list on the screen. |
+| `l` | Next layout. The choice goes to `data/ui.toml`. |
+| `h` | Show the key list. |
 | `Esc` | Close the menu. When no menu is open, close the snapshot and go back to the live view. |
 | `q` | Quit. |
 
-The README section "What you see" tells what the overlay shows. The key
-logic is in `app.cmd_live` and `app._Live`.
+The README section "What you see" tells what the overlay shows. The game
+logic is in `live.LiveSession`: it has no window and no camera. `live.ACTIONS`
+lists what the user can do, and `LiveSession.state()` is a JSON-safe dict of
+what the user can see (`specs/ui.md`, section 8). The window is PySide6:
+`ui/shell.py` has the worker thread (camera and `LiveSession`), the keys, the
+menu generated from `ACTIONS`, the status bar, the name popup and the layout
+change. `ui/parts.py` has the shared widgets. The other commands keep their
+OpenCV windows.
+
+### Layouts and `data/ui.toml`
+
+`ui/layouts/` holds the layouts, in the dict `LAYOUTS`. The default is
+`inspector`. A layout has `name`, `name_popup` (the shell opens its name popup
+at a clicked base), `build(shell, options)` and `on_state(state)`. A layout
+uses only `shell.dispatch`, `shell.new_video` (one time in `build`) and
+`shell.selected_crop`. It must not import `pipeline`, `ident`, `calib` or
+`camera`.
+
+`data/ui.toml` is local to the machine, and git ignores it. There is no
+command option for it. A missing file is not an error. An unknown layout, a bad
+file or a bad value does not stop the app: a notice shows, and the default
+applies. `ui/settings.py` reads the file. The shell writes only the `[ui] layout` line, and only
+at a layout change. It keeps all other text.
+
+| Key | Layout | Values | Default |
+|---|---|---|---|
+| `[ui] layout` | | `inspector`, `panel` | `inspector` |
+| `[layouts.<name>] panel_side` | both | `left`, `right` | `right` |
+| `[layouts.inspector] debug_open` | `inspector` | `true`, `false` | `false` |
+
+The debug values come from `state["debug"]`: `tags`, `fit_max_mm`, `fps`
+(smoothed, of `LiveSession.step`) and `detect_ms` (tag detection of the last
+frame).
 
 ## `enroll`: gallery photos of one operative
 
@@ -153,7 +221,35 @@ size to `data/teams/<team>/team.toml` (created when new). Live: push
 the crop goes in at once; with more, click the base. Turn and move the model
 between grabs: 10 to 20 crops from different places on the board (the
 parallax changes the look near the edges). `u` undoes the last crop, `v`
-changes the view, `q` quits. When a corner card is not seen, a red strip
+changes the view, `q` quits. `e` uses the current frame as the empty-board
+reference and writes it to `--reference` (default
+`data/snapshots/empty_board.png`, the file that the live app also uses). The
+frame must pass `corners` and `rectify`, else the app keeps the old reference
+and says why. With a reference, each crop also gets a background crop: the same
+square of the empty board at `<operative>/bg/<crop name>`
+(`ident.background_path`). It does not depend on the reference file after the
+grab. Without a reference there is no background crop and the banner says so.
+`t` runs the leave-one-out check of `gallery` on
+the loaded team and keeps a strip under the banner until the gallery changes:
+the score and the two most frequent misses (`app.leave_one_out_text`). All
+misses go to the Terminal. The banner shows the camera frame size and the measured frame rate of the window.
+
+Zoom: `+` (or `=`) and `-` change a digital zoom around the mouse pointer, `0`
+removes it (`live.ZoomView`). It does not add camera detail, because the crop
+still comes from the full frame. While zoomed, the window shows the camera
+view (`v` has no effect) and `space` searches only base centres inside the
+shown rectangle (`pipeline.BasesSearch.area_px`).
+
+`space` first runs the normal search, with only the base size of the operative
+when `team.toml` has one. When that finds no base, a second search runs
+(`BasesSearch.relaxed`, `circles._verify_fixed`): the class radius is fixed from
+the start, the thresholds are `bases.relaxed_*`, and the empty-board reference
+is not used. It is a guess, so it never adds a crop by itself: the user clicks a
+yellow circle. Without zoom it searches the full board and the true base is
+less often in the shown circles. On the test photos, with a search area around
+each base: 15 of 16 bases found, 14 in the first 5 (normal search: 10).
+
+When a corner card is not seen, a red strip
 names the missing cards (`app.corner_warning`, `app._CornerCheck`).
 
 `--images`: takes the crop from saved photos. A photo with no base or more
@@ -442,7 +538,9 @@ identity stay separate: the stage only reads the bases of the `bases` stage.
    embedded at `rotations` angles. `embeddings.npz` in the team folder caches
    the embeddings by file name and change time, with a key of the model and
    the crop values; a change of these values embeds all crops again. Git
-   ignores the cache.
+   ignores the cache. `<operative>/bg/` holds the optional empty-board crop of
+   each photo, from `enroll` or a name fix with a reference. The app saves
+   these crops for a later foreground mask. No stage reads them now.
 4. Score: per operative, the best rotation of each photo, then the mean of
    the `top_k` best photos. Only operatives whose `base_mm` is the size class
    of the base. One-to-one assignment (Hungarian, `scipy`) because each
@@ -522,6 +620,10 @@ measures them.
 | `rim_ratio` | `0.75` | Rim band L at most this part of the board L outside. |
 | `diff_threshold` | `25.0` | Reference mode: Lab distance that counts as changed. |
 | `min_foreground` | `0.25` | Reference mode: changed part of the base disc. |
+| `relaxed_min_coverage` | `0.3` | `enroll` second search: `min_coverage`. |
+| `relaxed_min_contrast` | `6.0` | `enroll` second search: `min_contrast`. |
+| `relaxed_rim_ratio` | `0.9` | `enroll` second search: `rim_ratio`. |
+| `relaxed_max_found` | `5` | `enroll` second search: most circles shown, best coverage first. |
 
 ## Map grid
 

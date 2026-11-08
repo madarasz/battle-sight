@@ -1,6 +1,6 @@
 # Battle Sight: research and plan
 
-Status: priorities 1 (board corners), 2 (undistort and rectify) and 3 (bases) done. Priority 4 (operative ID) in code, done test open. Date: 2026-11-07.
+Status: priorities 1 (board corners), 2 (undistort and rectify) and 3 (bases) done. Priority 4 (operative ID) in code, done test open. UI foundation: game core (`live.py`), Qt window (`ui/shell.py`) and the layouts `inspector` and `panel` are done. Some checks with real hardware are open (`specs/ui.md`, section 13). Priority 5 is next. Date: 2026-11-08.
 
 ## 1. Decisions made
 
@@ -10,6 +10,7 @@ Status: priorities 1 (board corners), 2 (undistort and rectify) and 3 (bases) do
 | Machine | This Mac, M4 Pro, 48 GB. |
 | Camera | Xiaomi 13T phone, main lens (24 mm equiv.), 4K, fed to the Mac through Camo. Arm or tripod above board center. App must accept any camera source with enough pixels per mm. |
 | Display | Monitor or laptop next to table. One window: video with overlay, side panel. |
+| UI | Modular: many layouts on one game core, and a setting changes the layout while the app runs. Each layout maps to the same actions and state. `specs/ui.md` has the design. Each priority includes its UI part (section 2). |
 | Board | MVP: Kill Team "Tomb World" board, 606 x 703 mm. Later: Volkus open board, 559 x 760 mm. |
 | Grid | Map dependent, from config. Tomb World: the 7 x 6 printed sections (97 mm) inside a 12 mm margin; an inch grid does not agree with its print. Volkus: 1 in grid. |
 | Board frame | One square AprilTag card under each board corner. The tag sits in the card's outer quadrant, diagonal to the corner. The board corner rests on the inner quadrant, both edges against a printed L that stays visible just outside the board, so the tag's inner margin corner is the board corner. Nothing covers the play area. Board coordinate origin is one corner. Grid offset is configurable. |
@@ -37,6 +38,29 @@ Order from the owner. Each phase has a done test.
 | 7 | Hatchways and breach points | Setup mode: user clicks two endpoints per door on the rectified image. Click snaps to the printed tile grid. Thickness from config. Saved as a named map file, reused next game. Game mode: click toggles open or closed. Draw 1 in or 2 in band from the rectangle edge (rounded-rectangle offset). Vision detection rejected: door types look alike from above, models hide walls, state needs user input anyway. Optional later: template match to auto-suggest positions on map load. | Map saved and reloaded. Bands drawn. Operative in or out of band matches tape measure. |
 
 Answer to the question in priority 3: yes, bases come before identity. Detection is pure geometry and needs no training. Identity runs on the crop around each found base. Keeping them separate means a new team only needs gallery photos, never a retrained detector.
+
+### UI work per priority
+
+The UI grows with the priorities. `specs/ui.md` has the design: section 8 for the contract and the layouts, section 12 for the foundation steps.
+
+A priority is done only when its "Done when" test above and its UI part below are both done. For each priority:
+
+1. Put the logic in a module with no Qt, and add a pipeline stage when the priority finds something in the image.
+2. Add the actions to `live.ACTIONS` and the new values to `LiveSession.state()`. Add the board overlays to the core image. Status text, lists and popups belong to the layouts.
+3. Keys and the generated menu then make the feature available in all layouts. Add the controls to the `inspector` layout. The `panel` layout generates its controls from the action list.
+4. Add the new states to the recorded list of the contract test (`specs/ui.md`, section 11).
+5. Update `specs/ui.md` (sections 3 and 8), `README.md` ("How to use", "What you see"), and `docs/cli.md` (keys).
+
+| Work | Actions | State | `inspector` layout | UI done when |
+|---|---|---|---|---|
+| Priorities 1 to 4 | Exist: `view.*`, `reference.*`, `snapshot.*`, `board.click`, `base.choose`, `names.*`, `frame.save`. | Exist: `drift`, `lens`, `reference_set`, `bases`, `selected`, `candidates`. | Live, Snapshot and Base selected panels. | Part of the UI foundation. |
+| UI foundation, before priority 5 | Add `app.layout` (`l`). | Add fps and detect time to `debug`. | First version. | `specs/ui.md` section 11 passes. Steps 2 to 5 of `specs/ui.md` section 12 are done. |
+| 5 Rings and distances | `ring.1` to `ring.9` (keys `1` to `9`), `ring.clear` (`0`). | `target` (second base), `ring_in`, `distance` (rim to rim, in mm and in). | Base selected: ring buttons and the distance. | In each layout, a key draws the ring on the selected base, and a second base shows the distance in the status area. |
+| 6 Tokens | Token selection through `board.click`. The ring actions also apply to a token. | `tokens`, `selected_token`, `in_range`. | New Token selected panel with the in-range list. | In each layout, a selected token shows its ring and the list of operatives in range. |
+| 7 Hatchways and breach points | `doors.edit` (`d`), `doors.save`, `doors.load`, `door.toggle`. Door clicks go through `board.click`. | `doors_mode`, `map_name`, `doors` (ends, open or closed). | New Doors panel: map name, save, load. | In each layout, a user can click doors, save and load a map, and open or close a door. |
+| Later: wounds and statuses | `operative.wound`, `operative.status`. | `roster`. | Roster list in the Snapshot panel. | Build the `rosters` layout (`specs/ui.md`, Option 3). |
+
+Priority 5 changes the meaning of a click. Today a click on a base opens the name menu. The proposal: the first click selects a base, and a click on another base sets `target`. The name list goes to the Base selected panel of `inspector`, and a right click opens the name popup in the other layouts.
 
 ## 3. Feasibility verdict
 
@@ -91,10 +115,10 @@ Camera rules: rigid mount, manual exposure and focus lock, diffuse light from tw
 - `numpy`, `scipy` (circle fit).
 - `torch` with MPS, `torchvision`. DINOv2 via `torch.hub` or `transformers`.
 - `ultralytics` (YOLO) later, for base segmentation and live tracking.
-- UI: `PySide6` (Qt). Video widget with overlay painter, side panel, mouse clicks. An OpenCV `imshow` window is enough for priorities 1 and 2.
+- UI: `PySide6-Essentials` (Qt). Video widget, layouts with panels, mouse clicks (`specs/ui.md`). The commands other than the live app keep OpenCV `imshow` windows.
 - Config and data: JSON or TOML. Calibration, gallery embeddings, token and door sizes.
 
-Later option: FastAPI plus browser front end over WebSocket for a tablet at the table. Core must not depend on Qt.
+Later option: FastAPI plus browser front end over WebSocket for a tablet at the table. It uses the same actions and state as the Qt layouts. Core must not depend on Qt.
 
 ## 7. Proposed repository layout
 
@@ -110,8 +134,10 @@ battle-sight/
     doors.py          # hatchway and breach point rectangles, open/closed state
     measure.py        # rim-to-rim distances, rings, bands, in-range tests
     overlay.py        # drawing in board coordinates
-    ui/               # PySide6 window
+    live.py           # game core of the live app: LiveSession, actions, state (no Qt)
+    ui/               # PySide6: shell.py, parts.py, layouts/ (panel, inspector, later rosters)
   data/
+    ui.toml           # selected layout and layout options (git-ignored)
     print/            # printable sheets: corner tags, ChArUco target
     teams/            # gallery per team: enrollment images and embeddings (git-ignored)
     maps/             # clicked door positions per Tomb World layout
@@ -130,6 +156,7 @@ battle-sight/
 - **Board slides over still cards.** The drift check sees the cards, not the board. The board's weight on the cards makes them move together in most bumps. Mitigation: the L on each card shows where the corner belongs, so the user puts it back. Later: check the board edge against the expected edge lines (dark board on a lighter table) and warn on a mismatch.
 - **Few-shot ID confuses similar paint schemes.** Mitigation: confirmation step, corrections go into gallery, upgrade to trained classifier.
 - **Phone stream drops or heats up.** Mitigation: USB, charger, screen off, app reconnects on its own.
+- **UI falls behind the priorities, or layouts drift apart.** Mitigation: the UI part is in the done test of each priority (section 2), keys and a generated menu make each action available in all layouts, and a contract test runs each layout.
 
 ## 9. Open implementation details
 
@@ -140,5 +167,6 @@ Resolved inside the phase that needs them.
 - Priority 2 results on the two test photos (nominal lens, thickness 1.0 mm): tag fit rms 1.0 mm, max 1.7 mm. Board edges tilt under 0.15 deg, corners 90 deg within 0.21 deg. Printed section lines within 3.1 mm of nominal (card placement: the board right edge is 2.5 to 3.3 mm inside the L), spacing of neighbouring lines within 1.4 mm over 97 mm (0.37 mm per inch).
 - Priority 3: in code (`circles.py`, stage `bases`, command `bases`). Known-radius circle fit on the dark rim, 120 rays, robust fit, size class from the free fit, rim coverage at least 0.5. Empty-board reference = board with terrain and tokens set up, before the operatives, same camera and light; the reference finds its own tags. The diameter is the base bottom on the play surface, so no parallax correction. Results on the two test photos (single-frame mode, no reference exists for them): all 9 bases with a clearly visible rim found, centre on the rim, right class (25/28/32/40/50). Bases with most of the rim hidden by a model leaning over it or a wall are missed (5 of 7). False bases: tokens with a dark ring, a round barricade, wall gratings (2 and 5 per photo). A reference from another photo of the same board does not work: the light changed and 45 % of the board differs. Open: test photo pair (empty board, then with operatives) for the done test. Then decide whether the reference is enough or a trained base segmenter is needed. Benchmark (`tools/bench_bases.py`, `specs/bases-benchmark.md`), first baseline 2026-11-03 on the 3 test photos, single-frame mode, schema 1 ground truth: 16 true bases, 19 found, 11 matched (clear 9/9, hidden 2/7), 1 wrong size, 8 false (2 inside a base, 6 other), recall 0.69, precision 0.58, f1 0.63, done 0/3. 2026-11-07: negative photo `tomb-world-empty.jpg` removed (not a valid reference, grid spacing fail), new clicked ground truth for `tomb-world-2`; baseline on the 2 game photos: 16 true bases, 18 found, 10 matched (clear 10/12, hidden 0/4), 8 false, recall 0.62, precision 0.56, f1 0.59, done 0/2.
 - Priority 4: in code (`ident.py`, stage `ident`, commands `ident`, `enroll`, `gallery`, `image --team`). Crop = base diameter + 25 mm board each side from the bases image, grey outside a circle. DINOv2 small (`facebook/dinov2-small`, `transformers`, MPS), class token + mean patch token. Gallery per team in `data/teams/<team>/`, base size per operative in `team.toml`; only operatives of the base size class can match. Each gallery crop at 8 rotations. Score = mean of the 3 best photos. Hungarian one-to-one assignment, because each operative is on the board once. Fix = click base, click name; the crop goes into the gallery at once. 2026-11-07 first check on the 2 test photos (no real gallery): about 90 ms for 10 bases; crops of different operatives score 0.5 to 0.87, one model in both photos 0.75, so the board around the base weighs much. Open: a gallery of 10 to 20 crops per operative from the real camera and a labelled game photo (`<name>.ident.json`) for the done test. Then tune `crop_pad_mm`, `top_k`, `min_score`; if the board background confuses it, mask with the empty-board foreground or a smaller crop.
+- UI foundation: open decisions are in `specs/ui.md`, section 10.
 - Priority 7: door thickness in mm for config. Grid snap pitch (1 in, or half inch if walls sit between lines).
 - Later: roster format, wounds and statuses, live tracking, oval bases, Volkus board.

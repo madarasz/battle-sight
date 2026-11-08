@@ -12,4 +12,5 @@ data/print/*
 out/
 .DS_Store
 data/camera.toml
+data/ui.toml
 data/teams/
