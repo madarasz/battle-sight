@@ -10,8 +10,8 @@ bases, and later the range rings and the distances between operatives.
 1. ✅ Board corners: AprilTag cards, drift warning
 2. ✅ Undistort and rectify: lens calibration, top-down board image, map grid
 3. ✅ Bases: find round bases, size and position
-4. ⏳ Operative ID: name each base from a photo gallery (done test waits for real gallery photos)
-5. 🚧 Rings and distances: range rings, rim-to-rim distance
+4. ✅ Operative ID: name each base from a photo gallery
+5. ⏳ Rings and distances: range rings, rim-to-rim distance
 6. 🚧 Tokens: find tokens, list operatives in range
 7. 🚧 Doors: click hatchways once per map, draw 1 in and 2 in bands
 

@@ -253,13 +253,29 @@ def corner_angles_deg(edges: dict[str, EdgeFit | None]) -> list[float | None]:
     return out
 
 
-def measure_grid_lines(rect: np.ndarray, cfg: BoardConfig, search_mm: float = 4.0, step_mm: float = 2.0, min_contrast: float = 10.0) -> dict[str, list[float | None]]:
+def measure_grid_lines(
+    rect: np.ndarray,
+    cfg: BoardConfig,
+    search_mm: float = 4.0,
+    step_mm: float = 2.0,
+    min_contrast: float = 10.0,
+    shoulder_mm: tuple[float, float] = (1.5, 3.0),
+    max_shoulder_diff: float = 15.0,
+    agree_mm: float = 1.0,
+    min_agree: float = 0.4,
+) -> dict[str, list[float | None]]:
     """Find the printed grid lines (dark lines on the board) near their
     nominal positions from `cfg.grid_lines_mm()`.
 
+    A printed line has the same board on both sides. A sample whose two
+    shoulders (`shoulder_mm` from the darkest point) differ by more than
+    `max_shoulder_diff` grey levels is the dark edge of a wall or a model, and
+    does not count.
+
     Returns {"x": offsets of the vertical lines, "y": offsets of the
     horizontal lines}, each the median offset in mm (positive = larger
-    coordinate), or None for a line hidden too much.
+    coordinate), or None for a line hidden too much: under 10 samples, or
+    under `min_agree` of them within `agree_mm` of the median.
     """
     g = _gray(rect)
     xs, ys = cfg.grid_lines_mm()
@@ -269,15 +285,24 @@ def measure_grid_lines(rect: np.ndarray, cfg: BoardConfig, search_mm: float = 4.
         along = np.arange(m, length - m, step_mm)
         res: list[float | None] = []
         for pos in lines:
-            prof, offs = _profiles(g, cfg, vertical, float(pos), along, search_mm)
+            full, full_offs = _profiles(g, cfg, vertical, float(pos), along, search_mm + shoulder_mm[1])
+            step = full_offs[1] - full_offs[0]
+            near, far = max(1, int(round(shoulder_mm[0] / step))), int(round(shoulder_mm[1] / step))
+            prof, offs = full[:, far:full.shape[1] - far], full_offs[far:full.shape[1] - far]
             j = prof.argmin(axis=1)
-            low = prof[np.arange(len(j)), j]
-            good = (np.median(prof, axis=1) - low > min_contrast) & (j > 0) & (j < prof.shape[1] - 1)
+            rows = np.arange(len(j))
+            low = prof[rows, j]
+            reach = np.arange(near, far + 1)
+            left = full[rows[:, None], j[:, None] + far - reach].mean(axis=1)
+            right = full[rows[:, None], j[:, None] + far + reach].mean(axis=1)
+            good = (np.median(prof, axis=1) - low > min_contrast) & (j > 0) & (j < prof.shape[1] - 1) & (np.abs(left - right) <= max_shoulder_diff)
             if good.sum() < 10:
                 res.append(None)
                 continue
-            found = offs[0] + _subpixel(prof[good], j[good]) * (offs[1] - offs[0])
-            res.append(float(np.median(found)))
+            found = offs[0] + _subpixel(prof[good], j[good]) * step
+            mid = float(np.median(found))
+            # Over a line hidden by walls the samples are noise and do not agree.
+            res.append(mid if np.mean(np.abs(found - mid) <= agree_mm) >= min_agree else None)
         out[key] = res
     return out
 

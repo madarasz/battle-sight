@@ -1,9 +1,10 @@
 """Click the ground truth of the bases on a test photo.
 
-    uv run tools/annotate_bases.py tests/images/<name>.jpg [--config data/board.toml] [--prefill]
+    uv run tools/annotate_bases.py tests/images/<name>.jpg [--config data/board.toml] [--prefill] [--team NAME ...]
 
 Shows the top-down bases image (bases.px_per_mm, nominal lens). Writes
-<name>.bases.json (schema 2) next to the photo. Keys:
+<name>.bases.json (schema 2) next to the photo, with --team also the operative
+names in <name>.ident.json, and <name>.expected.json when it is missing. Keys:
 
     left click     add a point on the bottom rim of a base (5 or more is best)
     Enter          fit a circle to the points, snap to the nearest size class
@@ -16,6 +17,10 @@ Shows the top-down bases image (bases.px_per_mm, nominal lens). Writes
     t              note for the entry under the mouse (type it in the terminal)
     x              not_bases entry: of the points (3 or more), else of the base or
                    proposal under the mouse; asks its kind in the terminal
+    n              --team: assign an operative to the base under the mouse; the
+                   terminal lists the choices, push 1..9 in this window
+                   (0 no name, n next page, Esc cancel); with --prefill each
+                   base starts with the best guess and the guess is key 1
     a              --prefill: accept the proposal (cyan dashed) under the mouse
     p              --prefill: show all proposals, also the ones on a saved entry
     d              delete the entry or proposal under the mouse
@@ -31,6 +36,7 @@ Plan: specs/bases-benchmark.md section 8. Docs: docs/cli.md, docs/testing.md.
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 from dataclasses import replace
 from pathlib import Path
@@ -38,8 +44,10 @@ from pathlib import Path
 import numpy as np
 
 from battlesight import bench
+from battlesight import ident as idt
 from battlesight.bench import Decoy, GroundTruth, Truth
 
+MENU_SIZE = 9  # operatives on one page of the assign list (keys 1..9)
 CLICK_TOL_MM = bench.BASE_CENTER_TOL_MM  # tol_mm of a clicked base
 PICK_MIN_MM = 12.0  # an entry is "under the mouse" within its radius, at least this
 COVER_MIN_MM = 3.0  # a proposal this near a saved base (or within its tol_mm) is hidden
@@ -63,13 +71,23 @@ def fit_points(points) -> tuple[np.ndarray, float]:
     return c, 2.0 * r
 
 
+def _circle_key(center_mm, diameter_mm: float) -> tuple[float, float, float]:
+    return round(float(center_mm[0]), 2), round(float(center_mm[1]), 2), float(diameter_mm)
+
+
 class Annotator:
     """Ground truth edit state. No window calls, so tests can drive it."""
 
-    def __init__(self, gt: GroundTruth, classes: tuple[float, ...], proposals: list[dict] | None = None):
+    def __init__(self, gt: GroundTruth, classes: tuple[float, ...], proposals: list[dict] | None = None, operatives: list[idt.Operative] | None = None, suggest=None):
         self.gt = GroundTruth(list(gt.bases), list(gt.not_bases), gt.comment)
         self.classes = tuple(classes)
         self.proposals = list(proposals or [])
+        self.operatives = list(operatives or [])
+        self.assign_base: int | None = None  # base of the open assign list
+        self.assign_page = 0
+        self.unmatched_names: list[tuple[np.ndarray, str]] = []  # names in the file with no base here
+        self.suggest = suggest  # [(centre mm, diameter mm)] -> [idt.Ident], or None
+        self.suggestions: dict[tuple, idt.Ident] = {}  # never saved: only the order and the hints
         self.points: list[tuple[float, float]] = []
         self.history: list[tuple] = []
         self.dirty = False
@@ -250,6 +268,7 @@ class Annotator:
         p = self.proposals.pop(hit[1])
         rim = "clear" if p.get("coverage", 1.0) >= 0.5 else "hidden"
         t = Truth((float(p["center_mm"][0]), float(p["center_mm"][1])), float(p["diameter_mm"]), rim, CLICK_TOL_MM, "detector", "")
+        t = replace(t, label=self._best_guess(t.center_mm, t.diameter_mm))
         self.gt.bases.append(t)
         self._changed()
         return t
@@ -264,6 +283,138 @@ class Annotator:
         if kind != "proposal":
             self._changed()
         return True
+
+    # --- operative names -----------------------------------------------------
+
+    def refresh_suggestions(self) -> bool:
+        """Run `suggest` on the bases of known size and the open proposals when
+        a base has no suggestion yet. True when it ran."""
+        if self.suggest is None:
+            return False
+        bases = [(t.center_mm, t.diameter_mm) for t in self.gt.bases if t.diameter_mm is not None]
+        if self.suggestions and all(_circle_key(*b) in self.suggestions for b in bases):
+            return False
+        items = bases + [(tuple(p["center_mm"]), float(p["diameter_mm"])) for p in self.proposals if not self.covered(p)]
+        self.suggestions = {_circle_key(*it): x for it, x in zip(items, self.suggest(items))}
+        return True
+
+    def suggestion(self, center_mm, diameter_mm) -> idt.Ident | None:
+        return None if diameter_mm is None else self.suggestions.get(_circle_key(center_mm, diameter_mm))
+
+    def _best_guess(self, center_mm, diameter_mm) -> str:
+        """The suggested name, or "" when there is none or a base has it."""
+        s = self.suggestion(center_mm, diameter_mm)
+        if s is None or not s.label or any(t.label == s.label for t in self.gt.bases):
+            return ""
+        return s.label
+
+    def apply_guesses(self) -> int:
+        """Put the best guess on each base with no name. Number of names set."""
+        n = 0
+        for i, t in enumerate(self.gt.bases):
+            label = "" if t.label else self._best_guess(t.center_mm, t.diameter_mm)
+            if label:
+                self.gt.bases[i] = replace(t, label=label)
+                n += 1
+        if n:
+            self._changed()
+        return n
+
+    def assign_choices(self) -> list[idt.Operative]:
+        """Operatives that fit the size of the base of the open assign list.
+        With a suggestion: the suggested name first, then the best scores."""
+        t = self.gt.bases[self.assign_base]
+        d = t.diameter_mm
+        allowed = [op for op in self.operatives if d is None or op.base_mm is None or op.base_mm == d]
+        s = self.suggestion(t.center_mm, d)
+        if s is None:
+            return allowed
+        rank: dict[str, int] = {}
+        for label in ([s.label] if s.label else []) + [lab for lab, _ in s.candidates]:
+            rank.setdefault(label, len(rank))
+        return sorted(allowed, key=lambda op: rank.get(op.label, len(rank)))
+
+    def assign_items(self) -> list[idt.Operative]:
+        """The operatives on the current page: key 1 is the first."""
+        return self.assign_choices()[self.assign_page * MENU_SIZE : (self.assign_page + 1) * MENU_SIZE]
+
+    def assign_pages(self) -> int:
+        return (len(self.assign_choices()) + MENU_SIZE - 1) // MENU_SIZE
+
+    def start_assign(self, at_mm) -> bool:
+        """Open the assign list of the base under the mouse. False: no base
+        there, or no operative of its size."""
+        i = None if at_mm is None else self._base_at(at_mm, fallback_last=False)
+        if i is None:
+            return False
+        self.refresh_suggestions()
+        self.assign_base, self.assign_page = i, 0
+        if not self.assign_choices():
+            self.assign_base = None
+            return False
+        return True
+
+    def next_assign_page(self) -> None:
+        self.assign_page = (self.assign_page + 1) % self.assign_pages()
+
+    def cancel_assign(self) -> None:
+        self.assign_base = None
+
+    def choose_assign(self, key: int) -> bool:
+        """Key 1..9: name the base. Key 0: clear the name. False: no such
+        entry on this page, and the list stays open."""
+        if key == 0:
+            label = ""
+        else:
+            items = self.assign_items()
+            if key > len(items):
+                return False
+            label = items[key - 1].label
+        self._push()
+        self.gt.bases[self.assign_base] = replace(self.gt.bases[self.assign_base], label=label)
+        self.assign_base = None
+        self._changed()
+        return True
+
+    def assign_lines(self) -> list[str]:
+        """Text of the assign list for the terminal."""
+        t = self.gt.bases[self.assign_base]
+        size = "unknown size" if t.diameter_mm is None else f"{t.diameter_mm:g} mm"
+        used = {b.label for i, b in enumerate(self.gt.bases) if i != self.assign_base and b.label}
+        now = f", now {t.label}" if t.label else ""
+        lines = [f"assign base at ({t.center_mm[0]:.1f}, {t.center_mm[1]:.1f}), {size}{now}:"]
+        s = self.suggestion(t.center_mm, t.diameter_mm)
+        scores = {} if s is None else dict(s.candidates)
+        for k, op in enumerate(self.assign_items(), 1):
+            line = f"  {k}  {op.label}"
+            if op.label in scores:
+                line += f"  {scores[op.label]:.2f}"
+            if s is not None and op.label == s.label:
+                line += "  (best guess)" if s.sure else "  (best guess, unsure)"
+            if op.label in used:
+                line += "  (used on another base)"
+            lines.append(line)
+        lines.append("  0  no name")
+        if self.assign_pages() > 1:
+            lines.append(f"  n  next page ({self.assign_page + 1}/{self.assign_pages()})")
+        lines.append("  Esc  cancel")
+        return lines
+
+    def load_names(self, truth: idt.IdentTruth) -> None:
+        """Put the names of a `<name>.ident.json` on the nearest free base
+        within its `tol_mm`. A name with no base stays in `unmatched_names`
+        and is saved again, so hand-made entries are never lost."""
+        for c, label in truth.bases:
+            free = [(bench._dist(c, t.center_mm), i) for i, t in enumerate(self.gt.bases) if not t.label]
+            dist, i = min(free, default=(np.inf, -1))
+            if dist <= truth.tol_mm:
+                self.gt.bases[i] = replace(self.gt.bases[i], label=label)
+            else:
+                self.unmatched_names.append((c, label))
+
+    def names_truth(self, teams: list[str], tol_mm: float) -> idt.IdentTruth:
+        named = [(np.array(t.center_mm, float), t.label) for t in self.gt.bases if t.label]
+        return idt.IdentTruth(list(teams), named + self.unmatched_names, tol_mm)
 
     def save(self, path: str | Path) -> None:
         bench.save_truth(path, self.gt)
@@ -281,7 +432,75 @@ KEYS_BACKSPACE = {8, 127}
 ZOOMS = (1, 2, 4, 8)
 
 
-def run_window(photo: Path, cfg, prefill: bool, display: tuple[int, int]) -> int:
+def ident_path(photo: Path) -> Path:
+    return photo.with_name(f"{photo.stem}.ident.json")
+
+
+def expected_path(photo: Path) -> Path:
+    return photo.with_name(f"{photo.stem}.expected.json")
+
+
+def write_expected(photo: Path, frame: np.ndarray, cfg, camera) -> tuple[Path | None, str]:
+    """Write the first regression report of a photo, with the same pipeline and
+    reference as tests/test_photos.py. Never replaces a file: the tests compare
+    later runs with it. (path or None, message)."""
+    import cv2
+
+    from battlesight.pipeline import Pipeline
+
+    path = expected_path(photo)
+    if path.is_file():
+        return None, ""
+    ref_path = bench.reference_path(photo)
+    ref = None if ref_path is None else cv2.imread(str(ref_path), cv2.IMREAD_COLOR)
+    r = Pipeline(cfg, "bases", camera, ref).analyze(frame, source=photo.as_posix())
+    if not r.ok:
+        return None, f"{path.name} not written: {r.summary()}"
+    path.write_text(json.dumps(r.to_dict(), indent=2) + "\n")
+    return path, r.summary()
+
+
+def load_operatives(teams: list[str], root: Path = idt.DEFAULT_GALLERY_ROOT) -> list[idt.Operative]:
+    """All operatives of the teams, in the order of `teams`. ValueError for a
+    team with no gallery."""
+    known = idt.list_teams(root)
+    missing = [t for t in teams if t not in known]
+    if missing:
+        raise ValueError(f"no gallery for {', '.join(missing)} in {root} (teams: {', '.join(known) or 'none'})")
+    return [op for t in teams for op in idt.team_operatives(t, Path(root) / t)]
+
+
+def load_names_file(path: Path, teams: list[str]) -> idt.IdentTruth | None:
+    """The existing `<name>.ident.json`, or None. ValueError when it has names
+    of a team outside `teams` or cannot be read."""
+    if not path.is_file():
+        return None
+    try:
+        truth = idt.IdentTruth.load(path)
+    except (KeyError, TypeError, ValueError) as exc:
+        raise ValueError(f"{path.name}: {exc!r}") from exc
+    other = sorted({idt.split_label(label)[0] for _, label in truth.bases} - set(teams))
+    if other:
+        raise ValueError(f"{path.name} has names of {', '.join(other)}: add to --team")
+    return truth
+
+
+def make_suggester(img: np.ndarray, reference: np.ndarray | None, cfg, gallery: idt.Gallery):
+    """The `suggest` function of `Annotator`: runs the identification of the
+    app on circles of the bases image."""
+    from battlesight.circles import Circle
+    from battlesight.pipeline import base_crops
+
+    def suggest(items: list[tuple]) -> list[idt.Ident]:
+        found = [Circle(np.array(c, float), float(d), float(d), 1.0, 0.0, 0.0) for c, d in items]
+        crops = base_crops(img, found, cfg)
+        backgrounds = [] if reference is None else base_crops(reference, found, cfg)
+        return idt.identify(crops, [c.diameter_mm for c in found], gallery, backgrounds, [c.center_mm for c in found])
+
+    return suggest
+
+
+def run_window(photo: Path, cfg, prefill: bool, display: tuple[int, int], teams: list[str] | None = None) -> int:
     import cv2
 
     from battlesight import overlay
@@ -300,14 +519,18 @@ def run_window(photo: Path, cfg, prefill: bool, display: tuple[int, int]) -> int
     img = bases_image(frame, r.scratch["view"], cfg)
     ppm, origin = cfg.bases_px_per_mm, BASES_MARGIN_MM
     out_path = bench.truth_path(photo)
+    names_path = ident_path(photo)
     try:
         gt = bench.load_truth(out_path) if out_path.is_file() else GroundTruth()
-    except ValueError as exc:
+        operatives = load_operatives(teams) if teams else []
+        names = load_names_file(names_path, teams) if teams else None
+    except (OSError, ValueError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
+    names_tol = 10.0 if names is None else names.tol_mm
     proposals = []
+    ref = None
     if prefill:
-        ref = None
         ref_path = bench.reference_path(photo)
         ref_frame = None if ref_path is None else cv2.imread(str(ref_path), cv2.IMREAD_COLOR)
         if ref_frame is not None:
@@ -317,9 +540,36 @@ def run_window(photo: Path, cfg, prefill: bool, display: tuple[int, int]) -> int
         found, _ = detect_bases(img, cfg, ref)
         proposals = [c.to_dict() for c in found]
         print(f"{len(proposals)} detector proposals" + (f" (reference {ref_path.name})" if ref is not None else ""))
-    ann = Annotator(gt, cfg.bases_diameters_mm, proposals)
+    suggest = None
+    if prefill and teams:
+        gallery = idt.Gallery.for_teams(teams, cfg)
+        if len(gallery) == 0:
+            print("no operative suggestions: the gallery has no photos")
+        else:
+            suggest = make_suggester(img, ref, cfg, gallery)
+    ann = Annotator(gt, cfg.bases_diameters_mm, proposals, operatives, suggest)
+    ann.refresh_suggestions()
+    if names is not None:
+        ann.load_names(names)
+        for c, label in ann.unmatched_names:
+            print(f"warning: {label} at ({c[0]:.1f}, {c[1]:.1f}) has no base here: kept in {names_path.name}")
+    if suggest is not None:
+        print(f"best guess set on {ann.apply_guesses()} bases: check each name, fix with n")
     print(__doc__.split("\n\n")[3])
     print("classes: " + ", ".join(f"{i + 1}={d:g}" for i, d in enumerate(ann.classes)))
+
+    def save_all() -> None:
+        ann.save(out_path)
+        print(f"wrote {out_path}")
+        result = ann.names_truth(teams or [], names_tol)
+        if teams and (result.bases or names_path.is_file()):
+            result.save(names_path)
+            print(f"wrote {names_path}")
+        path, message = write_expected(photo, frame, cfg, cam)
+        if path is not None:
+            print(f"wrote {path}: first report, tests compare later runs with it. Check it: {message}")
+        elif message:
+            print(f"warning: {message}")
 
     H, W = img.shape[:2]
     fit = min(display[0] / W, display[1] / H)
@@ -377,9 +627,15 @@ def run_window(photo: Path, cfg, prefill: bool, display: tuple[int, int]) -> int
         view = cv2.resize(crop, (int(crop.shape[1] * s), int(crop.shape[0] * s)), interpolation=cv2.INTER_NEAREST if s >= 1 else cv2.INTER_AREA)
         state["vx"], state["vy"] = float(x0), float(y0)  # integer crop: keep mm mapping exact
         rr = lambda d: max(1, int(round(0.5 * d * ppm * s)))  # noqa: E731
+        def hint(center_mm, d) -> None:
+            s = ann.suggestion(center_mm, d)
+            if s is not None and s.label:
+                cv2.putText(view, f"{idt.split_label(s.label)[1]}?", to_disp((center_mm[0] - 0.5 * d, center_mm[1] + 0.5 * d + 5)), cv2.FONT_HERSHEY_SIMPLEX, 0.5, overlay.CYAN, 1, cv2.LINE_AA)
+
         for i in ann.visible_proposals():
             p = ann.proposals[i]
             overlay.draw_dashed_circle(view, to_disp(p["center_mm"]), rr(p["diameter_mm"]), overlay.CYAN, 1, dashes=32)
+            hint(p["center_mm"], p["diameter_mm"])
         for dc in ann.gt.not_bases:
             overlay.draw_dashed_circle(view, to_disp(dc.center_mm), rr(dc.diameter_mm), (170, 170, 170), 1, dashes=48, duty=0.3)
             cv2.putText(view, dc.kind, to_disp((dc.center_mm[0], dc.center_mm[1] + 0.5 * dc.diameter_mm + 4)), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (170, 170, 170), 1, cv2.LINE_AA)
@@ -395,6 +651,13 @@ def run_window(photo: Path, cfg, prefill: bool, display: tuple[int, int]) -> int
                 cv2.circle(view, to_disp(q), 2, color, -1)
             label = f"{'?' if t.diameter_mm is None else f'{t.diameter_mm:g}'} {t.source[0]} {t.note}"[:30]
             cv2.putText(view, label, to_disp((t.center_mm[0] - 0.5 * d, t.center_mm[1] - 0.5 * d - 2)), cv2.FONT_HERSHEY_SIMPLEX, 0.45, color, 1, cv2.LINE_AA)
+            if t.label:
+                cv2.putText(view, idt.split_label(t.label)[1], to_disp((t.center_mm[0] - 0.5 * d, t.center_mm[1] + 0.5 * d + 5)), cv2.FONT_HERSHEY_SIMPLEX, 0.5, overlay.WHITE, 1, cv2.LINE_AA)
+            else:
+                hint(t.center_mm, t.diameter_mm)
+        if ann.assign_base is not None:
+            t = ann.gt.bases[ann.assign_base]
+            cv2.circle(view, to_disp(t.center_mm), rr(30.0 if t.diameter_mm is None else t.diameter_mm) + 3, (255, 0, 255), 3, cv2.LINE_AA)
         for q in ann.points:
             cv2.circle(view, to_disp(q), 3, overlay.RED, -1, cv2.LINE_AA)
         pv = ann.preview()
@@ -408,11 +671,14 @@ def run_window(photo: Path, cfg, prefill: bool, display: tuple[int, int]) -> int
         m = state["mouse"]
         pos = "" if m is None else "mouse ({:.1f}, {:.1f}) mm".format(*to_mm(*m))
         n_clear = sum(t.rim == "clear" for t in ann.gt.bases)
+        named_txt = f" | named {sum(bool(t.label) for t in ann.gt.bases)}/{len(ann.gt.bases)}" if ann.operatives else ""
         text = (
             f"{photo.stem} {ZOOMS[state['zoom']]}x | {pos} | bases {len(ann.gt.bases)} ({n_clear} clear), not {len(ann.gt.not_bases)}"
-            f" | proposals {len(ann.visible_proposals())}/{len(ann.proposals)} | points {len(ann.points)}{fit_txt}" + (" | UNSAVED" if ann.dirty else "")
+            f" | proposals {len(ann.visible_proposals())}/{len(ann.proposals)} | points {len(ann.points)}{fit_txt}{named_txt}" + (" | UNSAVED" if ann.dirty else "")
         )
         overlay.draw_text_banner(canvas, text, overlay.YELLOW if ann.dirty else overlay.GREEN)
+        if ann.assign_base is not None:
+            overlay.draw_text_banner(canvas, f"assign operative: see the terminal, push 1-{len(ann.assign_items())} here, 0 no name, Esc cancel", overlay.CYAN, row=1)
         return canvas
 
     win = f"annotate {photo.name}"
@@ -426,6 +692,20 @@ def run_window(photo: Path, cfg, prefill: bool, display: tuple[int, int]) -> int
             continue
         ch = chr(key & 0xFF) if key < 256 else ""
         at = None if state["mouse"] is None else to_mm(*state["mouse"])
+        if ann.assign_base is not None:  # the assign list takes all keys until it closes
+            if ch and ch in "0123456789":
+                i = ann.assign_base
+                if ann.choose_assign(int(ch)):
+                    print(f"name: {ann.gt.bases[i].label or '(none)'}")
+                else:
+                    print(f"no operative on key {ch}")
+            elif ch == "n":
+                ann.next_assign_page()
+                print("\n".join(ann.assign_lines()))
+            elif key == 27:
+                ann.cancel_assign()
+                print("assign cancelled")
+            continue
         if key in KEYS_ENTER:
             t = ann.commit()
             if t is not None:
@@ -451,6 +731,13 @@ def run_window(photo: Path, cfg, prefill: bool, display: tuple[int, int]) -> int
                     print("no base or proposal under the mouse, and fewer than 3 points")
             except ValueError as exc:
                 print(exc)
+        elif ch == "n":
+            if not ann.operatives:
+                print("start with --team to assign operatives")
+            elif ann.start_assign(at):
+                print("\n".join(ann.assign_lines()))
+            else:
+                print("no base under the mouse, or no operative of its size")
         elif ch == "a":
             if ann.accept(at) is None:
                 print("no proposal under the mouse")
@@ -471,12 +758,10 @@ def run_window(photo: Path, cfg, prefill: bool, display: tuple[int, int]) -> int
             state["vy"] += step * ((key in KEYS_DOWN) - (key in KEYS_UP))
             clamp()
         elif ch == "s":
-            ann.save(out_path)
-            print(f"wrote {out_path}")
+            save_all()
         elif ch == "q" or key == 27:
             if ann.dirty and input("save changes? [y/N] ").strip().lower().startswith("y"):
-                ann.save(out_path)
-                print(f"wrote {out_path}")
+                save_all()
             break
     cv2.destroyAllWindows()
     return 0
@@ -489,6 +774,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("photo", help="test photo; writes <name>.bases.json next to it")
     p.add_argument("--config", default=str(DEFAULT_CONFIG), help="board config")
     p.add_argument("--prefill", action="store_true", help="show the detections as proposals (a = accept)")
+    p.add_argument("--team", nargs="+", default=None, metavar="NAME", help="teams on the photo, folders in data/teams: turns on the n key (assign an operative), writes <name>.ident.json")
     p.add_argument("--display-width", type=int, default=1600, help="window width in pixels")
     p.add_argument("--display-height", type=int, default=950, help="window height in pixels")
     args = p.parse_args(argv)
@@ -497,7 +783,7 @@ def main(argv: list[str] | None = None) -> int:
     except (OSError, ValueError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
-    return run_window(Path(args.photo), cfg, args.prefill, (args.display_width, args.display_height))
+    return run_window(Path(args.photo), cfg, args.prefill, (args.display_width, args.display_height), args.team)
 
 
 if __name__ == "__main__":

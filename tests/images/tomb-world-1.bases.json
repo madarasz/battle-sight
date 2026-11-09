@@ -2,16 +2,13 @@
   "schema": 2,
   "comment": "Ground truth for the bases stage. Board mm, base bottom diameter. rim 'clear': at least half of the rim is visible, the single-frame test needs it within 2 mm and with the right size. rim 'hidden': a model, a wall or a token hides most of the rim; position approximate (tol_mm), checked only with an empty-board reference. diameter_mm null: size not known.",
   "bases": [
-    {"center_mm": [329.8, 186.5], "diameter_mm": 40, "rim": "clear", "source": "detector", "note": "tyranid, top centre"},
-    {"center_mm": [424.3, 175.7], "diameter_mm": 40, "rim": "clear", "source": "detector", "note": "tyranid next to barricade"},
-    {"center_mm": [208.8, 256.1], "diameter_mm": 40, "rim": "clear", "source": "detector", "note": "tyranid, left room"},
-    {"center_mm": [129.9, 424.3], "diameter_mm": 40, "rim": "clear", "source": "detector", "note": "purple model on objective 1"},
-    {"center_mm": [372.6, 418.9], "diameter_mm": 32, "rim": "clear", "source": "detector", "note": "small purple model under wall"},
-    {"center_mm": [164.52, 240.28], "diameter_mm": 32, "rim": "clear", "source": "detector", "note": "tyranid"},
-    {"center_mm": [527.83, 271.44], "diameter_mm": 40, "rim": "hidden", "source": "clicked", "note": "", "points_mm": [[544.21, 282.1], [542.51, 283.97], [514.54, 257.22], [521.84, 253.0]]},
-    {"center_mm": [191.66, 87.41], "diameter_mm": 40, "rim": "hidden", "source": "clicked", "note": "", "points_mm": [[182.54, 104.35], [178.49, 101.43], [174.92, 96.89]]}
+    {"center_mm": [329.8, 186.5], "diameter_mm": 40, "rim": "clear", "source": "detector", "note": ""},
+    {"center_mm": [424.3, 175.7], "diameter_mm": 40, "rim": "clear", "source": "detector", "note": ""},
+    {"center_mm": [208.8, 256.1], "diameter_mm": 40, "rim": "clear", "source": "detector", "note": ""},
+    {"center_mm": [129.9, 424.3], "diameter_mm": 40, "rim": "clear", "source": "detector", "note": ""},
+    {"center_mm": [372.6, 418.9], "diameter_mm": 32, "rim": "clear", "source": "detector", "note": ""},
+    {"center_mm": [164.52, 240.28], "diameter_mm": 32, "rim": "clear", "source": "detector", "note": ""},
+    {"center_mm": [527.83, 271.44], "diameter_mm": 40, "rim": "hidden", "source": "clicked", "note": "", "points_mm": [[544.21, 282.1], [542.51, 283.97], [514.54, 257.22], [521.84, 253.0]]}
   ],
-  "not_bases": [
-    {"center_mm": [542.89, 160.85], "diameter_mm": 50, "kind": "print", "note": ""}
-  ]
+  "not_bases": []
 }

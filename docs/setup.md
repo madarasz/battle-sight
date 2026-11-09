@@ -298,7 +298,9 @@ game camera. Read [Good gallery photos](#good-gallery-photos) first.
    `space` again. Do this 10 to 20 times. Use places near the center and
    near the edges, because the model looks different there.
 5. If the app finds more than one base, click the base of the operative.
-   If you took a bad photo, push `u` to remove it.
+   If no yellow circle is on the base, push `Esc` to go back. The app adds no
+   photo. Then push `space` again. If you took a bad photo, push `u` to remove
+   it.
 6. Push `q`. Do steps 2 to 6 for each operative of the team.
 
 To test the gallery during the enroll mode, push `t`. The app compares each
@@ -313,8 +315,8 @@ base only in the part of the board that you see.
 
 If `space` finds no base, the app tries again with a wider search. The info
 bar then shows "not sure" and yellow circles. Click a yellow circle only if it
-fits the base of the operative. If no circle fits, zoom in on the operative,
-or move it, and push `space` again.
+fits the base of the operative. If no circle fits, push `Esc`, zoom in on the
+operative or move it, and push `space` again.
 
 ### Good gallery photos
 
@@ -343,7 +345,12 @@ same light.
   terrain for the game, take a new photo before the game. The app keeps the
   empty board around the base with each gallery photo, so a new empty-board
   photo does not change your gallery. If the info bar shows "no background
-  saved", take the empty-board photo before you push `space`.
+  saved", take the empty-board photo before you push `space`. With these
+  photos the app can ignore the board around the operative. Thus, your gallery
+  also works after you change the terrain. Each operative needs at least one
+  photo with the empty board around it. To stop this function, set
+  `mask = false` in the `[ident]` table of `data/board.toml`. In a game, take
+  a new empty-board photo after you set up the terrain and the camera.
 - **Use the game light.** Lock the focus and the exposure of the camera, as
   for a game.
 - **You do not cut the photos.** The app finds the base and keeps only the

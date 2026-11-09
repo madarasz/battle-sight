@@ -205,6 +205,21 @@ def test_compare_done_ok_lost():
     assert any("neg: done_ok" in w for w in c.worse)
 
 
+@pytest.mark.parametrize("label", ["matched", "false"])
+def test_compare_gain_on_one_photo_does_not_hide_loss_on_another(label):
+    truths = [tr(100, 100), tr(200, 100)]
+    both, one = [det(100, 100), det(200, 100)], [det(100, 100)]
+    extra = [det(500, 500)]
+    if label == "matched":
+        a0, b0, a1, b1 = both, one, one, both
+    else:
+        a0, b0, a1, b1 = both + extra, both, both, both + extra
+    base = bench.report([make_score(truths, a0, name="a"), make_score(truths, b0, name="b")], {}, detail=False)
+    c = bench.compare(bench.report([make_score(truths, a1, name="a"), make_score(truths, b1, name="b")], {}), base)
+    assert not c.ok
+    assert any(w.startswith(f"a: {label}") or w.startswith(f"b: {label}") for w in c.worse), c.worse
+
+
 def test_compare_new_photo_and_better():
     base, truths = baseline_pair()
     photos = [make_score(truths, [det(100.2, 100), det(200, 100.4)], name="a"), make_score([], [], name="neg"), make_score([], [], name="new")]
@@ -450,3 +465,247 @@ def test_annotate_proposal_to_decoy():
     assert ann.proposals == [] and ann.gt.not_bases == [dec] and ann.gt.bases == []
     assert ann.undo() and len(ann.proposals) == 1 and ann.gt.not_bases == []
     assert ann.to_decoy((600.0, 600.0), "token") is None
+
+
+# --- operative names in the annotate tool -------------------------------------
+
+
+def _ops(idt):
+    return [idt.Operative("T", "A", 32.0), idt.Operative("T", "B", 40.0), idt.Operative("T", "C", 40.0), idt.Operative("U", "Any")]
+
+
+def test_annotate_assign_lists_operatives_of_the_base_size():
+    from battlesight import ident as idt
+
+    tool = load_tool("annotate_bases")
+    ann = tool.Annotator(GroundTruth([tr(100, 100, d=40.0), tr(300, 100, d=32.0)]), CLASSES, operatives=_ops(idt))
+    assert not ann.start_assign((600.0, 600.0)) and ann.assign_base is None
+    assert ann.start_assign((101.0, 100.0)) and ann.assign_base == 0
+    assert [op.label for op in ann.assign_items()] == ["T/B", "T/C", "U/Any"]
+    text = "\n".join(ann.assign_lines())
+    assert "1  T/B" in text and "3  U/Any" in text and "T/A" not in text and "40 mm" in text
+
+    assert not ann.choose_assign(4) and ann.assign_base == 0  # no entry: the list stays open
+    assert ann.choose_assign(2) and ann.assign_base is None and ann.dirty
+    assert ann.gt.bases[0].label == "T/C"
+    assert ann.undo() and ann.gt.bases[0].label == ""
+
+
+def test_annotate_assign_clear_cancel_and_used_mark():
+    from battlesight import ident as idt
+
+    tool = load_tool("annotate_bases")
+    ann = tool.Annotator(GroundTruth([tr(100, 100), tr(300, 100)]), CLASSES, operatives=_ops(idt))
+    ann.start_assign((100.0, 100.0))
+    ann.choose_assign(1)
+    ann.start_assign((300.0, 100.0))
+    assert "T/B  (used on another base)" in "\n".join(ann.assign_lines())
+    ann.cancel_assign()
+    assert ann.assign_base is None and ann.gt.bases[1].label == ""
+    ann.start_assign((100.0, 100.0))
+    ann.choose_assign(0)
+    assert ann.gt.bases[0].label == ""
+
+
+def test_annotate_assign_no_operative_of_the_size():
+    from battlesight import ident as idt
+
+    tool = load_tool("annotate_bases")
+    ann = tool.Annotator(GroundTruth([tr(100, 100, d=50.0)]), CLASSES, operatives=[idt.Operative("T", "A", 32.0)])
+    assert not ann.start_assign((100.0, 100.0)) and ann.assign_base is None
+
+
+def test_annotate_assign_pages():
+    from battlesight import ident as idt
+
+    tool = load_tool("annotate_bases")
+    ops = [idt.Operative("T", f"O{i:02d}", 40.0) for i in range(11)]
+    ann = tool.Annotator(GroundTruth([tr(100, 100)]), CLASSES, operatives=ops)
+    ann.start_assign((100.0, 100.0))
+    assert len(ann.assign_items()) == 9 and ann.assign_pages() == 2 and "next page (1/2)" in "\n".join(ann.assign_lines())
+    ann.next_assign_page()
+    assert [op.name for op in ann.assign_items()] == ["O09", "O10"]
+    assert ann.choose_assign(2) and ann.gt.bases[0].label == "T/O10"
+    ann.start_assign((100.0, 100.0))
+    ann.next_assign_page()
+    ann.next_assign_page()
+    assert ann.assign_page == 0
+
+
+def test_annotate_label_stays_on_edits_and_out_of_bases_json(tmp_path):
+    from battlesight import ident as idt
+
+    tool = load_tool("annotate_bases")
+    ann = tool.Annotator(GroundTruth([tr(100, 100)]), CLASSES, operatives=_ops(idt))
+    ann.start_assign((100.0, 100.0))
+    ann.choose_assign(1)
+    ann.toggle_rim((100.0, 100.0))
+    ann.set_size((100.0, 100.0), 2)
+    assert ann.gt.bases[0].label == "T/B"
+    path = tmp_path / "x.bases.json"
+    ann.save(path)
+    assert "T/B" not in path.read_text() and "label" not in path.read_text()
+
+
+def test_annotate_names_file_round_trip(tmp_path):
+    from battlesight import ident as idt
+
+    tool = load_tool("annotate_bases")
+    path = tmp_path / "x.ident.json"
+    idt.IdentTruth(["T"], [(np.array([101.0, 100.0]), "T/B"), (np.array([500.0, 500.0]), "T/C")], 10.0).save(path)
+    raw = json.loads(path.read_text())
+    assert raw["teams"] == ["T"] and raw["tol_mm"] == 10 and raw["bases"][0] == {"center_mm": [101.0, 100.0], "label": "T/B"}
+
+    ann = tool.Annotator(GroundTruth([tr(100, 100), tr(300, 100)]), CLASSES, operatives=_ops(idt))
+    ann.load_names(tool.load_names_file(path, ["T"]))
+    assert not ann.dirty and [t.label for t in ann.gt.bases] == ["T/B", ""]
+    assert [label for _, label in ann.unmatched_names] == ["T/C"]  # no base there: kept
+
+    out = ann.names_truth(["T"], 10.0)
+    assert [label for _, label in out.bases] == ["T/B", "T/C"]
+    assert tuple(out.bases[0][0]) == (100.0, 100.0)  # the centre of the base
+
+
+def test_annotate_names_file_other_team_is_an_error(tmp_path):
+    from battlesight import ident as idt
+
+    tool = load_tool("annotate_bases")
+    path = tmp_path / "x.ident.json"
+    idt.IdentTruth(["V"], [(np.array([1.0, 1.0]), "V/B")]).save(path)
+    with pytest.raises(ValueError, match="V"):
+        tool.load_names_file(path, ["T"])
+    assert tool.load_names_file(tmp_path / "none.ident.json", ["T"]) is None
+
+
+def test_annotate_load_operatives(tmp_path):
+    from battlesight import ident as idt
+
+    tool = load_tool("annotate_bases")
+    team = tmp_path / "T"
+    (team / "Folder only").mkdir(parents=True)
+    idt.save_team_file(team, "T", {"Listed": 32.0})
+    ops = tool.load_operatives(["T"], tmp_path)
+    assert [(op.label, op.base_mm) for op in ops] == [("T/Folder only", None), ("T/Listed", 32.0)]
+    with pytest.raises(ValueError, match="Nope"):
+        tool.load_operatives(["Nope"], tmp_path)
+
+
+def test_annotate_suggestions_order_the_list_and_are_not_saved():
+    from battlesight import ident as idt
+
+    tool = load_tool("annotate_bases")
+    calls = []
+
+    def suggest(items):
+        calls.append(list(items))
+        return [idt.Ident("T/C", 0.9, 0.2, [("T/C", 0.9), ("U/Any", 0.7), ("T/B", 0.4)], sure=True) for _ in items]
+
+    ann = tool.Annotator(GroundTruth([tr(100, 100)]), CLASSES, [det(300, 300)], operatives=_ops(idt), suggest=suggest)
+    assert ann.refresh_suggestions() and len(calls[0]) == 2  # the base and the proposal
+    assert not ann.refresh_suggestions() and len(calls) == 1  # no new base
+    assert ann.suggestion((300, 300), 40.0).label == "T/C"
+
+    assert ann.gt.bases[0].label == "" and not ann.dirty  # a suggestion is not a name
+    ann.start_assign((100.0, 100.0))
+    assert [op.label for op in ann.assign_items()] == ["T/C", "U/Any", "T/B"]
+    assert "1  T/C  0.90  (best guess)" in "\n".join(ann.assign_lines())
+    assert ann.choose_assign(1) and ann.gt.bases[0].label == "T/C"
+
+
+def test_annotate_suggestions_run_again_for_a_new_base():
+    from battlesight import ident as idt
+
+    tool = load_tool("annotate_bases")
+    calls = []
+
+    def suggest(items):
+        calls.append(len(items))
+        return [idt.Ident(None, 0.1, 0.0, []) for _ in items]
+
+    ann = tool.Annotator(GroundTruth([tr(100, 100)]), CLASSES, operatives=_ops(idt), suggest=suggest)
+    ann.refresh_suggestions()
+    ann.gt.bases.append(tr(300, 300))
+    ann.start_assign((300.0, 300.0))
+    assert calls == [1, 2]
+    assert [op.label for op in ann.assign_items()] == ["T/B", "T/C", "U/Any"]  # no score: gallery order
+    assert "best guess" not in "\n".join(ann.assign_lines())
+
+
+def test_annotate_no_suggester_keeps_gallery_order():
+    from battlesight import ident as idt
+
+    tool = load_tool("annotate_bases")
+    ann = tool.Annotator(GroundTruth([tr(100, 100)]), CLASSES, operatives=_ops(idt))
+    assert not ann.refresh_suggestions() and ann.suggestion((100, 100), 40.0) is None
+
+
+def test_annotate_prefill_sets_best_guess_on_unnamed_bases():
+    from battlesight import ident as idt
+
+    tool = load_tool("annotate_bases")
+    guesses = {100.0: "T/B", 200.0: "T/C", 300.0: "T/B", 400.0: None}
+
+    def suggest(items):
+        return [idt.Ident(guesses[c[0]], 0.9, 0.2, [], sure=True) for c, _ in items]
+
+    bases = [tr(100, 100), tr(200, 100), tr(300, 100), tr(400, 100)]
+    bases[0] = Truth((100, 100), 40.0, "clear", label="T/C")  # a name from the file stays
+    ann = tool.Annotator(GroundTruth(bases), CLASSES, operatives=_ops(idt), suggest=suggest)
+    ann.refresh_suggestions()
+    assert ann.apply_guesses() == 1 and ann.dirty
+    # T/C is on base 0, so base 1 stays free; the guess T/B goes to base 2 only
+    assert [t.label for t in ann.gt.bases] == ["T/C", "", "T/B", ""]
+
+
+def test_annotate_accept_takes_the_best_guess():
+    from battlesight import ident as idt
+
+    tool = load_tool("annotate_bases")
+    suggest = lambda items: [idt.Ident("T/B", 0.9, 0.2, [], sure=True) for _ in items]  # noqa: E731
+    ann = tool.Annotator(GroundTruth(), CLASSES, [det(200, 200)], operatives=_ops(idt), suggest=suggest)
+    ann.refresh_suggestions()
+    assert ann.accept((200.0, 200.0)).label == "T/B"
+    assert ann.undo() and ann.gt.bases == []
+
+
+def test_annotate_writes_expected_only_when_missing(tmp_path):
+    from battlesight.camera import CameraSettings
+
+    tool = load_tool("annotate_bases")
+    cfg = make_config(width_mm=400.0, height_mm=300.0)
+    img, _ = render_board(cfg, px_per_mm=4.0)
+    photo = tmp_path / "game.png"
+    cv2.imwrite(str(photo), img)
+
+    path, message = tool.write_expected(photo, img, cfg, CameraSettings())
+    assert path == tmp_path / "game.expected.json" and "4/4 tags" in message
+    raw = json.loads(path.read_text())
+    assert list(raw["stages"]) == ["corners", "rectify", "bases"] and raw["ok"]
+    assert raw["size"] == [img.shape[1], img.shape[0]] and raw["stages"]["bases"]["data"]["mode"] == "single_frame"
+
+    path.write_text("reviewed")
+    assert tool.write_expected(photo, img, cfg, CameraSettings()) == (None, "")
+    assert path.read_text() == "reviewed"
+
+
+def test_annotate_expected_uses_the_reference(tmp_path):
+    from battlesight.camera import CameraSettings
+
+    tool = load_tool("annotate_bases")
+    cfg = make_config(width_mm=400.0, height_mm=300.0)
+    img, _ = render_board(cfg, px_per_mm=4.0)
+    photo = tmp_path / "game.png"
+    cv2.imwrite(str(photo), img)
+    cv2.imwrite(str(tmp_path / "game.empty.png"), img)
+    path, _ = tool.write_expected(photo, img, cfg, CameraSettings())
+    assert json.loads(path.read_text())["stages"]["bases"]["data"]["mode"] == "reference"
+
+
+def test_annotate_expected_not_written_on_a_failed_stage(tmp_path):
+    from battlesight.camera import CameraSettings
+
+    tool = load_tool("annotate_bases")
+    blank = np.full((300, 300, 3), 160, np.uint8)
+    path, message = tool.write_expected(tmp_path / "blank.png", blank, make_config(), CameraSettings())
+    assert path is None and "not written" in message
+    assert not (tmp_path / "blank.expected.json").exists()

@@ -91,6 +91,7 @@ class Truth:
     source: str = "clicked"
     note: str = ""
     points_mm: tuple[tuple[float, float], ...] | None = None  # clicked rim points
+    label: str = ""  # operative, edit state of the annotate tool (saved in <name>.ident.json, not here)
 
     def to_dict(self) -> dict[str, Any]:
         d: dict[str, Any] = {
@@ -479,7 +480,12 @@ def compare(run: dict[str, Any], baseline: dict[str, Any]) -> Comparison:
         rp = run_photos.get(name)
         if rp is None:
             c.worse.append(f"{name}: in the baseline, missing in the run")
-        elif bp["metrics"]["done_ok"] and not rp["metrics"]["done_ok"]:
+            continue
+        for label, up in (("matched", True), ("false", False)):  # a gain on one photo must not hide a loss on another
+            r, b = rp["metrics"][label], bp["metrics"][label]
+            if r != b:
+                (c.better if (r > b) == up else c.worse).append(f"{name}: {label} {b} -> {r}")
+        if bp["metrics"]["done_ok"] and not rp["metrics"]["done_ok"]:
             c.worse.append(f"{name}: done_ok true -> false")
         elif rp["metrics"]["done_ok"] and not bp["metrics"]["done_ok"]:
             c.better.append(f"{name}: done_ok false -> true")

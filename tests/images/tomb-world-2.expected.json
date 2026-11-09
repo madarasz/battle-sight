@@ -11,7 +11,7 @@
       "ok": true,
       "skipped": false,
       "message": "4/4 tags",
-      "ms": 119.1,
+      "ms": 95.6,
       "data": {
         "tags": {
           "0": {
@@ -128,7 +128,7 @@
       "ok": true,
       "skipped": false,
       "message": "fit rms 1.03 mm, max 1.57 mm, nominal lens",
-      "ms": 10.3,
+      "ms": 9.9,
       "data": {
         "lens": {
           "source": "nominal",
@@ -260,7 +260,7 @@
       "ok": true,
       "skipped": false,
       "message": "10 bases (2x25, 2x28, 3x32, 2x40, 1x50 mm), no reference",
-      "ms": 1980.5,
+      "ms": 1868.4,
       "data": {
         "mode": "single_frame",
         "px_per_mm": 4.0,

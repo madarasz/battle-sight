@@ -64,6 +64,10 @@ class BoardConfig:
     ident_top_k: int = 3
     ident_min_score: float = 0.5
     ident_min_margin: float = 0.03
+    ident_mask: bool = False
+    ident_mask_threshold: float = 25.0
+    ident_mask_min_base: float = 0.25
+    ident_mask_max_fraction: float = 0.6
 
     @classmethod
     def load(cls, path: str | Path = DEFAULT_CONFIG) -> BoardConfig:
@@ -120,6 +124,10 @@ class BoardConfig:
             ident_top_k=int(ident.get("top_k", 3)),
             ident_min_score=float(ident.get("min_score", 0.5)),
             ident_min_margin=float(ident.get("min_margin", 0.03)),
+            ident_mask=bool(ident.get("mask", False)),
+            ident_mask_threshold=float(ident.get("mask_threshold", 25.0)),
+            ident_mask_min_base=float(ident.get("mask_min_base", 0.25)),
+            ident_mask_max_fraction=float(ident.get("mask_max_fraction", 0.6)),
         )
 
     def corner_index(self, tag_id: int) -> int | None:

@@ -21,7 +21,8 @@ uv run battlesight --version
 | `tools/make_tags.py` | none | Print sheet of the corner cards: `data/print/corner_tags.pdf`. |
 | `tools/make_charuco.py` | none | Lens calibration sheet: `data/print/charuco.pdf`. |
 | `tools/bench_bases.py` | test photos | Bases benchmark: metrics, parameter sweeps, baseline check. |
-| `tools/annotate_bases.py` | one test photo | Click the base ground truth of a test photo. |
+| `tools/bench_ident.py` | test photos | Identification benchmark: name metrics, baseline check. |
+| `tools/annotate_bases.py` | one test photo | Click the base ground truth of a test photo, and assign the operative names. |
 
 ## Option rule
 
@@ -218,7 +219,8 @@ uv run battlesight enroll --team NAME --operative NAME [--base-mm 32]
 Adds crops of one operative to `data/teams/<team>/<operative>/` and its base
 size to `data/teams/<team>/team.toml` (created when new). Live: push
 `space`. With exactly one base (of `--base-mm` or the size in `team.toml`)
-the crop goes in at once; with more, click the base. Turn and move the model
+the crop goes in at once; with more, click the base, or push `Esc` to leave the
+choice without a crop (`Esc` outside the choice quits). Turn and move the model
 between grabs: 10 to 20 crops from different places on the board (the
 parallax changes the look near the edges). `u` undoes the last crop, `v`
 changes the view, `q` quits. `e` uses the current frame as the empty-board
@@ -328,7 +330,9 @@ The command always runs all stages.
 `PATH` is an image file or a folder. For a folder, the command reads all
 images directly in it (not in subfolders), in name order. Accepted types:
 `.jpg`, `.jpeg`, `.png`, `.bmp`, `.tif`, `.tiff`, `.webp`. The command applies
-the EXIF orientation of phone photos.
+the EXIF orientation of phone photos. A folder does not give `<name>.empty.*`
+files: these are empty-board references. To run the stages on a reference,
+use its file name as `PATH`.
 
 | Option | Default | Meaning |
 |---|---|---|
@@ -494,7 +498,7 @@ Fields of the `rectify` stage:
 | `rectified` | Top-down image: `px_per_mm`, `margin_mm` (table around the board), `size` in pixels. |
 | `edges` | The board edges found in the top-down image, by name (`top`, `right`, `bottom`, `left`). `offset_mm`: distance from the nominal edge at its midpoint, positive into the board. `angle_deg`: tilt. `n`: samples used, `rms_mm`: fit error. `null` when not found. |
 | `corner_angles_deg` | Board corner angles TL, TR, BR, BL from the found edges. `null` when an edge is missing. |
-| `grid_lines` | Only with `grid.printed = true`. Offsets in mm of the printed grid lines from their nominal places: `x` for the vertical lines (left to right), `y` for the horizontal lines (top to bottom). Positive = right or down. `null` for a line that is hidden too much. |
+| `grid_lines` | Only with `grid.printed = true`. Offsets in mm of the printed grid lines from their nominal places: `x` for the vertical lines (left to right), `y` for the horizontal lines (top to bottom). Positive = right or down. `null` for a line that is hidden too much (under 10 samples, or the samples do not agree). Dark edges of walls and models do not count as samples: the board must be the same on both sides of the line. |
 
 The edge and grid offsets are checks. They do not make the stage fail. A
 large edge offset means the board is not on the L lines of the cards (the
@@ -517,6 +521,7 @@ Fields of the `ident` stage:
 | `teams` | Gallery teams, or `null` without a gallery. |
 | `model` | Embedder (`ident.model`). |
 | `gallery_photos` | Number of gallery crops. |
+| `masked` | Number of bases compared with a masked crop (only with a gallery that has photos). |
 | `bases` | One entry per found base, in the order of the `bases` stage: `center_mm`, `diameter_mm`, `label` (`<team>/<operative>` or `null` = unknown), `score` (mean cosine similarity of the `top_k` best gallery photos), `margin` (score minus the best other allowed name; negative when the assignment took a second choice; `null` when there is no other), `sure`, `confirmed`, `candidates` (up to 5 `[label, score]`, best first, only operatives of this base size). |
 
 ## Operative identity
@@ -539,14 +544,28 @@ identity stay separate: the stage only reads the bases of the `bases` stage.
    the embeddings by file name and change time, with a key of the model and
    the crop values; a change of these values embeds all crops again. Git
    ignores the cache. `<operative>/bg/` holds the optional empty-board crop of
-   each photo, from `enroll` or a name fix with a reference. The app saves
-   these crops for a later foreground mask. No stage reads them now.
+   each photo, from `enroll` or a name fix with a reference.
 4. Score: per operative, the best rotation of each photo, then the mean of
    the `top_k` best photos. Only operatives whose `base_mm` is the size class
    of the base. One-to-one assignment (Hungarian, `scipy`) because each
    operative is on the board at most once. Score under `min_score`: unknown.
 5. Fixes: `LabelSession` (no window calls, unit tested) holds the snapshot.
    A chosen name adds the crop to the gallery at once.
+6. Mask (`ident.mask = true`, `mask_crop`): grey on all pixels that are not the
+   operative, from the difference between a stored crop and its empty-board
+   crop (`circles.foreground_mask`). Close gaps of 3 mm, cut out other found
+   bases, always keep the base disc, keep only the part joined to the base,
+   fill holes. No mask for a crop (`None`) when under `mask_min_base` of the
+   base disc changed (the "empty" photo shows the operative) or when the kept
+   part is over `mask_max_fraction` of the crop circle (light change, old
+   photo). Gallery: each photo has raw and masked embeddings (`Gallery.view_emb`,
+   `masked_emb`; both in the cache, NaN rows = no mask). Game: a base with a
+   usable mask compares masked crops with `masked_emb`, other bases compare
+   full crops with `view_emb`. No reference in the game, or an operative with
+   gallery photos but no masked photo (`Gallery.can_mask` false): full crops
+   for all bases. `leave_one_out` follows the same rule. Masked crops share
+   more grey, so scores can be higher than with full crops: `min_score` and
+   `min_margin` are not tuned for masks yet.
 
 `[ident]` in `data/board.toml`:
 
@@ -559,6 +578,10 @@ identity stay separate: the stage only reads the bases of the `bases` stage.
 | `top_k` | 3 | Gallery photos per operative in the score. |
 | `min_score` | 0.5 | Unknown under this score. |
 | `min_margin` | 0.03 | Unsure under this lead over the second name. |
+| `mask` | `false` (`true` in `data/board.toml`) | Use the mask of step 6. `false`: full crops only. A change embeds all crops again. |
+| `mask_threshold` | 25.0 | Lab colour distance from the empty board that counts as foreground. |
+| `mask_min_base` | 0.25 | No mask under this changed part of the base disc. |
+| `mask_max_fraction` | 0.6 | No mask over this kept part of the crop circle. |
 
 First check on the two test photos (no real gallery yet, each found base
 enrolled as its own operative): the board around the base makes crops of
@@ -652,7 +675,8 @@ and set the margin and sections or pitch.
 [testing.md](testing.md) tells about the unit tests and the photo tests. The
 photo tests use the `<name>.json` files from `--out` as expected results.
 The bases benchmark (`tools/bench_bases.py`, below) gives metrics and a
-baseline for the bases stage.
+baseline for the bases stage. The identification benchmark
+(`tools/bench_ident.py`, below) gives them for the `ident` stage.
 
 In CI or a shell script, use the exit code of the `image-pipeline` command:
 
@@ -780,10 +804,76 @@ uv run tools/bench_bases.py --sweep min_coverage=0.4,0.45,0.5 --no-images
 uv run tools/bench_bases.py --baseline tests/images/bases_baseline.json
 ```
 
+## `tools/bench_ident.py`: identification benchmark
+
+Plan: `specs/ident-benchmark.md`. The tool measures the operative names on photos with `<name>.ident.json`. It
+gives numbers, not only the pass or fail of the done test. Use it to tune
+`[ident]` and to stop changes that make the names worse.
+
+```
+uv run tools/bench_ident.py [PATH ...] [--config data/board.toml]
+                            [--gallery-root data/teams] [--json FILE|-]
+                            [--baseline FILE] [--write-baseline FILE] [-q]
+```
+
+| Option | Default | Meaning |
+|---|---|---|
+| `PATH` | `tests/images` | Photos or folders. Only photos with a `<name>.ident.json` count. `<name>.empty.*` is a reference, not a photo. |
+| `--config` | `data/board.toml` | Board config. |
+| `--gallery-root` | `data/teams` | Folder with one folder per team. The teams come from each `<name>.ident.json`. |
+| `--json` | none | Also write the report to a file, or `-` for stdout (the table then goes to stderr). |
+| `--baseline` | none | Compare with a baseline file. Exit 1 when a rule is worse (see [testing.md](testing.md), "Identification benchmark"). |
+| `--write-baseline` | none | Write the metrics as a new baseline. |
+| `-q` | off | No progress lines on stderr. |
+
+The tool runs all stages with the nominal lens and the empty-board reference
+when there is one, as the done test does. It does not read
+`data/camera.toml`. The code is in `src/battlesight/ident_bench.py`.
+
+Exit codes: 0 done, 1 worse than `--baseline`, 2 bad input (no photo with
+names, unreadable file, a team with no gallery or no gallery photos, a failed
+stage, a baseline of another gallery).
+
+Text output: one row per photo, `TOTAL`, and the target. Then one line for
+each wrong name (`WRONG`), unknown name (`UNKNOWN`), wrong base size (`SIZE`)
+and missed base (`MISS`).
+
+The report:
+
+```json
+{
+  "schema": 1,
+  "config": {"model": "facebook/dinov2-small", "top_k": 3, "...": "all [ident] values used"},
+  "gallery": {"teams": ["Deathwatch", "Raveners"], "files": 554, "fingerprint": "9cbf949945da25ac"},
+  "git": "9035073+dirty",
+  "photos": [
+    {"name": "tomb-world-1", "mode": "single_frame",
+     "metrics": {"truth": 7, "right": 4, "...": "..."},
+     "wrong": [{"true": "Raveners/Felltalon", "got": "Raveners/Prime", "sure": false}],
+     "unknown": [],
+     "wrong_size": [{"true": "Deathwatch/Sergeant", "found_mm": 28.0, "true_mm": 32.0}],
+     "missed": ["Raveners/Prime"]}
+  ],
+  "total": {"metrics": {"...": "..."}}
+}
+```
+
+A baseline has the same fields, but no `wrong`, `unknown`, `wrong_size` and
+`missed` lists. The metric fields are in [testing.md](testing.md),
+"Identification benchmark".
+
+Examples:
+
+```
+uv run tools/bench_ident.py                                              # all test photos with names
+uv run tools/bench_ident.py --baseline tests/images/ident_baseline.json
+uv run tools/bench_ident.py --write-baseline tests/images/ident_baseline.json
+```
+
 ## `tools/annotate_bases.py`: click the ground truth
 
 ```
-uv run tools/annotate_bases.py tests/images/<name>.jpg [--config data/board.toml] [--prefill]
+uv run tools/annotate_bases.py tests/images/<name>.jpg [--config data/board.toml] [--prefill] [--team NAME ...]
                                [--display-width 1600] [--display-height 950]
 ```
 
@@ -802,6 +892,7 @@ ground truth then does not come from the detector.
 | `h` | Rim `clear` <-> `hidden` (base under the mouse, else the last one). |
 | `t` | Note for the entry under the mouse. Type it in the terminal. |
 | `x` | `not_bases` entry. With 3 or more points: of their fit. Else: of the base or the proposal under the mouse (the base moves, the proposal goes away). Type its kind in the terminal. |
+| `n` | With `--team`: assign an operative to the base under the mouse. The terminal lists the operatives of that base size as 1 to 9. Push the number in the window. `0` clears the name, `n` shows the next page, `Esc` cancels. No other key works while the list is open. An operative already on another base is marked, but you can select it. |
 | `a` | With `--prefill`: accept the detector proposal (cyan dashed) under the mouse, `source: "detector"`. The rim is `clear` when its coverage is 0.5 or more. |
 | `p` | With `--prefill`: show all proposals. By default a proposal on a saved entry (within its `tol_mm`, at least 3 mm, or inside a `not_bases` circle) is hidden. |
 | `d` | Delete the entry or proposal under the mouse. |
@@ -817,6 +908,30 @@ dashed circles estimates, cyan dashed circles detector proposals (not
 saved), grey dotted circles `not_bases`, magenta the fit of the current
 points. A label shows the size and the first letter of the source (`c`
 clicked, `d` detector, `e` estimate).
+
+With `--team` (teams in `data/teams/`) the tool loads `<name>.ident.json` when it
+exists and writes it on `s` next to `<name>.bases.json`: the input of
+the identification benchmark. Only named bases go in the file, each with the centre of its
+base. The names are not in `<name>.bases.json`. On load, a name goes to the nearest
+free base within `tol_mm`. A name with no base gives a warning and stays in the
+file. A name of a team outside `--team` is an error (exit 2). The model is not
+loaded without `--prefill`. The operative list comes from `team.toml` and the operative folders.
+
+With `--prefill` and `--team` the tool also runs the identification of the app
+(`Annotator.suggest`, the model loads at start) on the saved bases and the open
+proposals. Each base with no name starts with the best guess, and `a` gives an
+accepted proposal its guess. A name from the `.ident.json` stays, and a guess that
+another base has is not set. `s` saves the guesses as names, so check each one:
+an unchecked guess makes the done test compare the app with itself. A cyan `name?`
+shows the guess on a proposal or an unnamed base. In the `n` list the guess is
+key 1, then the other operatives by score. A new base or a new size runs the
+suggestions again on the next `n`.
+
+On `s` the tool also writes `<name>.expected.json` when it is missing, with the
+stages up to `bases` and the empty-board reference when there is one (the same run
+as `tests/test_photos.py`). It never replaces this file: the photo tests compare
+later runs with it. To replace it, use `image-pipeline` and copy the report
+(`docs/testing.md`, "Add a photo").
 
 The edit logic is the `Annotator` class (no window calls). `tests/test_bench.py` drives it.
 

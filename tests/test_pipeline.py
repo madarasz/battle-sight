@@ -5,7 +5,7 @@ import numpy as np
 import pytest
 
 from battlesight import pipeline
-from battlesight.app import main
+from battlesight.app import collect_images, main
 from battlesight.pipeline import Pipeline, StageResult, analyze, select_stages
 
 from .conftest import make_config, render_board
@@ -108,6 +108,22 @@ def test_cli_image_ok(tmp_path, config_file, capsys):
     assert (out / "a.overlay.jpg").is_file()
     assert (out / "a.rectified.jpg").is_file()
     assert json.loads((out / "a.json").read_text())["ok"]
+
+
+def test_collect_images_skips_references_in_folders(tmp_path):
+    for n in ("b.png", "a.jpg", "a.empty.jpg", "b.empty.PNG", "notes.txt"):
+        (tmp_path / n).touch()
+    images, errors = collect_images([str(tmp_path)])
+    assert [p.name for p in images] == ["a.jpg", "b.png"] and errors == []
+    # A file named on the command line always counts.
+    images, errors = collect_images([str(tmp_path / "a.empty.jpg")])
+    assert [p.name for p in images] == ["a.empty.jpg"] and errors == []
+
+
+def test_collect_images_folder_with_only_references_is_an_error(tmp_path):
+    (tmp_path / "a.empty.jpg").touch()
+    images, errors = collect_images([str(tmp_path)])
+    assert images == [] and "no images in folder" in errors[0]
 
 
 def test_cli_image_stage_failure_exit_1(tmp_path, config_file):

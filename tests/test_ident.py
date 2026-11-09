@@ -429,6 +429,22 @@ def test_enroll_relaxed_search_needs_a_click(tmp_path, monkeypatch):
     assert len(list((root / "orks" / "Nob").glob("*.png"))) == 1  # the click added it
 
 
+def test_enroll_esc_leaves_the_base_choice_then_quits(tmp_path, monkeypatch):
+    import battlesight.app as app
+
+    cfg_file = cli_config(tmp_path)
+    cfg = BoardConfig.load(cfg_file)
+    root = tmp_path / "gallery"
+    frame, _ = render_board(cfg, px_per_mm=2.0, bases=(Base((260.0, 300.0), 40.0), Base((340.0, 300.0), 40.0)))
+    frames = enroll_loop(monkeypatch, app, frame, [ord(" "), -1, 27, -1, 27])
+    code = main(["enroll", "--team", "orks", "--operative", "Nob", "--base-mm", "40", "--gallery-root", str(root), "--config", str(cfg_file), "--reference", str(tmp_path / "none.png")])
+    assert code == 0
+    assert frames[1][0][0] == "click the base of Nob" and "Esc back" in frames[1][0][1]
+    assert len(frames) == 4  # the first Esc stays in the app, the second one quits
+    assert frames[2][0][0].startswith("enroll Nob:") and frames[2][1][0].startswith("no photo added")
+    assert not list((root / "orks" / "Nob").glob("*.png"))
+
+
 def test_enroll_zoom_key_shows_factor_and_limits_search(tmp_path, monkeypatch):
     import battlesight.app as app
 
@@ -475,6 +491,120 @@ def test_label_session_saves_background_and_undo_removes_it(tmp_path):
     assert idt.background_path(path).exists()
     s.undo()
     assert not idt.background_path(path).exists()
+
+
+def mask_scene(board=(40, 120, 40), neighbour_mm=None):
+    """Stored crop of a 32 mm base at 4 px per mm, its empty board, and the board colour."""
+    side = int((32 + 2 * idt.STORE_PAD_MM) * 4)
+    bg = np.full((side, side, 3), board, np.uint8)
+    crop = bg.copy()
+    c = side // 2
+    cv2.circle(crop, (c, c), 64, (0, 0, 230), -1)
+    cv2.ellipse(crop, (c + 80, c), (40, 16), 0, 0, 360, (0, 200, 230), -1)  # the body leans out
+    cv2.circle(crop, (20, 20), 14, (230, 0, 0), -1)  # a token, not joined to the base
+    if neighbour_mm is not None:
+        cv2.circle(crop, (c + int(neighbour_mm * 4), c), 64, (230, 230, 0), -1)
+    return crop, bg, c
+
+
+def test_mask_keeps_the_operative_and_greys_the_rest():
+    p = idt.IdentParams(crop_pad_mm=25)
+    crop, bg, c = mask_scene()
+    out = idt.mask_crop(crop, bg, 32.0, p)
+    assert out is not None
+    assert (out[c, c] == (0, 0, 230)).all() and (out[c, c + 100] == (0, 200, 230)).all()  # base and body
+    assert (out[20, 20] == idt.MASK_GRAY).all()  # the token
+    assert (out[c + 150, c] == idt.MASK_GRAY).all()  # the board
+
+
+def test_mask_cuts_off_a_touching_neighbour():
+    p = idt.IdentParams(crop_pad_mm=25)
+    crop, bg, c = mask_scene(neighbour_mm=34.0)
+    out = idt.mask_crop(crop, bg, 32.0, p, [(34.0, 0.0, 32.0)])
+    assert out is not None and (out[c, c] == (0, 0, 230)).all()
+    assert (out[c, c + 136] == idt.MASK_GRAY).all()
+
+
+def test_mask_refuses_a_wrong_background():
+    p = idt.IdentParams(crop_pad_mm=25)
+    crop, bg, _ = mask_scene()
+    assert idt.mask_crop(crop, crop.copy(), 32.0, p) is None  # the operative is in the "empty" photo
+    brighter = np.clip(crop.astype(int) + 90, 0, 255).astype(np.uint8)
+    assert idt.mask_crop(brighter, bg, 32.0, p) is None  # the light changed: all of the crop differs
+    assert idt.mask_crop(crop, np.full_like(crop, 240), 32.0, p) is None  # another board
+
+
+def test_mask_off_keeps_gallery_as_before(tmp_path):
+    g = make_gallery(tmp_path, ident_cfg())
+    g.ensure_operative("orks", "Nob", 32)
+    crop, bg, _ = mask_scene()
+    g.add("orks/Nob", crop, 32.0, bg)
+    assert not g.can_mask and len(g.masked_emb) == 0 and g.view_emb.shape[0] == g.params.rotations
+
+
+def test_gallery_masked_views_cache_and_missing_background(tmp_path):
+    cfg = ident_cfg(ident_mask=True)
+    g = make_gallery(tmp_path, cfg)
+    g.ensure_operative("orks", "Nob", 32)
+    g.ensure_operative("orks", "Grot", 32)
+    crop, bg, _ = mask_scene()
+    g.add("orks/Nob", crop, 32.0, bg)
+    assert g.view_emb.shape[0] == g.params.rotations and g.masked_emb.shape == g.view_emb.shape
+    assert g.can_mask  # Grot has no photos: nothing to compare
+    no_bg = g.add("orks/Grot", crop, 32.0)
+    assert g.view_emb.shape[0] == 2 * g.params.rotations and g.masked_emb.shape[0] == g.params.rotations
+    assert not g.can_mask  # Grot has photos, none masked
+
+    class NoEmbed(idt.ColorEmbedder):
+        def embed(self, images):
+            raise AssertionError("the cache must hold the embeddings")
+
+    again = idt.Gallery.for_teams(("orks",), cfg, tmp_path / "gallery", NoEmbed())
+    assert again.masked_emb.shape == g.masked_emb.shape and not again.can_mask
+    g.remove(no_bg)
+    assert g.can_mask
+    right, total, misses = g.leave_one_out()
+    assert (right, total, misses) == (0, 0, [])  # one photo: nothing to compare with
+
+
+def test_identify_with_mask_ignores_the_board_colour(tmp_path):
+    cfg = ident_cfg(ident_mask=True)
+    g = make_gallery(tmp_path, cfg)
+    g.ensure_operative("orks", "Nob", 32)
+    crop, bg, _ = mask_scene()
+    g.add("orks/Nob", crop, 32.0, bg)
+    game, game_bg, _ = mask_scene(board=(150, 60, 60))
+    masked = idt.identify([game], [32.0], g, [game_bg], [(100.0, 100.0)])[0]
+    full = idt.identify([game], [32.0], g)[0]
+    assert masked.masked and not full.masked
+    assert masked.score > 0.9 and masked.score > full.score + 0.1  # a thin edge of board stays in the mask
+
+
+def test_ident_stage_masks_with_reference_and_reports_it(tmp_path):
+    cfg = ident_cfg(ident_mask=True)
+    g = make_gallery(tmp_path, cfg)
+    empty = paint_board(cfg, {})
+    first = Pipeline(cfg, reference=empty).analyze(paint_board(cfg, FIRST))
+    for c, crop, bg in zip(first.scratch["bases"], first.scratch["base_crops"], first.scratch["base_backgrounds"]):
+        name = min(FIRST, key=lambda n: np.linalg.norm(np.subtract(FIRST[n][0], c.center_mm)))
+        g.ensure_operative("orks", name, SIZES[name])
+        g.add(f"orks/{name}", crop, c.diameter_mm, bg)
+    r = Pipeline(cfg, reference=empty, gallery=g).analyze(paint_board(cfg, SECOND))
+    st = r.stages["ident"]
+    assert r.ok and st.data["masked"] == 3 and st.message == "3/3 named, 3 masked"
+    got = {b["label"]: b["center_mm"] for b in st.data["bases"]}
+    for name, (c, _) in SECOND.items():
+        assert np.linalg.norm(np.subtract(got[f"orks/{name}"], c)) < 2.0
+    without = Pipeline(cfg, gallery=g).analyze(paint_board(cfg, SECOND))
+    assert without.ok and without.stages["ident"].data["masked"] == 0
+
+
+def test_ident_stage_says_when_gallery_cannot_mask(tmp_path):
+    cfg = ident_cfg(ident_mask=True)
+    g = make_gallery(tmp_path, cfg)
+    enroll_from(g, cfg, paint_board(cfg, FIRST), {n: c for n, (c, _) in FIRST.items()})
+    r = Pipeline(cfg, reference=paint_board(cfg, {}), gallery=g).analyze(paint_board(cfg, SECOND))
+    assert r.ok and "no mask" in r.stages["ident"].message and r.stages["ident"].data["masked"] == 0
 
 
 def test_ident_stage_cuts_backgrounds_only_with_reference():

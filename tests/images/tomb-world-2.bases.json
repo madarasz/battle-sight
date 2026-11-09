@@ -2,18 +2,16 @@
   "schema": 2,
   "comment": "Ground truth for the bases stage. See tomb-world-1.bases.json for the fields.",
   "bases": [
-    {"center_mm": [239.8, 249.1], "diameter_mm": 40, "rim": "clear", "source": "detector", "note": "tyranid, left room"},
-    {"center_mm": [636.4, 165.3], "diameter_mm": 40, "rim": "clear", "source": "detector", "note": "tyranid, top right"},
-    {"center_mm": [372.0, 419.1], "diameter_mm": 32, "rim": "clear", "source": "detector", "note": "small purple model under wall"},
-    {"center_mm": [239.8, 524.6], "diameter_mm": 32, "rim": "clear", "source": "detector", "note": "gold model, bottom"},
+    {"center_mm": [239.8, 249.1], "diameter_mm": 40, "rim": "clear", "source": "detector", "note": ""},
+    {"center_mm": [636.4, 165.3], "diameter_mm": 40, "rim": "clear", "source": "detector", "note": ""},
+    {"center_mm": [372.0, 419.1], "diameter_mm": 32, "rim": "clear", "source": "detector", "note": ""},
+    {"center_mm": [239.8, 524.6], "diameter_mm": 32, "rim": "clear", "source": "detector", "note": ""},
     {"center_mm": [329.11, 194.03], "diameter_mm": 40, "rim": "hidden", "source": "clicked", "note": "", "points_mm": [[322.27, 212.39], [328.43, 213.45], [335.64, 212.55], [342.21, 208.5]]},
     {"center_mm": [330.76, 338.05], "diameter_mm": 40, "rim": "hidden", "source": "clicked", "note": "", "points_mm": [[323.54, 356.07], [329.26, 357.31], [335.83, 356.74], [344.66, 351.55], [324.8, 319.62]]},
     {"center_mm": [158.36, 257.15], "diameter_mm": 40, "rim": "clear", "source": "clicked", "note": "", "points_mm": [[153.14, 276.32], [141.63, 267.89], [139.04, 252.49], [175.19, 267.73]]},
     {"center_mm": [426.11, 181.86], "diameter_mm": 40, "rim": "clear", "source": "clicked", "note": "", "points_mm": [[406.96, 179.03], [408.18, 174.33], [408.82, 191.11], [432.01, 200.27], [440.68, 194.76], [444.08, 189.49]]}
   ],
   "not_bases": [
-    {"center_mm": [300.2, 106.32], "diameter_mm": 25, "kind": "print", "note": ""},
-    {"center_mm": [136.13, 179.68], "diameter_mm": 28, "kind": "wall", "note": ""},
     {"center_mm": [61.16, 353.66], "diameter_mm": 50, "kind": "print", "note": ""}
   ]
 }

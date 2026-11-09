@@ -346,8 +346,8 @@ git commit. Commit it.
 
 ### 7.2 Pass rules (`--baseline` and the photo test)
 
-A run is worse than the baseline when one of these is true (totals, mode
-`auto`):
+A run is worse than the baseline when one of these is true (totals, then
+each photo, mode `auto`):
 
 | Rule | Limit |
 |---|---|
@@ -356,6 +356,8 @@ A run is worse than the baseline when one of these is true (totals, mode
 | `false` | higher than the baseline |
 | `wrong_size` | higher than the baseline |
 | `center_err_mm.max` | more than 0.5 mm higher than the baseline |
+| `matched` of a photo | lower than the baseline |
+| `false` of a photo | higher than the baseline |
 | a photo with `done_ok` true in the baseline | now false |
 | a photo in the baseline | missing in the run |
 
@@ -417,17 +419,17 @@ In `tests/test_photos.py`:
 
 1. Replace `_match_truth` and `load_truth` with `bench.match` and
    `bench.load_truth`.
-2. Keep `test_bases_match_expected` (exact regression, 1 mm).
-3. Keep `test_bases_clear_rims_found` (each clear base within its `tol_mm`,
-   right size).
+2. `test_bases_match_expected` and `test_bases_clear_rims_found` are removed
+   (2026-11-10). The benchmark rules in 7.2 guard the results.
+3. Not all bases can be found, so no test requires it.
 4. Replace `test_bases_false_positives_no_worse` with
    `test_bases_benchmark_no_worse`: compute the scores for all photos with
    ground truth (module fixture, reuse the `results` fixture: no second
    pipeline run), compare with `bases_baseline.json` by the rules in 7.2.
    Skip when the baseline file does not exist, with a message that gives
    the `--write-baseline` command.
-5. Keep `test_bases_done_criteria`. Make it use `bench.PhotoScore.done_ok`.
-   It still runs only on photos with a reference.
+5. `test_bases_done_criteria` is removed (2026-11-10). The `done` column of
+   the metrics table shows `bench.PhotoScore.done_ok`.
 6. Print the metrics table after the photo tests: a `pytest_terminal_summary`
    hook in `tests/conftest.py` prints the table that the benchmark fixture
    stored on `config.stash`. It prints nothing when the photo tests did not

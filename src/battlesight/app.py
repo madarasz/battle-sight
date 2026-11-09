@@ -39,6 +39,7 @@ import numpy as np
 
 from . import __version__
 from . import ident as idt
+from .bench import is_reference
 from .calib import CharucoFinder, TagDetector, calibrate_lens
 from .camera import DEFAULT_CAMERA_FILE, Camera, CameraSettings, ImageSource, parse_source
 from .config import CORNER_NAMES, DEFAULT_CONFIG, BoardConfig
@@ -256,7 +257,7 @@ def cmd_enroll(args: argparse.Namespace) -> int:
     cam = _open_camera(args)
     if cam is None:
         return 2
-    print(f"enroll {label}: space grab, click the base when there are more, u undo, e take the empty-board reference, t test the gallery, + - zoom at the pointer (space searches the zoomed area only), 0 no zoom, v view, q quit. Turn and move the model between grabs.")
+    print(f"enroll {label}: space grab, click the base when there are more (Esc back when the right base has no circle), u undo, e take the empty-board reference, t test the gallery, + - zoom at the pointer (space searches the zoomed area only), 0 no zoom, v view, q quit. Turn and move the model between grabs.")
     window = "Battle Sight - enroll"
     cv2.namedWindow(window, cv2.WINDOW_NORMAL)
     win = BoardWindow(cfg, DISPLAY_WIDTH)
@@ -297,17 +298,26 @@ def cmd_enroll(args: argparse.Namespace) -> int:
         print(f"added {path}")
         notice.ok(f"photo {gallery.counts()[label]} added. Turn and move {op.name}, then push space.")
 
+    def leave_pick() -> bool:
+        """Back to the live view from the base choice. False when no choice is open."""
+        if state["result"] is None:
+            return False
+        state["result"], state["snap"], state["click"] = None, None, None
+        notice.say("no photo added: move the model or zoom, then push space")
+        return True
+
     while True:
         frame = cam.read()
         if frame is None:
             meter.reset()
-            if cv2.waitKey(100) in (27, ord("q")):
+            key = cv2.waitKey(100) & 0xFF
+            if key == ord("q") or (key == 27 and not leave_pick()):
                 break
             continue
         meter.tick(time.monotonic())
         zoom.set_frame_size(frame.shape[1], frame.shape[0])
         key = cv2.waitKey(1) & 0xFF
-        if key in (27, ord("q")):
+        if key == ord("q") or (key == 27 and not leave_pick()):
             break
         if key == ord("v"):
             state["top_down"] = not state["top_down"]
@@ -380,7 +390,7 @@ def cmd_enroll(args: argparse.Namespace) -> int:
             if not win.top_down:
                 img = zoom.image(img)
             ask = f"not sure: click the base of {op.name}" if state["relaxed"] else f"click the base of {op.name}"
-            draw_text_banner(img, ask, YELLOW, f"{video}, {gallery.counts()[label]} photos")
+            draw_text_banner(img, ask, YELLOW, f"{video}, {gallery.counts()[label]} photos, Esc back")
         else:
             img = zoom.image(frame).copy()
             if pipe.has_reference:
@@ -475,13 +485,14 @@ def cmd_calibrate(args: argparse.Namespace) -> int:
 
 def collect_images(inputs: list[str]) -> tuple[list[Path], list[str]]:
     """Expand files and folders (not recursive) into a sorted image list.
+    A folder gives no `<name>.empty.*` references. A file named here always counts.
     Returns (images, errors)."""
     images: list[Path] = []
     errors: list[str] = []
     for item in inputs:
         p = Path(item)
         if p.is_dir():
-            found = sorted(q for q in p.iterdir() if q.suffix.lower() in IMAGE_SUFFIXES)
+            found = sorted(q for q in p.iterdir() if q.suffix.lower() in IMAGE_SUFFIXES and not is_reference(q))
             if not found:
                 errors.append(f"{p}: no images in folder")
             images.extend(found)

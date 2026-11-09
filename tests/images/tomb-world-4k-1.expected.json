@@ -1,0 +1,430 @@
+{
+  "schema": 1,
+  "source": "tests/images/tomb-world-4k-1.png",
+  "size": [
+    3840,
+    2160
+  ],
+  "ok": true,
+  "stages": {
+    "corners": {
+      "ok": true,
+      "skipped": false,
+      "message": "4/4 tags",
+      "ms": 58.9,
+      "data": {
+        "tags": {
+          "0": {
+            "corner": "top-left",
+            "corners_px": [
+              [
+                496.18,
+                19.67
+              ],
+              [
+                616.32,
+                26.43
+              ],
+              [
+                614.66,
+                136.13
+              ],
+              [
+                495.37,
+                131.27
+              ]
+            ],
+            "side_px": 115.26
+          },
+          "1": {
+            "corner": "top-right",
+            "corners_px": [
+              [
+                2551.48,
+                115.28
+              ],
+              [
+                2648.41,
+                121.28
+              ],
+              [
+                2652.44,
+                218.24
+              ],
+              [
+                2554.38,
+                213.72
+              ]
+            ],
+            "side_px": 97.7
+          },
+          "2": {
+            "corner": "bottom-right",
+            "corners_px": [
+              [
+                2629.59,
+                1845.19
+              ],
+              [
+                2733.7,
+                1841.77
+              ],
+              [
+                2740.48,
+                1954.63
+              ],
+              [
+                2635.35,
+                1957.82
+              ]
+            ],
+            "side_px": 108.8
+          },
+          "3": {
+            "corner": "bottom-left",
+            "corners_px": [
+              [
+                415.07,
+                1938.52
+              ],
+              [
+                540.65,
+                1935.49
+              ],
+              [
+                532.96,
+                2059.63
+              ],
+              [
+                405.17,
+                2065.34
+              ]
+            ],
+            "side_px": 126.28
+          }
+        },
+        "missing": [],
+        "board_corners_px": [
+          [
+            629.37,
+            150.44
+          ],
+          [
+            2542.49,
+            225.46
+          ],
+          [
+            2615.85,
+            1831.53
+          ],
+          [
+            557.31,
+            1919.6
+          ]
+        ]
+      }
+    },
+    "rectify": {
+      "ok": true,
+      "skipped": false,
+      "message": "fit rms 0.66 mm, max 1.21 mm, nominal lens",
+      "ms": 8.5,
+      "data": {
+        "lens": {
+          "source": "nominal",
+          "size": [
+            3840,
+            2160
+          ],
+          "fx": 2443.88,
+          "fy": 2443.88,
+          "cx": 1920.0,
+          "cy": 1080.0,
+          "dist": [
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "rms_px": null
+        },
+        "H_mm_to_px": [
+          [
+            3.07949199,
+            -0.181768326,
+            626.758834
+          ],
+          [
+            0.141053613,
+            2.69126761,
+            147.622964
+          ],
+          [
+            0.000138517504,
+            -0.000119724529,
+            1.0
+          ]
+        ],
+        "reproj_rms_mm": 0.661,
+        "reproj_max_mm": 1.208,
+        "camera_mm": [
+          336.3,
+          418.0,
+          872.7
+        ],
+        "thickness_mm": 1.0,
+        "surface_scale": 1.001147,
+        "board_corners_px": [
+          [
+            626.76,
+            147.62
+          ],
+          [
+            2543.92,
+            224.88
+          ],
+          [
+            2616.54,
+            1832.21
+          ],
+          [
+            557.02,
+            1917.66
+          ]
+        ],
+        "rectified": {
+          "px_per_mm": 2.0,
+          "margin_mm": 50.0,
+          "size": [
+            1606,
+            1412
+          ]
+        },
+        "edges": {
+          "top": {
+            "offset_mm": 1.63,
+            "angle_deg": -0.077,
+            "n": 151,
+            "rms_mm": 0.49
+          },
+          "right": {
+            "offset_mm": 1.08,
+            "angle_deg": 0.071,
+            "n": 100,
+            "rms_mm": 0.35
+          },
+          "bottom": {
+            "offset_mm": 0.89,
+            "angle_deg": -0.095,
+            "n": 151,
+            "rms_mm": 0.29
+          },
+          "left": {
+            "offset_mm": -0.05,
+            "angle_deg": -0.006,
+            "n": 109,
+            "rms_mm": 0.17
+          }
+        },
+        "corner_angles_deg": [
+          90.083,
+          89.994,
+          90.024,
+          89.899
+        ],
+        "grid_lines": {
+          "x": [
+            0.45,
+            1.19,
+            1.47,
+            0.45,
+            -0.07,
+            -1.03,
+            -1.77,
+            -2.02
+          ],
+          "y": [
+            2.27,
+            null,
+            1.62,
+            0.47,
+            -0.19,
+            -0.52,
+            -1.06
+          ]
+        }
+      }
+    },
+    "bases": {
+      "ok": true,
+      "skipped": false,
+      "message": "10 bases (1x28, 3x32, 6x40 mm)",
+      "ms": 1459.7,
+      "data": {
+        "mode": "reference",
+        "px_per_mm": 4.0,
+        "diameters_mm": [
+          25.0,
+          28.0,
+          32.0,
+          40.0,
+          50.0
+        ],
+        "changed_fraction": 0.037,
+        "bases": [
+          {
+            "center_mm": [
+              185.58,
+              161.76
+            ],
+            "diameter_mm": 32.0,
+            "fit_diameter_mm": 31.99,
+            "coverage": 0.8,
+            "rms_mm": 0.249,
+            "contrast": 86.7,
+            "center_px": [
+              1161.5,
+              605.3
+            ]
+          },
+          {
+            "center_mm": [
+              425.75,
+              407.15
+            ],
+            "diameter_mm": 32.0,
+            "fit_diameter_mm": 31.38,
+            "coverage": 0.767,
+            "rms_mm": 0.332,
+            "contrast": 123.9,
+            "center_px": [
+              1844.96,
+              1290.22
+            ]
+          },
+          {
+            "center_mm": [
+              443.34,
+              214.51
+            ],
+            "diameter_mm": 40.0,
+            "fit_diameter_mm": 39.05,
+            "coverage": 0.767,
+            "rms_mm": 0.472,
+            "contrast": 103.3,
+            "center_px": [
+              1885.66,
+              760.29
+            ]
+          },
+          {
+            "center_mm": [
+              454.71,
+              379.27
+            ],
+            "diameter_mm": 40.0,
+            "fit_diameter_mm": 38.9,
+            "coverage": 0.75,
+            "rms_mm": 0.564,
+            "contrast": 75.7,
+            "center_px": [
+              1924.28,
+              1211.19
+            ]
+          },
+          {
+            "center_mm": [
+              619.09,
+              183.45
+            ],
+            "diameter_mm": 40.0,
+            "fit_diameter_mm": 39.07,
+            "coverage": 0.733,
+            "rms_mm": 0.336,
+            "contrast": 74.7,
+            "center_px": [
+              2350.0,
+              684.97
+            ]
+          },
+          {
+            "center_mm": [
+              614.97,
+              317.21
+            ],
+            "diameter_mm": 40.0,
+            "fit_diameter_mm": 40.13,
+            "coverage": 0.65,
+            "rms_mm": 0.341,
+            "contrast": 46.4,
+            "center_px": [
+              2351.86,
+              1039.02
+            ]
+          },
+          {
+            "center_mm": [
+              136.07,
+              421.61
+            ],
+            "diameter_mm": 32.0,
+            "fit_diameter_mm": 33.06,
+            "coverage": 0.633,
+            "rms_mm": 0.394,
+            "contrast": 35.8,
+            "center_px": [
+              1000.81,
+              1343.98
+            ]
+          },
+          {
+            "center_mm": [
+              128.82,
+              322.15
+            ],
+            "diameter_mm": 40.0,
+            "fit_diameter_mm": 39.53,
+            "coverage": 0.558,
+            "rms_mm": 0.306,
+            "contrast": 66.1,
+            "center_px": [
+              985.32,
+              1054.64
+            ]
+          },
+          {
+            "center_mm": [
+              224.31,
+              254.79
+            ],
+            "diameter_mm": 40.0,
+            "fit_diameter_mm": 41.35,
+            "coverage": 0.542,
+            "rms_mm": 0.345,
+            "contrast": 68.9,
+            "center_px": [
+              1270.49,
+              864.48
+            ]
+          },
+          {
+            "center_mm": [
+              60.49,
+              511.94
+            ],
+            "diameter_mm": 28.0,
+            "fit_diameter_mm": 27.12,
+            "coverage": 0.525,
+            "rms_mm": 0.508,
+            "contrast": 45.9,
+            "center_px": [
+              760.21,
+              1619.62
+            ]
+          }
+        ]
+      }
+    }
+  }
+}

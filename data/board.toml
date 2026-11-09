@@ -75,3 +75,7 @@ rotations = 8            # each gallery photo is compared at this many angles
 top_k = 3                # score = mean of the best top_k gallery photos of an operative
 min_score = 0.5          # under this score the base stays unknown
 min_margin = 0.03        # under this lead over the second name the label is unsure (yellow)
+mask = true              # true: grey out the board around each operative (needs empty-board crops); false: use the full crop
+mask_threshold = 25.0    # Lab colour distance from the empty board that counts as the operative
+mask_min_base = 0.25     # under this changed part of the base disc the empty-board photo is wrong: no mask for this crop
+mask_max_fraction = 0.6  # over this part of the crop circle the mask is wrong (light change, old photo): no mask for this crop

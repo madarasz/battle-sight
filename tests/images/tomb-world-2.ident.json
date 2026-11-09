@@ -1,0 +1,14 @@
+{
+  "teams": ["Raveners", "Deathwatch"],
+  "tol_mm": 10,
+  "bases": [
+    {"center_mm": [239.8, 249.1], "label": "Raveners/Venomspitter"},
+    {"center_mm": [636.4, 165.3], "label": "Raveners/Prime"},
+    {"center_mm": [372.0, 419.1], "label": "Deathwatch/Gunner"},
+    {"center_mm": [239.8, 524.6], "label": "Deathwatch/Sergeant"},
+    {"center_mm": [329.11, 194.03], "label": "Raveners/Felltalon"},
+    {"center_mm": [330.76, 338.05], "label": "Raveners/Wrecker"},
+    {"center_mm": [158.36, 257.15], "label": "Deathwatch/Gravis"},
+    {"center_mm": [426.11, 181.86], "label": "Raveners/Tremorscythe"}
+  ]
+}

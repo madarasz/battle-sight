@@ -43,6 +43,7 @@ from typing import Protocol
 import cv2
 import numpy as np
 
+from . import circles
 from .config import BoardConfig
 
 DEFAULT_GALLERY_ROOT = Path(__file__).resolve().parents[2] / "data" / "teams"
@@ -55,6 +56,8 @@ MASK_GRAY = 127
 PREPARE_VERSION = 2  # add 1 when `prepare` changes: the cached embeddings are old then
 CROP_SUFFIXES = {".png", ".jpg", ".jpeg"}
 BACKGROUND_DIR = "bg"  # subfolder of an operative folder: the gallery scan skips folders
+MASK_CLOSE_MM = 3.0  # gaps up to this size in the foreground are closed
+MASK_OTHER_MARGIN_MM = 2.0  # removed around another found base
 _BAD_NAME = re.compile(r"[/\\:]|^\.|^$")
 
 
@@ -68,6 +71,10 @@ class IdentParams:
     min_score: float = 0.5
     min_margin: float = 0.03
     store_px_per_mm: float = 4.0  # scale of the saved crops (`bases.px_per_mm`)
+    mask: bool = False
+    mask_threshold: float = 25.0
+    mask_min_base: float = 0.25
+    mask_max_fraction: float = 0.6
 
     @classmethod
     def from_config(cls, cfg: BoardConfig) -> IdentParams:
@@ -80,10 +87,15 @@ class IdentParams:
             min_score=cfg.ident_min_score,
             min_margin=cfg.ident_min_margin,
             store_px_per_mm=cfg.bases_px_per_mm,
+            mask=cfg.ident_mask,
+            mask_threshold=cfg.ident_mask_threshold,
+            mask_min_base=cfg.ident_mask_min_base,
+            mask_max_fraction=cfg.ident_mask_max_fraction,
         )
 
     def cache_key(self, embedder: str) -> str:
-        return f"{embedder}|pad {self.crop_pad_mm:g}|px {self.input_px}|rot {self.rotations}|store {self.store_px_per_mm:g}|prepare {PREPARE_VERSION}"
+        key = f"{embedder}|pad {self.crop_pad_mm:g}|px {self.input_px}|rot {self.rotations}|store {self.store_px_per_mm:g}|prepare {PREPARE_VERSION}"
+        return key + (f"|mask {self.mask_threshold:g} {self.mask_min_base:g} {self.mask_max_fraction:g}" if self.mask else "")
 
 
 # --- crops --------------------------------------------------------------------
@@ -118,6 +130,53 @@ def prepare(crop: np.ndarray, diameter_mm: float, p: IdentParams, angle_deg: flo
     yy, xx = np.mgrid[: p.input_px, : p.input_px]
     r = p.input_px / 2.0
     out[(xx + 0.5 - r) ** 2 + (yy + 0.5 - r) ** 2 > r * r] = MASK_GRAY
+    return out
+
+
+def mask_crop(
+    crop: np.ndarray,
+    background: np.ndarray,
+    diameter_mm: float,
+    p: IdentParams,
+    others: Sequence[tuple[float, float, float]] = (),
+) -> np.ndarray | None:
+    """`crop` with grey on all pixels that are not this operative, from the
+    difference to `background` (the same square of the empty board). `others`
+    are the other bases near it: (dx mm, dy mm, diameter mm) from this base.
+    None when the difference does not look like one operative (wrong empty
+    board, changed light): the caller then uses the full crop."""
+    side = crop.shape[1]
+    px_per_mm = side / (diameter_mm + 2 * STORE_PAD_MM)
+    centre = (side // 2, side // 2)
+    radius = int(round(0.5 * diameter_mm * px_per_mm))
+    disc = cv2.circle(np.zeros(crop.shape[:2], np.uint8), centre, radius, 1, -1)
+
+    fg = circles.foreground_mask(crop, background, p.mask_threshold).astype(np.uint8)
+    if fg[disc > 0].mean() < p.mask_min_base:
+        return None
+    k = int(round(MASK_CLOSE_MM * px_per_mm)) | 1
+    fg = cv2.morphologyEx(fg, cv2.MORPH_CLOSE, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (k, k)))
+
+    def cut_others(mask: np.ndarray) -> None:
+        for dx, dy, d in others:
+            at = (int(round(centre[0] + dx * px_per_mm)), int(round(centre[1] + dy * px_per_mm)))
+            # The margin also removes the ring that the blur of `foreground_mask` leaves around a base.
+            cv2.circle(mask, at, int(round((0.5 * d + MASK_OTHER_MARGIN_MM) * px_per_mm)), 0, -1)
+        mask[disc > 0] = 1  # the base is known from the circle fit, also where it looks like the board
+
+    cut_others(fg)
+    _, parts = cv2.connectedComponents(fg, connectivity=8)
+    keep = (parts == parts[centre[1], centre[0]]).astype(np.uint8)
+    outline, _ = cv2.findContours(keep, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    cv2.drawContours(keep, outline, -1, 1, cv2.FILLED)
+    cut_others(keep)  # the fill must not bring back a base inside the outline
+
+    view_mm = diameter_mm + 2 * min(p.crop_pad_mm, STORE_PAD_MM)
+    view = cv2.circle(np.zeros(crop.shape[:2], np.uint8), centre, int(round(0.5 * view_mm * px_per_mm)), 1, -1)
+    if keep[view > 0].mean() > p.mask_max_fraction:
+        return None
+    out = crop.copy()
+    out[keep == 0] = MASK_GRAY
     return out
 
 
@@ -273,6 +332,16 @@ def load_team_file(team_dir: Path) -> dict[str, float | None]:
     return out
 
 
+def team_operatives(team: str, team_dir: Path) -> list[Operative]:
+    """Operatives of a team, sorted: `team.toml` entries and operative
+    folders. Needs no photos and no model."""
+    listed = load_team_file(team_dir)
+    names = set(listed)
+    if team_dir.is_dir():
+        names |= {q.name for q in team_dir.iterdir() if q.is_dir() and not q.name.startswith(".")}
+    return [Operative(team, name, listed.get(name)) for name in sorted(names)]
+
+
 def save_team_file(team_dir: Path, team: str, operatives: dict[str, float | None]) -> None:
     lines = [
         f"# Battle Sight gallery of team {team!r}. One table per operative.",
@@ -293,7 +362,10 @@ class Gallery:
     """Enrolled crops and their embeddings, for one or more teams.
 
     `view_emb` has one row per crop and rotation, `view_op` the operative
-    index of each row, `view_file` the crop index (for leave-one-out)."""
+    index of each row, `view_file` the crop index (for leave-one-out).
+    `masked_emb`, `masked_op`, `masked_file` are the same for the masked crops,
+    only for the photos with a usable mask, empty when `params.mask` is off.
+    A cached photo holds the raw rows, then the masked rows (NaN = no mask)."""
 
     def __init__(self, team_dirs: Iterable[str | Path], embedder: Embedder, params: IdentParams):
         self.embedder = embedder
@@ -307,6 +379,9 @@ class Gallery:
         self.view_emb = np.zeros((0, 0), np.float32)
         self.view_op = np.zeros(0, int)
         self.view_file = np.zeros(0, int)
+        self.masked_emb = np.zeros((0, 0), np.float32)
+        self.masked_op = np.zeros(0, int)
+        self.masked_file = np.zeros(0, int)
         self.reload()
 
     @classmethod
@@ -364,13 +439,9 @@ class Gallery:
         files: list[Path] = []
         file_op: list[int] = []
         for team, d in self.team_dirs.items():
-            listed = load_team_file(d)
-            names = set(listed)
-            if d.is_dir():
-                names |= {q.name for q in d.iterdir() if q.is_dir() and not q.name.startswith(".")}
-            for name in sorted(names):
-                ops.append(Operative(team, name, listed.get(name)))
-                folder = d / name
+            for op in team_operatives(team, d):
+                ops.append(op)
+                folder = d / op.name
                 if folder.is_dir():
                     for f in sorted(folder.iterdir()):
                         if f.suffix.lower() in CROP_SUFFIXES:
@@ -385,9 +456,22 @@ class Gallery:
         # Unknown size: get it from the crop side at the configured scale.
         return max(1.0, crop.shape[1] / self.params.store_px_per_mm - 2 * STORE_PAD_MM)
 
-    def _embed_crop(self, crop: np.ndarray, op: Operative) -> np.ndarray:
+    def _embed_crop(self, crop: np.ndarray, op: Operative, background: np.ndarray | None = None) -> np.ndarray:
         d = self._diameter(op, crop)
-        return self.embedder.embed([prepare(crop, d, self.params, a) for a in rotation_angles(self.params)])
+        angles = rotation_angles(self.params)
+        raw = self.embedder.embed([prepare(crop, d, self.params, a) for a in angles])
+        if not self.params.mask:
+            return raw
+        cut = None if background is None else mask_crop(crop, background, d, self.params)
+        masked = np.full_like(raw, np.nan) if cut is None else self.embedder.embed([prepare(cut, d, self.params, a) for a in angles])
+        return np.concatenate([raw, masked])
+
+    def _saved_background(self, crop_path: Path, crop: np.ndarray) -> np.ndarray | None:
+        path = background_path(crop_path)
+        if not self.params.mask or not path.is_file():
+            return None
+        bg = cv2.imread(str(path), cv2.IMREAD_COLOR)
+        return bg if bg is not None and bg.shape == crop.shape else None
 
     def _embed_all(self) -> None:
         key = self.params.cache_key(self.embedder.name)
@@ -406,21 +490,37 @@ class Gallery:
                 crop = cv2.imread(str(self.files[i]), cv2.IMREAD_COLOR)
                 if crop is None:
                     raise ValueError(f"{self.files[i]}: cannot read gallery crop")
-                per_file[i] = self._embed_crop(crop, self.operatives[self.file_op[i]])
+                per_file[i] = self._embed_crop(crop, self.operatives[self.file_op[i]], self._saved_background(self.files[i], crop))
         self._set_views([e for e in per_file if e is not None])
         for team in dirty:
             self._save_cache(team, key, per_file)
 
     def _set_views(self, per_file: list[np.ndarray]) -> None:
-        if per_file:
-            self.view_emb = np.concatenate(per_file).astype(np.float32)
-            self.view_op = np.concatenate([np.full(len(e), self.file_op[i]) for i, e in enumerate(per_file)])
-            self.view_file = np.concatenate([np.full(len(e), i) for i, e in enumerate(per_file)])
-        else:
-            self.view_emb = np.zeros((0, 0), np.float32)
-            self.view_op = np.zeros(0, int)
-            self.view_file = np.zeros(0, int)
+        n = self._view_count()
+        self.view_emb, self.view_op, self.view_file = self._stack_views([(i, e[:n]) for i, e in enumerate(per_file)])
+        self.masked_emb, self.masked_op, self.masked_file = self._stack_views([(i, e[n:]) for i, e in enumerate(per_file) if self._has_mask(e)])
         self._per_file = per_file
+
+    def _view_count(self) -> int:
+        return len(rotation_angles(self.params))
+
+    def _has_mask(self, emb: np.ndarray) -> bool:
+        rows = emb[self._view_count() :]
+        return len(rows) > 0 and bool(np.isfinite(rows).all())
+
+    def _stack_views(self, views: list[tuple[int, np.ndarray]]) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+        if not views:
+            return np.zeros((0, 0), np.float32), np.zeros(0, int), np.zeros(0, int)
+        emb = np.concatenate([e for _, e in views]).astype(np.float32)
+        op = np.concatenate([np.full(len(e), self.file_op[i]) for i, e in views])
+        file = np.concatenate([np.full(len(e), i) for i, e in views])
+        return emb, op, file
+
+    @property
+    def can_mask(self) -> bool:
+        """Masked crops can be compared: each operative with photos has a
+        masked photo. Else the masked scores of the operatives do not compare."""
+        return self.params.mask and len(self.masked_emb) > 0 and set(self.file_op) <= set(self.masked_op.tolist())
 
     def _save_cache(self, team: str, key: str, per_file: list) -> None:
         d = self.team_dirs[team]
@@ -455,7 +555,7 @@ class Gallery:
             bg = background_path(path)
             bg.parent.mkdir(exist_ok=True)
             cv2.imwrite(str(bg), background)
-        emb = self._embed_crop(crop, op)
+        emb = self._embed_crop(crop, op, background)
         self.files.append(path)
         self.file_op.append(self.index(op.label))  # type: ignore[arg-type]
         self._set_views(self._per_file + [emb])
@@ -476,28 +576,32 @@ class Gallery:
 
     # scores
 
-    def scores(self, emb: np.ndarray, exclude_file: int | None = None) -> np.ndarray:
+    def scores(self, emb: np.ndarray, exclude_file: int | None = None, masked: bool = False) -> np.ndarray:
         """(n, n_operatives) score: mean of the `top_k` best cosine similarities
-        to each operative's gallery views. -inf for an operative without views."""
+        to each operative's gallery views (the masked views with `masked`).
+        -inf for an operative without views."""
+        views, view_op, view_file = (self.masked_emb, self.masked_op, self.masked_file) if masked else (self.view_emb, self.view_op, self.view_file)
         n, m = len(emb), len(self.operatives)
         out = np.full((n, m), -np.inf)
-        if n == 0 or len(self.view_emb) == 0:
+        if n == 0 or len(views) == 0:
             return out
-        sim = np.asarray(emb, np.float32) @ self.view_emb.T
+        sim = np.asarray(emb, np.float32) @ views.T
         for j in range(m):
-            cols = self.view_op == j
+            cols = view_op == j
             if exclude_file is not None:
-                cols &= self.view_file != exclude_file
+                cols &= view_file != exclude_file
             if cols.any():
-                out[:, j] = _top_photos(sim[:, cols], self.view_file[cols], self.params.top_k)
+                out[:, j] = _top_photos(sim[:, cols], view_file[cols], self.params.top_k)
         return out
 
     def leave_one_out(self) -> tuple[int, int, list[tuple[str, str]]]:
         """Each gallery photo against the rest of the gallery (size limit on,
         no assignment). Returns (right, total, [(true, guessed) of the misses])."""
         right, misses = 0, []
+        n = self._view_count()
         for i, emb in enumerate(self._per_file):
-            sc = self.scores(emb[:1], exclude_file=i)[0]
+            masked = self.can_mask and self._has_mask(emb)
+            sc = self.scores(emb[n : n + 1] if masked else emb[:1], exclude_file=i, masked=masked)[0]
             op = self.operatives[self.file_op[i]]
             allowed = self.allowed(op.base_mm)
             sc = np.where(allowed, sc, -np.inf)
@@ -558,6 +662,7 @@ class Ident:
     candidates: list[tuple[str, float]] = field(default_factory=list)
     sure: bool = False  # named, and the margin is at least `min_margin` (or confirmed)
     confirmed: bool = False  # the user picked or accepted this label
+    masked: bool = False  # the masked crop was compared with the masked gallery
 
     def to_dict(self) -> dict:
         def num(v: float) -> float | None:
@@ -610,15 +715,36 @@ def assign(scores: np.ndarray, allowed: np.ndarray, labels: list[str], min_score
     return out
 
 
-def identify(crops: list[np.ndarray], diameters_mm: list[float], gallery: Gallery) -> list[Ident]:
-    """Identity of each base from its stored crop (`store_crop`) and its size class."""
+def identify(
+    crops: list[np.ndarray],
+    diameters_mm: list[float],
+    gallery: Gallery,
+    backgrounds: Sequence[np.ndarray] = (),
+    centers_mm: Sequence[Sequence[float]] = (),
+) -> list[Ident]:
+    """Identity of each base from its stored crop (`store_crop`) and its size
+    class. With `backgrounds` (empty-board crops) and centres and a gallery
+    that `can_mask`, a base with a usable mask compares masked crops; all other
+    bases compare full crops."""
     p = gallery.params
     if not crops:
         return []
-    emb = gallery.embedder.embed([prepare(c, d, p) for c, d in zip(crops, diameters_mm)])
-    scores = gallery.scores(emb)
+    cut: list[np.ndarray | None] = [None] * len(crops)
+    if gallery.can_mask and len(backgrounds) == len(crops) and len(centers_mm) == len(crops):
+        centres = np.asarray(centers_mm, float)
+        for i, (c, b, d) in enumerate(zip(crops, backgrounds, diameters_mm)):
+            others = [(*(centres[j] - centres[i]), diameters_mm[j]) for j in range(len(crops)) if j != i]
+            cut[i] = mask_crop(c, b, d, p, others)
+    emb = gallery.embedder.embed([prepare(c if m is None else m, d, p) for c, m, d in zip(crops, cut, diameters_mm)])
+    masked = np.array([m is not None for m in cut], bool)
+    scores = np.full((len(crops), len(gallery.operatives)), -np.inf)
+    scores[~masked] = gallery.scores(emb[~masked])
+    scores[masked] = gallery.scores(emb[masked], masked=True)
     allowed = np.stack([gallery.allowed(d) for d in diameters_mm]) if gallery.operatives else np.zeros((len(crops), 0), bool)
-    return assign(scores, allowed, gallery.labels(), p.min_score, p.min_margin)
+    out = assign(scores, allowed, gallery.labels(), p.min_score, p.min_margin)
+    for x, m in zip(out, masked):
+        x.masked = bool(m)
+    return out
 
 
 # --- user fixes ---------------------------------------------------------------
@@ -713,6 +839,12 @@ class IdentTruth:
         raw = json.loads(Path(path).read_text())
         bases = [(np.array(b["center_mm"], float), str(b["label"])) for b in raw["bases"]]
         return cls([str(t) for t in raw["teams"]], bases, float(raw.get("tol_mm", 10.0)))
+
+    def save(self, path: str | Path) -> None:
+        """JSON text with one base per line, so a diff shows which base changed."""
+        rows = [json.dumps({"center_mm": [round(float(v), 2) for v in c], "label": label}, ensure_ascii=False) for c, label in self.bases]
+        body = "[\n" + ",\n".join(f"    {r}" for r in rows) + "\n  ]" if rows else "[]"
+        Path(path).write_text(f'{{\n  "teams": {json.dumps(self.teams, ensure_ascii=False)},\n  "tol_mm": {self.tol_mm:g},\n  "bases": {body}\n}}\n')
 
 
 def score_truth(truth: IdentTruth, centers_mm: np.ndarray, idents: list[Ident]) -> dict:

@@ -11,6 +11,7 @@ import pytest
 from battlesight.config import BoardConfig
 
 BENCH_TABLE = pytest.StashKey[str]()  # bases benchmark table of the photo tests
+IDENT_TABLE = pytest.StashKey[str]()  # bases benchmark table of the photo tests
 
 BOARD_GRAY = 70  # dark board, like Tomb World
 LINE_GRAY = 30  # printed grid lines on the board
@@ -166,7 +167,7 @@ def no_local_camera_file(tmp_path, monkeypatch):
 @pytest.fixture(autouse=True)
 def no_local_gallery(request, tmp_path, monkeypatch):
     """Unit tests must not load the real data/teams (and the DINOv2 model).
-    The photo tests keep it: their ident done test needs it."""
+    The photo tests keep it: their ident benchmark needs it."""
     if request.node.get_closest_marker("photos") is not None:
         return
     import battlesight.ident
@@ -180,9 +181,13 @@ def cfg() -> BoardConfig:
 
 
 def pytest_terminal_summary(terminalreporter, exitstatus, config):
-    """Print the bases benchmark table after the photo tests. Nothing when
-    they did not run."""
+    """Print the benchmark tables after the photo tests. Nothing when they
+    did not run."""
     table = config.stash.get(BENCH_TABLE, None)
     if table:
         terminalreporter.write_sep("=", "bases benchmark (specs/bases-benchmark.md)")
+        terminalreporter.write_line(table)
+    table = config.stash.get(IDENT_TABLE, None)
+    if table:
+        terminalreporter.write_sep("=", "identification benchmark")
         terminalreporter.write_line(table)

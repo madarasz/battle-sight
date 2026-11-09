@@ -1,0 +1,15 @@
+{
+  "schema": 2,
+  "bases": [
+    {"center_mm": [190.74, 179.13], "diameter_mm": 40, "rim": "clear", "source": "detector", "note": ""},
+    {"center_mm": [150.97, 445.57], "diameter_mm": 40, "rim": "clear", "source": "detector", "note": ""},
+    {"center_mm": [300.2, 530.71], "diameter_mm": 40, "rim": "clear", "source": "detector", "note": ""},
+    {"center_mm": [554.45, 385.31], "diameter_mm": 32, "rim": "clear", "source": "detector", "note": ""},
+    {"center_mm": [619.04, 183.45], "diameter_mm": 40, "rim": "clear", "source": "detector", "note": ""},
+    {"center_mm": [253.46, 345.94], "diameter_mm": 32, "rim": "clear", "source": "detector", "note": ""},
+    {"center_mm": [136.08, 233.02], "diameter_mm": 40, "rim": "hidden", "source": "clicked", "note": "", "points_mm": [[116.71, 239.6], [120.11, 246.25], [124.33, 249.9], [131.38, 252.89], [140.29, 253.14], [145.48, 251.35]]},
+    {"center_mm": [370.07, 244.77], "diameter_mm": 32, "rim": "hidden", "source": "clicked", "note": "", "points_mm": [[356.93, 254.46], [359.52, 257.3], [363.98, 259.97], [372.0, 260.86], [375.81, 260.05], [380.84, 257.38], [382.87, 254.7]]},
+    {"center_mm": [645.88, 534.55], "diameter_mm": 40, "rim": "clear", "source": "clicked", "note": "", "points_mm": [[642.86, 515.68], [635.08, 518.44], [649.83, 516.01], [626.98, 533.35], [627.63, 538.86], [629.73, 545.35]]}
+  ],
+  "not_bases": []
+}

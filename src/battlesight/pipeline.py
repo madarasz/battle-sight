@@ -548,10 +548,13 @@ def _ident(ctx: Context) -> StageResult:
     data: dict[str, Any] = {"teams": sorted(gallery.team_dirs), "model": gallery.embedder.name, "gallery_photos": len(gallery), "bases": []}
     if len(gallery) == 0:
         return StageResult(ok=True, message="gallery has no photos: enroll the operatives", data=data)
-    idents = idt.identify(crops, [c.diameter_mm for c in found], gallery)
+    idents = idt.identify(crops, [c.diameter_mm for c in found], gallery, ctx.scratch["base_backgrounds"], [c.center_mm for c in found])
     ctx.scratch["idents"] = idents
     data["bases"] = [{"center_mm": _round(c.center_mm), "diameter_mm": c.diameter_mm, **x.to_dict()} for c, x in zip(found, idents)]
     named = sum(x.label is not None for x in idents)
     unsure = sum(x.label is not None and not x.sure for x in idents)
+    data["masked"] = sum(x.masked for x in idents)
     msg = f"{named}/{len(idents)} named" + (f", {unsure} unsure" if unsure else "")
+    if gallery.params.mask:
+        msg += f", {data['masked']} masked" if gallery.can_mask else ", no mask: gallery photos without background"
     return StageResult(ok=True, message=msg, data=data)

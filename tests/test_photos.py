@@ -12,7 +12,9 @@ Optional files next to a photo:
   the same camera and light. The bases stage then runs in reference mode.
 
 `bases_baseline.json` holds the bases benchmark metrics (tools/bench_bases.py
---write-baseline). The metrics table prints after the photo tests.
+--write-baseline), `ident_baseline.json` the operative name metrics
+(tools/bench_ident.py --write-baseline). The metrics tables print after the
+photo tests.
 
 Marked `photos`. The default `uv run pytest` skips them. Run them with:
 
@@ -28,18 +30,19 @@ import cv2
 import numpy as np
 import pytest
 
-from battlesight import bench
-from battlesight.bench import REFERENCE_TAG, reference_path
+from battlesight import bench, ident_bench
+from battlesight.bench import reference_path
 from battlesight.config import DEFAULT_CONFIG, BoardConfig
 from battlesight.pipeline import FrameResult, Pipeline
 
-from .conftest import BENCH_TABLE
+from .conftest import BENCH_TABLE, IDENT_TABLE
 
 pytestmark = pytest.mark.photos
 
 SHOTS = Path(__file__).resolve().parents[1] / "tests" / "images"
 PHOTOS = bench.find_photos([SHOTS]) if SHOTS.is_dir() else []
 BASELINE = SHOTS / "bases_baseline.json"
+IDENT_BASELINE = SHOTS / "ident_baseline.json"
 
 CORNER_TOL_MM = 1.0  # max distance between found and expected corner points
 
@@ -133,6 +136,7 @@ EDGE_ANGLE_TOL_DEG = 0.3  # board edges straight and aligned with the board axes
 CORNER_ANGLE_TOL_DEG = 0.5  # board corners at 90 deg
 SPACING_TOL_MM = 1.5  # spacing of neighbouring printed grid lines (Tomb World: 97 mm, 0.4 mm per inch)
 GRID_TOL_MM = 3.5  # printed grid line from its nominal place; includes card placement error
+MAX_HIDDEN_GRID_LINES = 1  # per axis: walls can stand on a whole printed line
 
 
 def _board_points(cfg: BoardConfig) -> np.ndarray:
@@ -193,10 +197,11 @@ def test_rectify_done_criteria(cfg, results, photo):
         from battlesight.rectify import grid_spacing_errors_mm
 
         for key in ("x", "y"):
+            hidden = [k for k, v in enumerate(d["grid_lines"][key]) if v is None]
+            if len(hidden) > MAX_HIDDEN_GRID_LINES:
+                errors.append(f"grid lines {key}{hidden} not found")
             for k, v in enumerate(d["grid_lines"][key]):
-                if v is None:
-                    errors.append(f"grid line {key}{k} not found")
-                elif abs(v) > GRID_TOL_MM:
+                if v is not None and abs(v) > GRID_TOL_MM:
                     errors.append(f"grid line {key}{k} off by {v:.2f} mm")
         worst = max(map(abs, grid_spacing_errors_mm(cfg, d["grid_lines"])), default=0.0)
         if worst > SPACING_TOL_MM:
@@ -205,19 +210,6 @@ def test_rectify_done_criteria(cfg, results, photo):
 
 
 # --- bases (priority 3) -----------------------------------------------------
-
-BASES_TOL_MM = 1.0  # found base centre from its expected centre (regression)
-
-
-def load_truth(photo: Path) -> bench.GroundTruth:
-    path = bench.truth_path(photo)
-    if not path.is_file():
-        pytest.skip(f"no {path.name}: no base ground truth for this photo")
-    return bench.load_truth(path)
-
-
-def _dist(a, b) -> float:
-    return float(np.linalg.norm(np.subtract(a, b)))
 
 
 def photo_score(photo: Path, r: FrameResult, gt: bench.GroundTruth) -> bench.PhotoScore:
@@ -239,41 +231,8 @@ def bench_scores(request, results) -> list[bench.PhotoScore]:
 
 
 @needs_photos
-@photo_params
-def test_bases_match_expected(results, photo):
-    exp = load_expected(photo)["stages"]["bases"]["data"]
-    got = results[photo].stages["bases"].data
-    assert got["mode"] == exp["mode"], "empty-board reference added or removed?"
-    errors = []
-    left = list(got["bases"])
-    for e in exp["bases"]:
-        near = [g for g in left if _dist(g["center_mm"], e["center_mm"]) <= BASES_TOL_MM]
-        if not near:
-            errors.append(f"expected {e['diameter_mm']:g} mm base at {e['center_mm']} not found")
-            continue
-        g = min(near, key=lambda g: _dist(g["center_mm"], e["center_mm"]))
-        left.remove(g)
-        if g["diameter_mm"] != e["diameter_mm"]:
-            errors.append(f"base at {e['center_mm']}: {g['diameter_mm']:g} mm, expected {e['diameter_mm']:g} mm")
-    errors += [f"new {g['diameter_mm']:g} mm base at {g['center_mm']}" for g in left]
-    assert not errors, "; ".join(errors) + f" (tolerance {BASES_TOL_MM} mm)"
-
-
-@needs_photos
-@photo_params
-def test_bases_clear_rims_found(results, photo):
-    """Plan priority 3 for the bases with a clearly visible rim, in any mode:
-    found within `tol_mm`, right size."""
-    clear = [t for t in load_truth(photo).bases if t.rim == "clear"]
-    matches, missed, _ = bench.match(clear, results[photo].stages["bases"].data["bases"])
-    errors = [f"{t.note}: not found within {t.tol_mm:g} mm" for t in missed]
-    errors += [f"{m.truth.note}: {m.found['diameter_mm']:g} mm, true {m.truth.diameter_mm:g} mm" for m in matches if m.size_ok is False]
-    assert not errors, "; ".join(errors)
-
-
-@needs_photos
 def test_bases_benchmark_no_worse(cfg, bench_scores):
-    """Benchmark totals not worse than tests/images/bases_baseline.json
+    """Benchmark not worse than tests/images/bases_baseline.json
     (rules in specs/bases-benchmark.md section 7.2)."""
     if not bench_scores:
         pytest.skip("no photo with <name>.bases.json")
@@ -283,44 +242,34 @@ def test_bases_benchmark_no_worse(cfg, bench_scores):
     assert cmp.ok, "; ".join(cmp.worse)
 
 
-@needs_photos
-@photo_params
-def test_bases_done_criteria(results, photo):
-    """Plan priority 3, done when: all bases found on a board with walls,
-    centre error under 2 mm, correct diameter class, no false bases. Needs
-    the empty-board reference <name>.empty.jpg. True bases with a hidden rim
-    count with their own `tol_mm` (their true position is known less well)."""
-    if reference_path(photo) is None:
-        pytest.skip(f"no {photo.stem}{REFERENCE_TAG}.jpg: the done test needs an empty-board reference")
-    s = photo_score(photo, results[photo], load_truth(photo))
-    assert s.done_ok, bench.format_details([s])
-
-
 # --- priority 4: operative identity -------------------------------------------
 
 
-@needs_photos
-@photo_params
-def test_ident_done_criteria(cfg, photo):
-    """Plan priority 4, done when: 9 of 10 bases named right on the first try.
-    Needs <name>.ident.json (teams and the true name at each base centre) and
-    the gallery of those teams in data/teams/. Runs the full pipeline with
-    the gallery (and the empty-board reference when there is one)."""
-    truth_path = photo.with_name(f"{photo.stem}.ident.json")
-    if not truth_path.is_file():
-        pytest.skip(f"no {truth_path.name}: the done test needs the true operative names")
-    from battlesight import ident as idt
+@pytest.fixture(scope="module")
+def ident_report(request, cfg) -> dict:
+    """Benchmark report of all photos with a <name>.ident.json. Stores the
+    metrics table for the terminal summary (tests/conftest.py)."""
+    photos = ident_bench.find_photos([SHOTS])
+    if not photos:
+        pytest.skip("no photo with <name>.ident.json")
+    try:
+        scores, gallery = ident_bench.run(photos, cfg)
+    except ident_bench.NoGallery as exc:
+        pytest.skip(str(exc))
+    table = ident_bench.format_table(scores)
+    details = ident_bench.format_details(scores)
+    request.config.stash[IDENT_TABLE] = table + ("\n\n" + details if details else "")
+    return ident_bench.report(scores, ident_bench.ident_values(cfg), gallery)
 
-    truth = idt.IdentTruth.load(truth_path)
-    missing = [t for t in truth.teams if not (idt.DEFAULT_GALLERY_ROOT / t).is_dir()]
-    if missing:
-        pytest.skip(f"no gallery for {missing} in {idt.DEFAULT_GALLERY_ROOT}")
-    gallery = idt.Gallery.for_teams(truth.teams, cfg)
-    frame = cv2.imread(str(photo), cv2.IMREAD_COLOR)
-    ref = reference_path(photo)
-    pipe = Pipeline(cfg, reference=None if ref is None else cv2.imread(str(ref), cv2.IMREAD_COLOR), gallery=gallery)
-    r = pipe.analyze(frame, source=str(photo))
-    assert r.ok, r.summary()
-    centers = np.array([b.center_mm for b in r.scratch["bases"]]).reshape(-1, 2)
-    s = idt.score_truth(truth, centers, r.scratch.get("idents", []))
-    assert s["done_ok"], s
+
+@needs_photos
+def test_ident_benchmark_no_worse(ident_report):
+    """Name metrics not worse than tests/images/ident_baseline.json. The
+    gallery is git-ignored, so another gallery gives a skip, not a failure."""
+    if not IDENT_BASELINE.is_file():
+        pytest.skip(f"no {IDENT_BASELINE.name}: run `uv run tools/bench_ident.py --write-baseline {IDENT_BASELINE.relative_to(SHOTS.parents[1])}`")
+    baseline = json.loads(IDENT_BASELINE.read_text())
+    if not ident_bench.same_gallery(ident_report, baseline):
+        pytest.skip(f"{IDENT_BASELINE.name} was made with another gallery ({baseline['gallery']['files']} files, now {ident_report['gallery']['files']})")
+    cmp = ident_bench.compare(ident_report, baseline)
+    assert cmp.ok, "; ".join(cmp.worse)

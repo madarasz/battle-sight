@@ -142,6 +142,47 @@ def test_rectified_board_edges_and_grid():
         assert v is not None and abs(v) < 0.6
 
 
+def _printed_grid_rect(cfg):
+    """Top-down image with only the printed grid: (image, mm -> px)."""
+    p, m = cfg.rectify_px_per_mm, cfg.rectify_margin_mm
+    px = lambda mm: int(round((mm + m) * p))
+    rect = np.full((px(cfg.height_mm + m), px(cfg.width_mm + m), 3), 160, np.uint8)
+    xs, ys = cfg.grid_lines_mm()
+    for x in xs:
+        rect[:, px(x - 0.75) : px(x + 0.75)] = 30
+    for y in ys:
+        rect[px(y - 0.75) : px(y + 0.75)] = 30
+    return rect, px
+
+
+def test_grid_line_ignores_wall_edge():
+    """A wall over most of a line has a dark edge with bright wall top on one
+    side. The edge must not count as the line."""
+    cfg = tomb_world_grid()
+    rect, px = _printed_grid_rect(cfg)
+    x = cfg.grid_lines_mm()[0][3]
+    top, bottom = px(100), px(480)
+    rect[top:bottom, px(x - 2) : px(x + 6)] = 230
+    rect[top:bottom, px(x - 4) : px(x - 2)] = 30
+    lines = measure_grid_lines(rect, cfg)
+    assert lines["x"][3] is not None and abs(lines["x"][3]) < 0.6
+
+
+def test_grid_line_hidden_by_walls_is_none():
+    """Under walls along the whole line the dark samples are noise."""
+    cfg = tomb_world_grid()
+    rect, px = _printed_grid_rect(cfg)
+    y = cfg.grid_lines_mm()[1][1]
+    rect[px(y - 8) : px(y + 8)] = 160
+    rng = np.random.default_rng(1)
+    for c in range(0, rect.shape[1], 8):
+        d = rng.uniform(-3.5, 3.5)
+        rect[px(y + d - 0.75) : px(y + d + 0.75), c : c + 8] = 30
+    lines = measure_grid_lines(rect, cfg)
+    assert lines["y"][1] is None
+    assert all(v is not None and abs(v) < 0.6 for k, v in enumerate(lines["y"]) if k != 1)
+
+
 def test_warp_removes_lens_distortion():
     cfg = tomb_world_grid()
     flat, mm2px = render_board(cfg, print_grid=True)

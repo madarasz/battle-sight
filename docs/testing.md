@@ -23,9 +23,10 @@ default.
 |---|---|
 | `tests/test_bases.py` | Circle fit on synthetic boards: each base size (centre within 0.5 mm, right class), neighbour sizes 25, 28, 32, a model over 40 % of the rim, a rim hidden too much (no result), touching bases, a base against a wall, light tokens and other sizes rejected, printed grid gives no bases, region limit. Reference mode: a static dark print is removed, noise is not foreground. Pipeline stage in single-frame and reference mode, no bases, bad reference, `image-pipeline --reference`, the `[bases]` config table. |
 | `tests/test_bench.py` | Bases benchmark: one-to-one global greedy match (with the case where a per-truth match differs), tolerance, unknown size, decoy and `inside_base` categories. Metrics for a hand-made case, a negative photo, no detections, `done_ok`. Each baseline rule, a new photo, a better run. Ground truth schema 1 and 2, bad `rim` and `kind`. `tools/bench_bases.py` end to end on two synthetic photos (one with a reference): `bench.json`, `--mode`, `--set`, `--sweep`, `--write-baseline` and `--baseline`, exit codes, debug images. Click tool logic: fit of a known circle, class keys, hidden rim, estimate, save and load, undo, delete. |
+| `tests/test_ident_bench.py` | Identification benchmark with the colour-histogram embedder: losses split by cause, same result as the done test, metrics, each baseline rule, a gain on one photo that must not hide a loss on another, gallery fingerprint (content counts, cache does not). `tools/bench_ident.py` end to end: report, `--write-baseline` and `--baseline`, a baseline of another gallery, bad input. |
 | `tests/test_camera.py` | Camera source parsing: device index, stream URL, file path. The stream reader keeps only the newest frame, waits for a new frame, and stops at the end of the stream. Camera settings file: defaults without a file, save and load for a device and a stream, `--source` overrides the saved source, `list_cameras.py` keeps the lens when it saves a new source. No camera or network needed. |
 | `tests/test_config.py` | Load of `data/board.toml`. Rejection of bad tag ids and bad grid sections. Grid lines for Tomb World sections and for a Volkus 1 in pitch. |
-| `tests/test_ident.py` | Operative identity with the colour-histogram embedder (no model download): crop size, grey mask, rotation. One-to-one assignment (second choice, size limit, unknown). Gallery: `team.toml`, add, embedding cache reused, remove, two teams, leave-one-out. `ident` stage on synthetic boards with painted models, moved and turned between enrollment and game; no gallery, empty gallery. Fix logic (`LabelSession`: pick, menu order, a name moves, accept all, undo), done-test scoring, `[ident]` config, `enroll --images`, enroll `e` key (reference saved and used, no board writes nothing), background crops (`bg/` folder not a photo, removed with the photo, cut only with a reference, banner without a reference), `image-pipeline --team`, `gallery`. |
+| `tests/test_ident.py` | Operative identity with the colour-histogram embedder (no model download): crop size, grey mask, rotation. One-to-one assignment (second choice, size limit, unknown). Gallery: `team.toml`, add, embedding cache reused, remove, two teams, leave-one-out. `ident` stage on synthetic boards with painted models, moved and turned between enrollment and game; no gallery, empty gallery. Fix logic (`LabelSession`: pick, menu order, a name moves, accept all, undo), done-test scoring, `[ident]` config, `enroll --images`, enroll `e` key (reference saved and used, no board writes nothing), enroll `Esc` (leaves the base choice, then quits), background crops (`bg/` folder not a photo, removed with the photo, cut only with a reference, banner without a reference), mask (keeps base and body, greys board and tokens, cuts a touching neighbour, refuses a wrong background, off by default, masked views and cache, `can_mask`, board colour ignored, stage report), `image-pipeline --team`, `gallery`. |
 | `tests/test_live.py` | Game core of the live app (`LiveSession`) on synthetic boards. Action list: unique ids and keys, a handler for each core action. State dict: JSON-safe, in live, snapshot, selected base and camera down. View, grid and tag actions. Bases snapshot, failed snapshot, no gallery. Name fix: click at the base position from the state (also with a scaled image), set a name, undo, accept all. Reference take and clear, bad frame, saved frame. `v` over a snapshot. `ImageSource` and `--image-source` options. |
 | `tests/test_ui.py` | The PySide6 window, offscreen (`QT_QPA_PLATFORM=offscreen`), with a fake camera. Status text for each state and drift value. Click mapping of the video widget. A key and a menu item for each action, name popup (choose, close, empty place), commands dropped while busy, clicks after a resize, a bad command, camera down, quit. `--image-source` through `main`: all stages, saved reference not used, `--reference` loaded. `data/ui.toml` reader and writer. Layout contract for each layout in `LAYOUTS`: `build`, `on_state` for each recorded state (before the first frame, live, busy, camera down, each drift value, snapshot, base selected), no focus on controls and lists, a layout error keeps the frame flow, no import of `pipeline`, `ident`, `calib` or `camera`. `panel` controls. `inspector` pages, crop, name list, operative rows, debug toggle. Layout change: `l` key, menu, saved choice, bad settings, the worker and the selected base stay. |
 | `tests/test_calib.py` | Tag corner geometry in mm. Tag detection (flat, perspective and blur, low pixel density, wrong tag ids). Board corner position. Drift monitor: reference lock, moved board, one moved tag, lost tag, new position saved after the board moved as one piece, `CARD MOVED` after one card moved. |
@@ -67,6 +68,7 @@ tests/images/
   tomb-world-2.jpg
   ...
   bases_baseline.json          # bases benchmark baseline (tools/bench_bases.py --write-baseline)
+  ident_baseline.json          # identification benchmark baseline (tools/bench_ident.py --write-baseline)
 ```
 
 There are three kinds of photos for the bases stage:
@@ -137,11 +139,9 @@ For each photo:
 | `test_photo_size_matches` | The image size after the EXIF rotation is the same as in the expected file. |
 | `test_corners_match_expected` | The found tag ids are the same as in the expected file. Each of the four board corners and each of the 16 tag corners is within the tolerance of its expected position. |
 | `test_rectify_match_expected` | The lens source is the same. 81 board points through the expected and the found homography are within `RECTIFY_TOL_MM` (1 mm). Each board edge offset and each printed grid line offset is within 1 mm of the expected value. |
-| `test_bases_match_expected` | Same `mode`. Each expected base is found within `BASES_TOL_MM` (1 mm) with the same size class. No new bases. |
-| `test_bases_clear_rims_found` | Each `clear` base of `<name>.bases.json` is found within its `tol_mm` (2 mm) with the right size, in any mode. Skipped without `<name>.bases.json`. |
-| `test_bases_benchmark_no_worse` | One test for all photos. The bases benchmark totals are not worse than `bases_baseline.json` (rules in "Bases benchmark" below). Skipped without the baseline file. |
-| `test_bases_done_criteria` | The done test of priority 3 (`PhotoScore.done_ok`): every true base found (clear and hidden), right size, no false bases, each clear base within 2 mm. Needs `<name>.empty.jpg` and `<name>.bases.json`, else skipped. |
-| `test_rectify_done_criteria` | The done test of priority 2 in `specs/plan.md`, with no expected file: all four board edges found and tilted less than `EDGE_ANGLE_TOL_DEG` (0.3 deg), board corners at 90 deg within `CORNER_ANGLE_TOL_DEG` (0.5 deg), each printed grid line found and within `GRID_TOL_MM` (3.5 mm) of its nominal place, neighbouring grid lines spaced right within `SPACING_TOL_MM` (1.5 mm). |
+| `test_bases_benchmark_no_worse` | One test for all photos. The bases benchmark is not worse than `bases_baseline.json` (rules in "Bases benchmark" below). Skipped without the baseline file. |
+| `test_ident_benchmark_no_worse` | One test for all photos with names. The name metrics are not worse than `ident_baseline.json` (rules in "Identification benchmark" below). Skipped without the baseline file, without a gallery, or with another gallery than the baseline. |
+| `test_rectify_done_criteria` | The done test of priority 2 in `specs/plan.md`, with no expected file: all four board edges found and tilted less than `EDGE_ANGLE_TOL_DEG` (0.3 deg), board corners at 90 deg within `CORNER_ANGLE_TOL_DEG` (0.5 deg), each printed grid line found (walls can hide at most `MAX_HIDDEN_GRID_LINES`, 1 per axis) and within `GRID_TOL_MM` (3.5 mm) of its nominal place, neighbouring grid lines spaced right within `SPACING_TOL_MM` (1.5 mm). |
 
 `GRID_TOL_MM` is large because it includes the card placement error: in the
 two test photos the board right edge is 2.5 to 3.3 mm inside the L on the
@@ -183,9 +183,11 @@ AssertionError: board corner 2 off by 1.68 mm (tolerance 1.0 mm)
 
 ### Operative names
 
-`test_ident_done_criteria` is the done test of priority 4: at least 9 of 10
-bases named right on the first try. It runs only when the photo has a
-`<name>.ident.json` and every team in it has a gallery in `data/teams/`:
+The done test of priority 4 is at least 9 of 10 bases named right on the first
+try. The identification benchmark shows it in the `done` column. It is not a
+pass rule: a test fails only when the result is worse than the baseline. A
+photo counts only when it has a `<name>.ident.json` and every team in it has a
+gallery in `data/teams/`:
 
 ```json
 {
@@ -198,8 +200,10 @@ bases named right on the first try. It runs only when the photo has a
 ```
 
 Each true base matches the nearest found base within `tol_mm`. A missed base
-counts as wrong. Take the centres from `battlesight image-pipeline <photo> --json -`
-(the `ident` or `bases` stage). Make the gallery with `battlesight enroll`
+counts as wrong. To write the file, confirm the bases and assign the names with
+`uv run tools/annotate_bases.py tests/images/<name>.jpg --prefill --team <team> ...`
+(key `n`, see `docs/cli.md`; `--prefill` starts each base with the best guess, check each one), then push `s`. Name every base on the photo: an unnamed
+base is not in the test. Make the gallery with `battlesight enroll`
 from other photos than the test photo, else the test checks nothing.
 
 ### Add a photo
@@ -226,17 +230,22 @@ from other photos than the test photo, else the test checks nothing.
    cp out/<name>.json tests/images/<name>.expected.json
    ```
 
+   `s` in `tools/annotate_bases.py` also writes this file when it is missing. It
+   never replaces a file. Do the check of step 3 for that file too: the
+   tool does not show the tags or the grid.
+
 5. Optional, for the bases tests: click `<name>.bases.json` with
    `tools/annotate_bases.py` ("Click the ground truth" below). For the done
    test, take `<name>.empty.jpg` too ("Add a game pair" below), and run
    step 2 with `--reference tests/images/<name>.empty.jpg`.
 6. Run `uv run pytest -m photos`. A new photo with ground truth gives no
-   baseline failure ("new photo, not in baseline"). Write the baseline again
-   when you want to keep its numbers (see "Bases benchmark").
+   baseline failure ("new photo, not in baseline"). Write the baselines again
+   when you want to keep their numbers (see "Bases benchmark" and
+   "Identification benchmark").
 7. Commit the photo and its files together.
 
-A photo without an expected file makes `test_photo_size_matches` and
-`test_corners_match_expected` fail. The failure message gives the commands
+A photo without an expected file makes `test_photo_size_matches`,
+`test_corners_match_expected` and `test_rectify_match_expected` fail. The failure message gives the commands
 above.
 
 ### Update an expected file
@@ -327,7 +336,8 @@ The `target` row is the done test. It is not a pass rule now.
 `--write-baseline`: the config, the git commit, the per-photo and the total
 metrics, no match lists. It is committed.
 
-A run is worse than the baseline when one of these is true (totals):
+A run is worse than the baseline when one of these is true (totals, then each
+photo):
 
 | Rule | Limit |
 |---|---|
@@ -336,6 +346,8 @@ A run is worse than the baseline when one of these is true (totals):
 | `false` | higher |
 | `wrong_size` | higher |
 | `center_err_mm.max` | more than 0.5 mm higher |
+| `matched` of a photo | lower |
+| `false` of a photo | higher |
 | a photo with `done_ok` true in the baseline | now false |
 | a photo in the baseline | missing in the run |
 
@@ -383,6 +395,82 @@ A game pair is the done test of priority 3.
    the lamps between the two photos.
 5. Save them as `<name>.jpg` and `<name>.empty.jpg`. Add the expected file
    ("Add a photo") and click `<name>.bases.json`.
+
+## Identification benchmark
+
+`tools/bench_ident.py` ([cli.md](cli.md)) and the photo tests use the same
+code, `src/battlesight/ident_bench.py`. Plan: `specs/ident-benchmark.md`.
+
+### Causes of a loss
+
+A true name takes the nearest free found base within `tol_mm`, as in the done
+test. Then each true name has one result:
+
+| Result | Meaning | Cause |
+|---|---|---|
+| `right` | The base has the true name. | |
+| `wrong` | The base has another name. | Naming |
+| `unknown` | The base has no name. | Naming |
+| `wrong_size` | The found size is not the `base_mm` of the true operative, and the base does not have the true name. | Detection |
+| `missed` | No found base within `tol_mm`. | Detection |
+
+### Metrics
+
+For each photo and for the total (counts summed over the photos, then the
+ratios).
+
+| Metric | Meaning |
+|---|---|
+| `truth` | Number of true names. |
+| `right`, `wrong`, `unknown`, `wrong_size`, `missed` | Number of each result. |
+| `sure_wrong` | Wrong names without an unsure mark. The user does not see a warning on these. |
+| `accuracy` | `right / truth`: the score of the done test (1.0 when `truth` is 0). |
+| `naming_accuracy` | `right / (right + wrong + unknown)`: only the bases with a correct detection and size (1.0 when there are none). |
+| `score_right_mean` | Mean score of the right names. Only for information: no rule uses it. |
+| `done_ok`, `done`, `photos` | Done test: `accuracy` at least 0.9. For the total: all photos pass, the number that pass, the number of photos. |
+| `ms` | Time of all stages. |
+
+`uv run pytest -m photos` prints the table after the tests. It prints nothing
+when the photo tests did not run.
+
+### Baseline
+
+`tests/images/ident_baseline.json` is the output of `--write-baseline`: the
+`[ident]` values, the gallery state, the git commit, the per-photo and the
+total metrics, no name lists. It is committed.
+
+A run is worse than the baseline when one of these is true. The totals use
+only the photos in both the run and the baseline, so a new photo cannot
+change the result.
+
+| Rule | Limit |
+|---|---|
+| total `right` | lower |
+| total `naming_accuracy` | lower |
+| total `sure_wrong` | higher |
+| `right` of a photo in the baseline | lower |
+| a photo with `done_ok` true in the baseline | now false |
+| a photo in the baseline | missing in the run |
+
+A new photo (not in the baseline) gives no failure. When the run is better
+on a rule and worse on none, the tool prints "better than baseline: run
+with --write-baseline to keep it". A better detection can add a base that the
+naming gets wrong, and then `naming_accuracy` falls. Examine that result, and
+then write the baseline again if the change is correct.
+
+The baseline holds only for one gallery. Git ignores `data/teams/`, and the app
+adds a crop each time that you confirm a name, so the scores change with no
+code change. `gallery.fingerprint` is a hash of the names and the content
+of all gallery files of the teams (photos, background crops, `team.toml`). The
+embedding cache does not count. With another gallery, `--baseline` gives exit
+2, and `test_ident_benchmark_no_worse` gives a skip. A skip thus does not tell
+that the names are good. After a gallery change, compare the table with
+the last numbers, and write the baseline again.
+
+Move the baseline only on purpose: run
+`uv run tools/bench_ident.py --write-baseline tests/images/ident_baseline.json`,
+and commit it with the new numbers in the commit message. Do not write a
+baseline only to make a test pass.
 
 ## In CI or a script
 

@@ -1,0 +1,126 @@
+{
+  "schema": 1,
+  "config": {
+    "model": "facebook/dinov2-small",
+    "crop_pad_mm": 25.0,
+    "input_px": 280,
+    "rotations": 8,
+    "top_k": 3,
+    "min_score": 0.5,
+    "min_margin": 0.03,
+    "store_px_per_mm": 4.0,
+    "mask": true,
+    "mask_threshold": 25.0,
+    "mask_min_base": 0.25,
+    "mask_max_fraction": 0.6
+  },
+  "gallery": {
+    "teams": [
+      "Deathwatch",
+      "Raveners"
+    ],
+    "files": 554,
+    "fingerprint": "9cbf949945da25ac"
+  },
+  "git": "9035073+dirty",
+  "photos": [
+    {
+      "name": "tomb-world-1",
+      "mode": "single_frame",
+      "metrics": {
+        "truth": 7,
+        "right": 4,
+        "wrong": 2,
+        "sure_wrong": 0,
+        "unknown": 0,
+        "wrong_size": 0,
+        "missed": 1,
+        "accuracy": 0.5714,
+        "naming_accuracy": 0.6667,
+        "score_right_mean": 0.7603,
+        "done_ok": false,
+        "done": 0,
+        "photos": 1,
+        "ms": 5190.4
+      }
+    },
+    {
+      "name": "tomb-world-2",
+      "mode": "single_frame",
+      "metrics": {
+        "truth": 8,
+        "right": 3,
+        "wrong": 1,
+        "sure_wrong": 0,
+        "unknown": 0,
+        "wrong_size": 2,
+        "missed": 2,
+        "accuracy": 0.375,
+        "naming_accuracy": 0.75,
+        "score_right_mean": 0.7702,
+        "done_ok": false,
+        "done": 0,
+        "photos": 1,
+        "ms": 1944.0
+      }
+    },
+    {
+      "name": "tomb-world-4k-1",
+      "mode": "reference",
+      "metrics": {
+        "truth": 10,
+        "right": 9,
+        "wrong": 0,
+        "sure_wrong": 0,
+        "unknown": 0,
+        "wrong_size": 1,
+        "missed": 0,
+        "accuracy": 0.9,
+        "naming_accuracy": 1.0,
+        "score_right_mean": 0.8589,
+        "done_ok": true,
+        "done": 1,
+        "photos": 1,
+        "ms": 1842.1
+      }
+    },
+    {
+      "name": "tomb-world-4k-2",
+      "mode": "reference",
+      "metrics": {
+        "truth": 9,
+        "right": 6,
+        "wrong": 0,
+        "sure_wrong": 0,
+        "unknown": 0,
+        "wrong_size": 0,
+        "missed": 3,
+        "accuracy": 0.6667,
+        "naming_accuracy": 1.0,
+        "score_right_mean": 0.8779,
+        "done_ok": false,
+        "done": 0,
+        "photos": 1,
+        "ms": 1686.0
+      }
+    }
+  ],
+  "total": {
+    "metrics": {
+      "truth": 34,
+      "right": 22,
+      "wrong": 3,
+      "sure_wrong": 0,
+      "unknown": 0,
+      "wrong_size": 3,
+      "missed": 6,
+      "accuracy": 0.6471,
+      "naming_accuracy": 0.88,
+      "score_right_mean": 0.8341,
+      "done_ok": false,
+      "done": 1,
+      "photos": 4,
+      "ms": 10662.6
+    }
+  }
+}
