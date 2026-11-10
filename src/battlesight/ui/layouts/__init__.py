@@ -14,6 +14,7 @@ from PySide6.QtWidgets import QWidget
 from ..parts import VideoWidget
 from .inspector import InspectorLayout
 from .panel import PanelLayout
+from .rosters import RostersLayout
 
 
 class Shell(Protocol):
@@ -28,6 +29,9 @@ class Shell(Protocol):
     def selected_crop(self) -> np.ndarray | None:
         """The board around the selected base, of the frame that `on_state` shows."""
 
+    def show_debug(self, on: bool) -> None:
+        """Show the debug values in the status bar. Off at each layout change."""
+
 
 class Layout(Protocol):
     name: ClassVar[str]
@@ -40,5 +44,5 @@ class Layout(Protocol):
         """Show the new state."""
 
 
-LAYOUTS: dict[str, type[Layout]] = {InspectorLayout.name: InspectorLayout, PanelLayout.name: PanelLayout}
-DEFAULT_LAYOUT = InspectorLayout.name
+LAYOUTS: dict[str, type[Layout]] = {RostersLayout.name: RostersLayout, InspectorLayout.name: InspectorLayout, PanelLayout.name: PanelLayout}
+DEFAULT_LAYOUT = RostersLayout.name

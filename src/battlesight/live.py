@@ -32,13 +32,18 @@ from . import terrain as ter
 from .calib import DriftMonitor, DriftReport, DriftStatus, TagDetector, board_corners_px, lens_for_frame
 from .camera import CameraSettings
 from .config import BoardConfig
-from .overlay import GREEN, MAGENTA, RED, WHITE, YELLOW, draw_bases, draw_board_corners, draw_circle_mm, draw_grid, draw_idents, draw_rim_line, draw_tags, draw_terrain, fit_to_width
+from .overlay import BLUE, GREEN, MAGENTA, RED, WHITE, YELLOW, draw_bases, draw_board_corners, draw_circle_mm, draw_grid, draw_idents, draw_outline_mm, draw_rim_line, draw_tags, draw_terrain, fit_to_width
 from .pipeline import Pipeline
 from .rectify import fit_view, mm_to_rect, warp_board
 
 SNAPSHOT_DIR = Path(__file__).resolve().parents[2] / "data" / "snapshots"
 DEFAULT_REFERENCE = SNAPSHOT_DIR / "empty_board.png"
 DISPLAY_WIDTH = 1600  # image width in the windows; the windows can be resized
+PREVIEW_PAD_MM = 16.0  # board around the base in the crop of the selected base
+OPENING_KINDS = ("hatchway", "breach")
+OPENING_HIT_MM = 8.0  # a click this near to a hatchway or a breach point selects it
+TEAM_SLOTS = 2  # one team list each side of the board
+TEAM_COLORS = (RED, BLUE)  # circles of the team on the left and on the right side
 
 
 # --- helpers shared with the other live commands --------------------------------
@@ -250,6 +255,10 @@ def _has_selection(state: dict) -> bool:
     return state["selected"] is not None
 
 
+def _has_any_selection(state: dict) -> bool:
+    return state["selected"] is not None or state["selected_opening"] is not None
+
+
 def _in_snapshot(state: dict) -> bool:
     return state["mode"] == "snapshot"
 
@@ -276,7 +285,7 @@ class Action:
 ACTIONS: tuple[Action, ...] = (
     Action("snapshot.name", "Identify operatives", "space", enabled=lambda s: not s["busy"]),
     Action("snapshot.bases", "Find bases only", "b", enabled=lambda s: not s["busy"], control=False),
-    Action("snapshot.back", "Back", "Esc", enabled=_in_snapshot),
+    Action("snapshot.back", "Go back to Live", "Esc", enabled=_in_snapshot),
     Action("view.top_down", "Adjust perspective", "v", checked=lambda s: s["top_down"]),
     Action("view.grid", "Grid", "g", checked=lambda s: s["grid"]),
     Action("view.terrain", "Layout", checked=lambda s: s["terrain"], enabled=lambda s: s["map_layout"] is not None),
@@ -284,17 +293,19 @@ ACTIONS: tuple[Action, ...] = (
     Action("view.keys", "Terrain keys", checked=lambda s: s["keys"], enabled=lambda s: s["map_layout"] is not None),
     Action("map.terrain_type", "Terrain type", args=("name",)),
     Action("map.layout", "Layout", args=("name",)),
-        Action("reference.take", "Take empty-board reference", "e"),
+    Action("team.set", "Team", args=("slot", "name")),
+    Action("reference.take", "Take empty-board reference", "e"),
     Action("reference.clear", "Clear reference", "c", enabled=lambda s: s["reference_set"]),
     Action("board.click", "Click the board", args=("x", "y"), enabled=_in_snapshot),
     Action("board.select", "Select for names", args=("x", "y"), enabled=_in_snapshot),
     Action("base.choose", "Set name", args=("label", "index"), enabled=_has_selection),
-    Action("base.deselect", "Clear selection", enabled=_has_selection),
+    Action("base.select", "Select operative", args=("index",)),
+    Action("base.deselect", "Clear selection", enabled=_has_any_selection),
     *(Action(f"ring.{n}", f"Ring {n} in", str(n), enabled=_has_selection, checked=partial(lambda n, s: s["ring_in"] == n, n)) for n in range(1, 10)),
     Action("ring.clear", "Clear ring", "0", enabled=lambda s: s["ring_in"] is not None),
-    Action("names.accept", "Accept all names", "a", enabled=lambda s: s["unconfirmed"] > 0),
+    Action("names.accept", "Accept all identification", "a", enabled=lambda s: s["unconfirmed"] > 0),
     Action("names.undo", "Undo last gallery photo", "u", enabled=lambda s: s["can_undo"]),
-    Action("frame.save", "Save camera frame", "s"),
+    Action("frame.save", "Save screenshot", "s"),
     Action("app.layout", "Next layout", "l", shell=True),
     Action("app.help", "Keys", "h", shell=True),
     Action("app.quit", "Quit", "q", shell=True),
@@ -353,6 +364,10 @@ class LiveSession:
         self.notice = Notice(clock=clock)
         self.teams = list(teams) if teams else None
         self.gallery_root = gallery_root
+        self.team_choices = idt.list_teams(gallery_root)
+        slots = list(self.teams or [])[:TEAM_SLOTS]
+        self.team_slots: list[str | None] = slots + [None] * (TEAM_SLOTS - len(slots))
+        self._team_ops: dict[str, list[idt.Operative]] = {}  # operatives of each team, read once
         # Base sizes of the teams, from the team files: also for the b key, before the gallery loads.
         self.pipe.set_roster(idt.roster_sizes(gallery_root, self.teams or idt.list_teams(gallery_root)))
         self.gallery: idt.Gallery | None = None
@@ -368,6 +383,8 @@ class LiveSession:
         self.terrain_type: str | None = None
         self.map_layout: str | None = None
         self.terrain_shapes: list[ter.Shape] = []
+        self.openings: list[ter.Shape] = []  # hatchways and breach points of the layout
+        self.selected_opening: int | None = None  # index in `openings`
         self._read_maps()
         self.busy = False
         self.camera_up = True
@@ -382,7 +399,8 @@ class LiveSession:
         self.detect_ms: float | None = None  # tag detection of the last frame
         self.meter = FpsMeter()
 
-        self.result = None  # FrameResult of the shown snapshot, or None = live view
+        self.result = None  # FrameResult of the last snapshot, or None
+        self.frozen = False  # True: the snapshot is on the screen, False: the live video
         self.snap: np.ndarray | None = None  # camera frame of the snapshot
         self.session: idt.LabelSession | None = None
         self.selected: int | None = None  # index of the selected base
@@ -402,11 +420,13 @@ class LiveSession:
             "view.keys": self._toggle_keys,
             "map.terrain_type": self._set_terrain_type,
             "map.layout": self._set_map_layout,
+            "team.set": self._set_team,
             "reference.take": self._take_reference,
             "reference.clear": self._clear_reference,
             "board.click": self._click,
             "board.select": self._select_for_names,
             "base.choose": self._choose,
+            "base.select": self._select_index,
             "base.deselect": self._deselect,
             **{f"ring.{n}": partial(self._set_ring, n) for n in range(1, 10)},
             "ring.clear": partial(self._set_ring, None),
@@ -442,7 +462,7 @@ class LiveSession:
                 self.view = fit_view(self.cfg, tags, self.lens)
             except ValueError as exc:
                 print(f"rectify: {exc}", file=sys.stderr)
-        self.image = self._snapshot_image() if self.result is not None else self._render_live()
+        self.image = self._snapshot_image() if self.frozen else self._render_live()
         return self.current()
 
     def current(self) -> LiveFrame:
@@ -451,8 +471,17 @@ class LiveSession:
         return LiveFrame(self.image, state, self.win.scale, self._selected_crop())
 
     def _selected_crop(self) -> np.ndarray | None:
+        """The selected base with `PREVIEW_PAD_MM` of board around it, cut
+        from the centre of its gallery crop (`ident.store_crop`)."""
         s, i = self.session, self.selected
-        return None if s is None or i is None or i >= len(s.crops) else s.crops[i]
+        if s is None or i is None or i >= len(s.crops):
+            return None
+        crop, diameter = s.crops[i], float(s.diameters_mm[i])
+        side = crop.shape[0]
+        px_per_mm = side / (diameter + 2 * idt.STORE_PAD_MM)
+        keep = min(side, int(round((diameter + 2 * PREVIEW_PAD_MM) * px_per_mm)))
+        start = (side - keep) // 2
+        return np.ascontiguousarray(crop[start : start + keep, start : start + keep])  # a QImage needs one block
 
     def set_display_width(self, width: int) -> None:
         """Largest width of the returned image. A front end sets it to the width on the screen."""
@@ -460,21 +489,18 @@ class LiveSession:
         self.dirty = True
 
     def _render_live(self) -> np.ndarray:
+        """The live video. The bases and names of the last snapshot stay on
+        it, in board mm, until the next snapshot."""
         cfg, frame, view = self.cfg, self.frame, self.view
         if self.top_down and view is not None:
             out = warp_board(frame, view, cfg)
-            self._draw_terrain(out, lambda p: mm_to_rect(cfg, p))
-            if self.grid:
-                draw_grid(out, cfg, lambda p: mm_to_rect(cfg, p))
         else:
             out = frame.copy()
             draw_tags(out, self.obs, cfg, self.report)
             reference = self.monitor.reference
             draw_board_corners(out, board_corners_px(cfg, self.obs), board_corners_px(cfg, reference) if reference else None)
-            if view is not None:
-                self._draw_terrain(out, view.mm_to_px)
-            if self.grid and view is not None:
-                draw_grid(out, cfg, view.mm_to_px)
+        if view is not None:
+            self._draw_board(out)
         return self.win.fit(out)
 
     def _snapshot_image(self) -> np.ndarray:
@@ -484,26 +510,35 @@ class LiveSession:
         return self.shown
 
     def _render_snapshot(self) -> np.ndarray:
-        r, win, cfg = self.result, self.win, self.cfg
+        r, win = self.result, self.win
         if not r.ok:
             return win.fit(self.pipe.annotate(self.snap, r, banner=False))
         img = win.base_image(self.snap, r)
-        self._draw_terrain(img, win.to_px)
-        if self.grid:
-            draw_grid(img, cfg, (lambda p: mm_to_rect(cfg, p)) if win.top_down else win.view.mm_to_px)
-        found = r.scratch.get("bases") or []
-        if self.session is not None:
-            draw_idents(img, found, self.session.idents, win.to_px)
-        else:
-            draw_bases(img, found, win.to_px)
-        self._draw_measure(img, found)
+        self._draw_board(img)
         return win.fit(img)
+
+    def _draw_board(self, img: np.ndarray) -> None:
+        """Terrain, grid, the bases of the last snapshot and the selection,
+        with the mapping of the shown image."""
+        to_px = self._to_px
+        self._draw_terrain(img, to_px)
+        if self.grid:
+            draw_grid(img, self.cfg, to_px)
+        if self.selected_opening is not None:
+            draw_outline_mm(img, self.openings[self.selected_opening].points, to_px, WHITE)
+        found = self._found()
+        if self.session is not None:
+            colors = {team: color for team, color in zip(self.team_slots, TEAM_COLORS) if team is not None}
+            draw_idents(img, found, self.session.idents, to_px, scores=False, team_colors=colors)
+        elif found:
+            draw_bases(img, found, to_px)
+        self._draw_measure(img, found)
 
     def _draw_measure(self, img: np.ndarray, found: list) -> None:
         """The selected base, its ring, the second base and the distance."""
         if self.selected is None:
             return
-        to_px, a = self.win.to_px, found[self.selected]
+        to_px, a = self._to_px, found[self.selected]
         draw_circle_mm(img, a.center_mm, 0.5 * a.diameter_mm, to_px, WHITE)
         if self.ring_in is not None:
             draw_circle_mm(img, a.center_mm, measure.ring_radius_mm(a.diameter_mm, self.ring_in), to_px, MAGENTA)
@@ -513,18 +548,49 @@ class LiveSession:
             draw_circle_mm(img, b.center_mm, 0.5 * b.diameter_mm, to_px, MAGENTA)
             draw_rim_line(img, start, end, f'{gap / measure.MM_PER_INCH:.2f}"', to_px)
 
+    # --- mapping of the shown image -------------------------------------------------
+
+    def _shown_view(self) -> tuple[bool, Any]:
+        """(top-down, BoardView) of the image on the screen. The view is None
+        when the live frame has no board fit."""
+        if self.frozen:
+            return self.win.top_down, self.win.view
+        return self.top_down and self.view is not None, self.view
+
+    def _mapped(self) -> bool:
+        """The shown image has a board mapping."""
+        top_down, view = self._shown_view()
+        return top_down or view is not None
+
+    def _to_px(self, pts_mm) -> np.ndarray:
+        """Board mm -> pixels of the shown image, before `fit`."""
+        top_down, view = self._shown_view()
+        if top_down:
+            return mm_to_rect(self.cfg, pts_mm)
+        return view.mm_to_px(np.asarray(pts_mm, float).reshape(-1, 2))
+
+    def _to_mm(self, x: float, y: float) -> np.ndarray | None:
+        """Pixel of the returned image -> board mm, or None without a mapping."""
+        if self.frozen:
+            return self.win.to_mm(x, y)
+        top_down, view = self._shown_view()
+        px = np.array([[x / self.win.scale, y / self.win.scale]])
+        if top_down:
+            return (px / self.cfg.rectify_px_per_mm - self.cfg.rectify_margin_mm)[0]
+        return None if view is None else view.px_to_mm(px)[0]
+
     # --- state ------------------------------------------------------------------
 
     def state(self) -> dict[str, Any]:
         """All that a front end can show. JSON-safe."""
-        if self.result is not None:
+        if self.frozen:
             self._snapshot_image()  # brings the scale and the view up to date
         s = self.session
         current = self.notice.current()
         return {
-            "mode": "live" if self.result is None else "snapshot",
+            "mode": "snapshot" if self.frozen else "live",
             "busy": self.busy,
-            "top_down": self.win.top_down if self.result is not None else self.top_down,
+            "top_down": self.win.top_down if self.frozen else self.top_down,
             "grid": self.grid,
             "terrain": self.terrain,
             "zones": self.zones,
@@ -538,11 +604,15 @@ class LiveSession:
             "lens": self.lens.source,
             "resolution": None if self.frame is None else [int(self.frame.shape[1]), int(self.frame.shape[0])],  # newest frame
             "teams": sorted(self.gallery.team_dirs) if self.gallery is not None else self.teams,
+            "team_choices": list(self.team_choices),
+            "team_slots": list(self.team_slots),
+            "rosters": self._rosters_state(),
             "reference_set": self.pipe.has_reference,
             "snapshot_ok": None if self.result is None else bool(self.result.ok),
             "naming": s is not None,
             "bases": self._bases_state(),
             "selected": self.selected,
+            "selected_opening": None if self.selected_opening is None else {"index": self.selected_opening, "kind": self.openings[self.selected_opening].kind},
             "target": self.target,
             "ring_in": self.ring_in,
             "distance": self._distance_state(),
@@ -589,7 +659,10 @@ class LiveSession:
         if not found:
             return []
         centers = np.array([c.center_mm for c in found]).reshape(-1, 2)
-        positions = np.asarray(self.win.to_px(centers), float).reshape(-1, 2) * self.win.scale
+        if self._mapped():
+            positions = [[round(float(p[0]), 1), round(float(p[1]), 1)] for p in np.asarray(self._to_px(centers), float).reshape(-1, 2) * self.win.scale]
+        else:  # live frame without a board fit
+            positions = [None] * len(found)
         idents = self.session.idents if self.session is not None else [None] * len(found)
         return [
             {
@@ -599,7 +672,7 @@ class LiveSession:
                 "score": None if x is None else _num(x.score),
                 "sure": x is not None and bool(x.sure),
                 "confirmed": x is not None and bool(x.confirmed),
-                "position_px": [round(float(p[0]), 1), round(float(p[1]), 1)],
+                "position_px": p,
             }
             for i, (c, x, p) in enumerate(zip(found, idents, positions))
         ]
@@ -610,6 +683,42 @@ class LiveSession:
             return []
         scores = dict(s.idents[i].candidates)
         return [{"label": label, "score": _num(scores.get(label))} for label in s.menu(i)]
+
+    def _operatives_of(self, team: str) -> list[idt.Operative]:
+        if team not in self._team_ops:
+            try:
+                self._team_ops[team] = idt.team_operatives(team, Path(self.gallery_root) / team)
+            except (OSError, ValueError) as exc:
+                self.notice.error(f"team {team}: {exc}")
+                self._team_ops[team] = []
+        return self._team_ops[team]
+
+    def _rosters_state(self) -> list[dict[str, Any] | None]:
+        """The operatives of the team of each side, with the base that has
+        their name in the last snapshot."""
+        idents = self.session.idents if self.session is not None and self._found() else []
+        out: list[dict[str, Any] | None] = []
+        for team in self.team_slots:
+            if team is None:
+                out.append(None)
+                continue
+            rows = []
+            for op in self._operatives_of(team):
+                found = [(i, x) for i, x in enumerate(idents) if x.label == op.label]
+                found.sort(key=lambda ix: not ix[1].confirmed)  # a confirmed name first
+                i, x = found[0] if found else (None, None)
+                rows.append(
+                    {
+                        "label": op.label,
+                        "name": op.name,
+                        "base_mm": op.base_mm,
+                        "base_index": i,
+                        "score": None if x is None else _num(x.score),
+                        "confirmed": x is not None and bool(x.confirmed),
+                    }
+                )
+            out.append({"team": team, "operatives": rows})
+        return out
 
     # --- actions ----------------------------------------------------------------
 
@@ -625,7 +734,8 @@ class LiveSession:
 
     def _close_snapshot(self) -> None:
         self.result = self.snap = self.session = self.shown = None
-        self.selected = self.target = self.ring_in = None
+        self.selected = self.target = self.ring_in = self.selected_opening = None
+        self.frozen = False
 
     def _load_gallery(self) -> None:
         self.gallery_tried = True
@@ -655,6 +765,7 @@ class LiveSession:
         self._close_snapshot()
         self.win.top_down = True  # a snapshot opens top-down, the v key changes it
         self.snap = frame.copy()
+        self.frozen = True
         self.result = result = self.pipe.analyze(self.snap, source="camera", until=None if name else "bases")
         print(result.summary())
         gallery = self.gallery
@@ -683,24 +794,39 @@ class LiveSession:
         return idt.LabelSession(centers, [c.diameter_mm for c in found], list(result.scratch.get("base_crops", [])), list(idents), gallery, backgrounds=list(result.scratch.get("base_backgrounds", [])))
 
     def _set_selected(self, index: int | None) -> None:
-        """A new selected base starts with no ring and no second base."""
+        """A new selected base starts with no ring and no second base. Only
+        one thing is selected: a base or an opening."""
         self.selected = index
-        self.target = self.ring_in = None
+        self.target = self.ring_in = self.selected_opening = None
         self.dirty = True
+
+    def _select_opening(self, index: int | None) -> None:
+        self._set_selected(None)
+        self.selected_opening = index
 
     def _deselect(self) -> None:
         self._set_selected(None)
 
+    def _select_index(self, index: int) -> None:
+        """Select base `index` of the last snapshot (for example from a team list)."""
+        if not 0 <= index < len(self._found()):
+            self.notice.error(f"no base {index}")
+            return
+        self._set_selected(index)
+
     def _back(self) -> None:
-        """First clear the selected base, then close the snapshot."""
-        if self.selected is not None:
-            self._deselect()
+        """Go back to the live video. The bases, names and selection of the
+        snapshot stay, in board mm, until the next snapshot. In the live
+        video the key clears the selection."""
+        if self.frozen:
+            self.frozen = False
+            self.dirty = True
         else:
-            self._close_snapshot()
+            self._deselect()
 
     def _toggle_view(self) -> None:
         """The live view and the snapshot each have their own view."""
-        if self.result is not None:
+        if self.frozen:
             self.win.top_down = not self.win.top_down
         else:
             self.top_down = not self.top_down
@@ -750,7 +876,7 @@ class LiveSession:
         """Load the layout `name` of the terrain type, or no layout for None.
         A bad file gives a notice and leaves no layout."""
         self.dirty = True
-        self.map_layout, self.terrain_shapes = None, []
+        self.map_layout, self.terrain_shapes, self.openings, self.selected_opening = None, [], [], None
         if name is None:
             return
         entry = next((e for e in self.maps if e.terrain == self.terrain_type and e.name == name), None)
@@ -763,7 +889,31 @@ class LiveSession:
             self.notice.error(f"map not loaded: {exc}")
             return
         self.map_layout, self.terrain_shapes, self.terrain = name, ter.shapes(tmap, self.cfg), True
+        self.openings = [s for s in self.terrain_shapes if s.kind in OPENING_KINDS]
         self.notice.ok(f"map {tmap.terrain} / {tmap.name}")
+
+    # --- teams ------------------------------------------------------------------
+
+    def _set_team(self, slot: int, name: str | None) -> None:
+        """The team of one side, or None. The gallery loads again at the next
+        identification; the names of the last snapshot stay until then."""
+        if slot not in range(TEAM_SLOTS):
+            self.notice.error(f"no team slot {slot}")
+            return
+        if name is not None and name not in self.team_choices:
+            self.notice.error(f"no team {name!r} in {self.gallery_root}")
+            return
+        if name is not None and name in self.team_slots and self.team_slots[slot] != name:
+            self.notice.error(f"{name} is on the other side already")
+            return
+        if self.team_slots[slot] == name:
+            return
+        self.team_slots[slot] = name
+        self.teams = [t for t in self.team_slots if t] or None
+        self.gallery, self.gallery_tried = None, False
+        self.pipe.set_gallery(None)
+        self.pipe.set_roster(idt.roster_sizes(self.gallery_root, self.teams or self.team_choices))
+        self.notice.say("teams changed: push space to identify the operatives again" if self.result is not None else f"teams: {', '.join(self.teams or ['all'])}")
 
     def _take_reference(self) -> None:
         if not self._need_frame():
@@ -786,19 +936,35 @@ class LiveSession:
     def _base_under(self, x: float, y: float) -> int | None:
         """The base at pixel (x, y) of the returned image."""
         found = self._found()
-        p_mm = self.win.to_mm(x, y) if found else None
+        p_mm = self._to_mm(x, y) if found else None
         if p_mm is None:
             return None
         return measure.base_at([c.center_mm for c in found], [c.diameter_mm for c in found], p_mm)
 
+    def _opening_under(self, x: float, y: float) -> int | None:
+        """The hatchway or breach point at pixel (x, y) of the returned image."""
+        p_mm = self._to_mm(x, y) if self.openings else None
+        if p_mm is None:
+            return None
+        best, index = -OPENING_HIT_MM, None
+        for i, sh in enumerate(self.openings):
+            d = cv2.pointPolygonTest(sh.points.astype(np.float32).reshape(-1, 1, 2), (float(p_mm[0]), float(p_mm[1])), True)
+            if d >= best:
+                best, index = d, i
+        return index
+
     def _click(self, x: float, y: float) -> None:
         """A left click. The first base is the selected base, and another
         base is the target of the distance. A click on one of them or on the
-        empty board takes it away."""
-        if self.result is None:
+        empty board takes it away. Without a base there, a click on a
+        hatchway or a breach point selects it."""
+        if not self._mapped():
             return
         index = self._base_under(x, y)
-        if index is None or index == self.selected:
+        if index is None:
+            opening = self._opening_under(x, y)
+            self._select_opening(None if opening == self.selected_opening else opening)
+        elif index == self.selected:
             self._set_selected(None)
         elif self.selected is None:
             self._set_selected(index)
@@ -808,13 +974,14 @@ class LiveSession:
 
     def _select_for_names(self, x: float, y: float) -> None:
         """A right click: the base there becomes the selected base, to fix its name."""
-        if self.result is None:
+        if not self._mapped():
             return
         index = self._base_under(x, y)
+        if index is None:
+            self._select_opening(self._opening_under(x, y))
+            return
         self._set_selected(index)
         s = self.session
-        if index is None:
-            return
         if s is None:
             self.notice.error("push space to name the operatives")
         elif not s.menu(index):

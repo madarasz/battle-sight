@@ -1,6 +1,6 @@
 # Battle Sight: UI plan
 
-Status: all steps of section 12 are done. The layouts are `inspector` (default) and `panel`. The UI is modular: many layouts on one game core (section 8). To continue the work, read section 13 first. Date: 2026-11-08.
+Status: all steps of section 12 are done. The layouts are `rosters` (Option 3, default since 2026-11-10), `inspector` and `panel`. The UI is modular: many layouts on one game core (section 8). To continue the work, read section 13 first. Date: 2026-11-08.
 
 ## 1. Goal
 
@@ -254,10 +254,12 @@ The state dict is JSON-safe. The worker sends it with each frame.
 | `drift` | Status value, summary text, lost tags, moved card. |
 | `camera` | Camera up or down. |
 | `lens`, `teams`, `reference_set` | Facts for the status view. |
-| `snapshot_ok` | All stages of the snapshot passed. `null` in the live view. |
+| `snapshot_ok` | All stages of the last snapshot passed. `null` before the first snapshot. |
 | `naming` | The snapshot has names that the user can fix. |
-| `bases` | One entry per base: `index`, `diameter_mm`, `label`, `score` (`null` when not finite), `sure`, `confirmed`, `position_px` (pixels of the returned image). |
-| `selected` | Index of the selected base, or `null`. Also without names (after `b`). |
+| `bases` | One entry per base of the last snapshot: `index`, `diameter_mm`, `label`, `score` (`null` when not finite), `sure`, `confirmed`, `position_px` (pixels of the returned image, `null` when the live frame has no board fit). The bases stay in the live view after "Go back to Live". |
+| `selected` | Index of the selected base, or `null`. Also without names (after `b`), and in the live view after "Go back to Live". |
+| `selected_opening` | `{index, kind}` of the selected hatchway or breach point (`kind` is `hatchway` or `breach`), or `null`. Only one of `selected` and `selected_opening` is set. |
+| `team_choices`, `team_slots`, `rosters` | Gallery teams; the team of each side (2 entries, `null` = none); per side `null` or `{team, operatives: [{label, name, base_mm, base_index, score, confirmed}]}`. |
 | `target` | Index of the second base of a distance, or `null`. |
 | `ring_in` | Ring on the selected base, in inches (1 to 9), or `null`. |
 | `distance` | Rim to rim from `selected` to `target`: `{mm, in}`, or `null`. Layouts show only the inches, for example `5.93"`. |
@@ -340,8 +342,9 @@ A browser front end later uses the same action ids and state dict over a WebSock
 
 ## 10. Decisions
 
-1. Layouts: `panel` and `inspector` are built. `inspector` is the default.
-2. The name fix in `inspector` is a list in the panel, with crop and scores. `panel` uses the shell popup.
+1. Layouts: `rosters`, `inspector` and `panel` are built. `rosters` is the default (2026-11-10).
+2. The name fix in `inspector` is a list in the panel, with crop and scores. In `rosters` it is a list in the inspector that opens with "Change identification". `panel` uses the shell popup.
+5. `rosters` (2026-11-10): no "Back" button to an unidentified board. `Esc` is "Go back to Live" in Commands: the names stay on the live video until the next identification. A badge on the video shows "Live" (red) or "Snapshot" (green). Teams change at run time in the team lists (`--team` fills them). Hatchways and breach points can be selected in live and snapshot. Scores show as percentages; the video shows names on a dark box, with no score. Debug values go to the right end of the status bar. "Add operative" and "Open/Close" are disabled placeholders.
 3. Live inset over the snapshot: not in the first version.
 4. PySide6 now. A browser front end can come later, if a tablet at the table becomes a goal.
 
@@ -405,7 +408,9 @@ The live view (`LiveSession.top_down`) and the snapshot (`BoardWindow.top_down`)
 
 - `set_layout` closes the shell popup, and the selected base stays. After a change to `panel`, the base stays selected with no popup. `Esc` clears it, and a right click opens the popup.
 - An action that a layout selects from a list sends `index` with `base.choose`.
-- A row of `OperativeList` sends `board.click` at `position_px`. There is no separate selection action.
+- A row of `OperativeList` or `TeamRoster` sends `base.select(index)`, so a stale position cannot miss the base.
+- `snapshot.back` only leaves the snapshot image (`LiveSession.frozen = False`). The result, the names and the selection stay. In the live view the key clears the selection.
+- `_install_layout` turns the status-bar debug label off; a layout turns it on with `shell.show_debug`.
 
 ### Traps that were found
 

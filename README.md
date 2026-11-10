@@ -47,7 +47,8 @@ The app uses the camera that you saved in setup step 4
 `--source`, for example `--source 0` for the built-in camera.
 
 The app uses all teams that you taught it (setup step 8). To use only the
-two teams of this game, add their names:
+two teams of this game, choose them in the team lists of the window, or add
+their names when you start the app:
 
 ```bash
 uv run battlesight --team kommandos veterans
@@ -55,18 +56,44 @@ uv run battlesight --team kommandos veterans
 
 ### The window
 
-The video is at the left. The panel at the right has a control for the
-functions that you can use now. The keys and the menus always work. Hold the
-mouse pointer on a control to see its key.
+The keys and the menus always work. Hold the mouse pointer on a control to
+see its key.
 
-The window has two layouts. Push `l`, or use the menu View > Layout, to change
-the layout. The app keeps your choice for the next start. The video, the
-result on the screen and the names do not change.
+The window has three layouts. Push `l`, or use the menu View > Layout, to
+change the layout. The app keeps your choice for the next start. The video,
+the result on the screen and the names do not change.
 
 | Layout | Panel |
 |---|---|
-| `inspector` | The panel changes with your work: live view, result, or the base that you clicked. |
-| `panel` | The panel is always the same and has all the controls. |
+| `rosters` (default) | A control bar above the video, and one team list at each side of the video. |
+| `inspector` | The panel at the right changes with your work: live view, result, or the base that you clicked. |
+| `panel` | The panel at the right is always the same and has all the controls. |
+
+In the `rosters` layout, the control bar has these sections:
+
+- **View**: the terrain type, the layout card, and the view check boxes.
+- **Commands**: "Identify operatives", "Accept all identification" (only when
+  some names are not confirmed), "Add operative" (not available yet), and "Go
+  back to Live" (only when the result is on the screen).
+- **Inspector**: the operative or the hatchway that you clicked. Click `✕` to
+  clear it.
+- **Reference**: take or clear the empty-board photo, and "Save screenshot".
+- **Debug**: shows the debug values at the right end of the status line.
+
+At each side of the video, choose the team of that player in the list. You
+cannot choose the same team on the two sides. The names of its operatives
+show below it, with a mark at the right end of the line:
+
+- Eye: the name of this operative is confirmed.
+- Percentage, for example `78%`: the app found this operative, but nobody
+  confirmed the name. The percentage tells how sure the app is.
+- `?`: the app did not find this operative.
+
+Click an operative that the app found to show it in the inspector. When you
+change a team, push `space` again to identify the operatives of the new team.
+
+The top-right corner of the video shows the mode: a red dot and "Live" for
+the live video, a green dot and "Snapshot" for a result.
 
 ### Terrain map
 
@@ -119,30 +146,35 @@ itself. Keep the board still for a moment after the move.
    - Green name: the app is sure.
    - Yellow name: the app is not sure. Check it.
    - Red `?`: the app does not know this operative.
-4. If a name is wrong, right-click the base, then click the correct name in
-   the list. In the `inspector` layout, you can also click the row of the
-   operative in the panel. The panel then shows a photo of the base and the
-   list of names. In the `panel` layout, the list opens at the base. The app
-   learns from each correction, so it makes fewer errors in the next games.
-5. Push `Esc` to go back to the live view.
+4. If a name is wrong, click the base. In the `rosters` layout, click
+   "Change identification" in the inspector, then click the correct name. In
+   the `inspector` layout, the panel shows the list of names. In the `panel`
+   layout, right-click the base: the list opens at the base. The app learns
+   from each correction, so it makes fewer errors in the next games.
+5. Push `Esc` ("Go back to Live") to go back to the live video. The circles
+   and the names stay on the live video until the next `space`.
 
 Push `b` to find the bases without names (each base with a green circle and
-its size in mm). The result stays on the screen until the next `space` or
-`b`, or until you push `Esc`. The Terminal window also lists each base.
+its size in mm). The Terminal window also lists each base.
+
+Click a hatchway or a breach point of the terrain map to show it in the
+inspector.
 
 ### Measure rings and distances
 
-You can measure after `space` or after `b`.
+You can measure after `space` or after `b`, on the result and on the live
+video.
 
 1. Click a base. A white circle shows the base that you selected.
-2. Push a key from `1` to `9`. The app draws a ring that many inches from the
-   edge of the base. Push `0` to remove the ring.
+2. Push a key from `1` to `9`, or move the "Distance" slider in the
+   inspector. The app draws a ring that many inches from the edge of the
+   base. Push `0`, or move the slider to `Off`, to remove the ring.
 3. Click a second base. The app draws a line between the two base edges, and
    shows the distance in inches in the status line, for example `5.93"`.
 4. Click another base to move the line to it. Click the second base again to
    remove the line.
-5. Click the selected base, or an empty part of the board, or push `Esc`, to
-   stop the measurement.
+5. Click the selected base, or an empty part of the board, to stop the
+   measurement.
 
 The measurement is from base edge to base edge. It is on the board surface.
 
@@ -159,16 +191,17 @@ Push `h` to see this list in the window. The menus have the same actions.
 | `e` | Keep the current image as the empty-board photo. Do this on the empty board only. |
 | `c` | Forget the empty-board photo. |
 | Click a base | Select this base. When a base is selected: measure the distance to the clicked base. |
+| Click a hatchway or a breach point | Select it. |
 | `1` to `9` | Draw a ring around the selected base, this many inches from its edge. |
 | `0` | Remove the ring. |
 | Right-click a base | Select this base and show the list of names for this base size. |
 | Click a name | Give this name to the base. The app keeps the photo. |
 | `a` | All names are correct: the app keeps the photos of all bases. |
 | `u` | Undo the last correction. |
-| `s` | Save a photo to `data/snapshots/`. |
+| `s` | Save a screenshot (the camera image) to `data/snapshots/`. |
 | `l` | Change to the next window layout. |
 | `h` | Show the key list. |
-| `Esc` | Stop the selection of a base. When no base is selected, go back to the live view. |
+| `Esc` | Go back to the live video. The names stay. In the live video: stop the selection. |
 | `q` | Quit. |
 
 ### Saved photos
@@ -200,6 +233,15 @@ tells the board status, in all layouts. It also tells the ring size and the dist
 | Red "CORNERS NOT SEEN" (second line, `enroll`) | The camera cannot see one or more corner cards now. The line names the cards. `space` cannot find the board. | Remove what covers the card. Move the camera if a card is outside the image. |
 | Message at the right of the status line | The result of your last key or click, for 6 seconds. Red: it did not work, for example "no base found". Yellow: do the next step, for example "click the base". Green: done, for example "photo 3 added". | Read the message. For a red message, correct the cause and try again. |
 
+In the `rosters` layout, the inspector shows:
+
+- For an operative: the team, the name and the base size, for example
+  `Raveners - Wrecker (40mm)`, a photo of the base, the "Distance" slider
+  (ring size, 0 to 9 in), the distance to a second base, and the "Change
+  identification" button. The list of names shows only after you click it.
+- For a hatchway or a breach point: its name, and an "Open/Close" button
+  (not available yet).
+
 In the `inspector` layout, the panel shows:
 
 - At the top: the terrain type and layout lists, and the view controls.
@@ -209,7 +251,7 @@ In the `inspector` layout, the panel shows:
   Green is sure, yellow is not sure, red `?` is unknown.
 - After a click on a base: the size of the base, a photo of it, the ring
   buttons, the distance to a second base, and the names with their scores.
-  Push `Esc` to close this.
+  Click the base again, or an empty part of the board, to close this.
 - Debug (click it to open): tags found, fit error, frames per second, and the
   time for tag detection. The `panel` layout always shows these values.
 
@@ -226,8 +268,13 @@ On the camera image:
   for the deployment zones.
 - Green circle with a number: a base that the app found, and its size in mm.
   The circle is the bottom edge of the base, where it touches the board.
-- Name under a base (after `space`): the operative and a score from 0 to 1.
-  Green is sure, yellow is not sure, red `?` is unknown.
+- Name under a base (after `space`): the operative, on a dark box. When you
+  chose the teams, the circle and the name have the colour of the team: red
+  for the team at the left, blue for the team at the right, and grey with
+  `?` for an unknown operative. With no team chosen: green is sure, yellow
+  is not sure, red `?` is unknown. The lists show how sure the app is as a
+  percentage, for example `78%`.
+- White outline: the hatchway or breach point that you selected.
 - White circle: the base that you selected.
 - Magenta circle around the base, with space between them: the range ring.
 - Magenta circle on a base and a magenta line with a number: the second base

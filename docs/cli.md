@@ -58,7 +58,7 @@ uv run battlesight [--team NAME [NAME2]] [--gallery-root data/teams]
 
 | Option | Default | Meaning |
 |---|---|---|
-| `--team` | all teams in `--gallery-root` | One or two team folders (two teams play). Labels are `<team>/<operative>`. More than two names: exit 2. |
+| `--team` | all teams in `--gallery-root` | One or two team folders (two teams play). Labels are `<team>/<operative>`. More than two names: exit 2. Fills the two team lists of the window at start; the user can change them while the app runs (`team.set`). |
 | `--gallery-root` | `data/teams` | Folder with one folder per team. |
 | `--reference` | `data/snapshots/empty_board.png`. With `--image-source`: none. | Empty-board reference. Loaded at start when the file exists. The `e` key writes it. Git ignores the file (`data/snapshots/*.png`). |
 | `--source` | from the camera file, else `0` | Camera index (Camo, built-in camera) or network stream URL (`http://...`, `rtsp://...`), for this run only. A stream is read on a background thread that keeps only the newest frame. See [setup.md](setup.md), step 4. |
@@ -120,13 +120,22 @@ off by its shift.
 
 `space` runs all stages (`corners`, `rectify`, `bases`, `ident`) on one
 frame. `b` runs only up to `bases`: no names, and the gallery and the model
-do not load. The snapshot stays on the screen until the next `space` or `b`,
-or `Esc`. The command prints each base to stdout.
+do not load. The snapshot stays on the screen until `Esc` ("Go back to
+Live"). Then the live video shows again, and the bases, names and selection
+of the snapshot stay on it, in board mm, until the next `space` or `b`
+(`LiveSession.frozen` is the mode, `result` the last snapshot). Clicks, rings
+and distances work on the live video too, while it has a board fit. Without
+a board fit (tags lost, camera view) `position_px` of each base is `null`.
+The command prints each base to stdout.
 
 The gallery and the model load on the first `space`, not at start. No team
 folder: the app says so, and the bases have no names.
 
-The snapshot shows each base with its operative name and score: green =
+The snapshot shows each base with its operative name on a dark box (no score
+in the live app; `image-pipeline` overlays keep the score). In the live app,
+with teams chosen (`team_slots`), the circle and the name have the team
+colour (`live.TEAM_COLORS`: left red, right blue; a base with no name grey,
+`overlay.draw_idents(team_colors=...)`). Else: green =
 sure, yellow = unsure (the lead over the second name is less than
 `ident.min_margin`, or the one-to-one assignment gave the base its second
 choice), red `?` = unknown (score under `ident.min_score`, or no operative
@@ -157,6 +166,22 @@ ring and no target. The ring keeps to the selected base and is sampled in
 board mm, so it also bends with the lens in the camera view. Touching or
 overlapping bases have a distance of 0.
 
+Openings: a left or right click with no base under it selects the hatchway or
+breach point of the map layout within 8 mm (`OPENING_HIT_MM`), live and
+snapshot. One thing is selected at a time: a base or an opening. State
+`selected_opening` = `{index, kind}`. `base.deselect` clears both.
+
+Teams: `team.set(slot, name)` sets the team of side 0 or 1 (`None` = none).
+The same team on both sides is refused (the team list of the other side
+shows it disabled). A change resets the gallery (it loads
+again at the next `space`) and the known base sizes; the names of the last
+snapshot stay until then. Without a team on either side, `space` uses all
+gallery teams. State: `team_choices` (gallery teams), `team_slots`, and
+`rosters` (per side `null` or `{team, operatives: [{label, name, base_mm,
+base_index, score, confirmed}]}`, from `team.toml` and the operative folders,
+with the base that has the name in the last snapshot). `base.select(index)`
+selects a base by index (team list rows).
+
 Fixes (plan priority 4, "user confirms or fixes with one click"): after
 `space`, right-click a base, then click a name in the list (a popup at the base
 in `panel`, the panel list in `inspector`). The right click replaces the
@@ -178,16 +203,17 @@ selected. `Esc` clears the selected base.
 | `e` | Use the current frame as the empty-board reference and write it to `--reference`. The frame must pass `corners` and `rectify`, else the app keeps the old reference and says why. |
 | `c` | Clear the empty-board reference: single-frame detection. |
 | left click on a base | Select it. With a selected base: set or move the target (second base of a distance). |
+| left click on a hatchway or breach point | Select it (no base under the click). |
 | `1` to `9` | Ring on the selected base: base radius + N in. |
 | `0` | Remove the ring. |
 | right click on a base | Select it and show its names (after `space`). |
 | left click on a name | Set the name, add the crop to the gallery. |
-| `a` | Accept all names that are not confirmed: add their crops to the gallery. |
+| `a` | "Accept all identification": accept all names that are not confirmed, add their crops to the gallery. |
 | `u` | Undo the last gallery photo of this snapshot (deletes the file, gives the old name back). |
-| `s` | Save the current camera frame to `data/snapshots/snap_<date>_<time>.png`. |
+| `s` | "Save screenshot": save the current camera frame to `data/snapshots/snap_<date>_<time>.png`. |
 | `l` | Next layout. The choice goes to `data/ui.toml`. |
 | `h` | Show the key list. |
-| `Esc` | Clear the selected base. When no base is selected, close the snapshot and go back to the live view. |
+| `Esc` | "Go back to Live": show the live video again; the bases, names and selection stay. In the live video: clear the selection. |
 | `q` | Quit. |
 
 The README section "What you see" tells what the overlay shows. The game
@@ -201,12 +227,23 @@ OpenCV windows.
 
 ### Layouts and `data/ui.toml`
 
-`ui/layouts/` holds the layouts, in the dict `LAYOUTS`. The default is
-`inspector`. A layout has `name`, `name_popup` (the shell opens its name popup
-at a clicked base), `build(shell, options)` and `on_state(state)`. A layout
-uses only `shell.dispatch`, `shell.new_video` (one time in `build`) and
-`shell.selected_crop`. It must not import `pipeline`, `ident`, `calib` or
-`camera`.
+`ui/layouts/` holds the layouts, in the dict `LAYOUTS`: `rosters` (default),
+`inspector`, `panel`. A layout has `name`, `name_popup` (the shell opens its
+name popup at a clicked base), `build(shell, options)` and `on_state(state)`. A
+layout uses only `shell.dispatch`, `shell.new_video` (one time in `build`),
+`shell.selected_crop` and `shell.show_debug(on)` (debug values at the right end
+of the status bar; off at each layout change). It must not import `pipeline`,
+`ident`, `calib` or `camera`.
+
+`rosters` (Option 3 of `specs/ui.md`): a top bar with the sections View
+(`MapPicker`, view toggles), Commands (`snapshot.name`, `names.accept` shown
+only with `unconfirmed > 0`, a disabled "Add operative", `snapshot.back` shown
+only in a snapshot), Inspector (operative: title `Team - Name (40mm)`, crop,
+`RingSlider`, distance, "Change identification" that shows a `CandidateList`;
+opening: "Hatchway" / "Breach point" and a disabled "Open/Close"; `✕` =
+`base.deselect`), Reference and Debug. A `TeamRoster` each side of the video.
+`VideoWidget.set_badge` paints the mode ("Live" red, "Snapshot" green) at the
+top right of the image. Scores in all lists are percentages (`parts.percent`).
 
 `data/ui.toml` is local to the machine, and git ignores it. There is no
 command option for it. A missing file is not an error. An unknown layout, a bad
@@ -216,9 +253,9 @@ at a layout change. It keeps all other text.
 
 | Key | Layout | Values | Default |
 |---|---|---|---|
-| `[ui] layout` | | `inspector`, `panel` | `inspector` |
-| `[layouts.<name>] panel_side` | both | `left`, `right` | `right` |
-| `[layouts.inspector] debug_open` | `inspector` | `true`, `false` | `false` |
+| `[ui] layout` | | `rosters`, `inspector`, `panel` | `rosters` |
+| `[layouts.<name>] panel_side` | `inspector`, `panel` | `left`, `right` | `right` |
+| `[layouts.<name>] debug_open` | `inspector`, `rosters` | `true`, `false` | `false` |
 | `[map] terrain` | | terrain type of the last run (`""` = none) | first type |
 | `[map] layout` | | layout name of the last run (`""` = none) | none |
 

@@ -15,6 +15,8 @@ WHITE = (255, 255, 255)
 BLACK = (0, 0, 0)
 CYAN = (255, 220, 60)
 MAGENTA = (230, 70, 230)
+BLUE = (230, 120, 40)
+GREY = (170, 170, 170)
 
 _STATUS_COLOR = {
     DriftStatus.NO_REFERENCE: YELLOW,
@@ -155,10 +157,22 @@ def draw_bases(frame: np.ndarray, bases, to_px, color: tuple[int, int, int] = GR
         cv2.putText(frame, label, org, cv2.FONT_HERSHEY_SIMPLEX, 0.6 * s, color, thick, cv2.LINE_AA)
 
 
-def _label(frame: np.ndarray, text: str, org: tuple[int, int], color, s: float, thick: int, center: bool = True) -> None:
-    (tw, th), _ = cv2.getTextSize(text, cv2.FONT_HERSHEY_SIMPLEX, 0.6 * s, thick)
+LABEL_BOX_ALPHA = 0.65  # dark box behind a name
+
+
+def _label(frame: np.ndarray, text: str, org: tuple[int, int], color, s: float, thick: int, center: bool = True, box: bool = False) -> None:
+    """Text with a black outline. `box`: a dark box behind it, for names on a busy board."""
+    (tw, th), base = cv2.getTextSize(text, cv2.FONT_HERSHEY_SIMPLEX, 0.6 * s, thick)
     x = int(org[0] - tw / 2) if center else int(org[0])
     y = int(org[1] + th)
+    if box:
+        pad = max(2, round(4 * s))
+        h, w = frame.shape[:2]
+        x0, y0 = max(0, x - pad), max(0, y - th - pad)
+        x1, y1 = min(w, x + tw + pad), min(h, y + base + pad)
+        if x1 > x0 and y1 > y0:
+            area = frame[y0:y1, x0:x1]
+            cv2.addWeighted(area, 1 - LABEL_BOX_ALPHA, np.zeros_like(area), LABEL_BOX_ALPHA, 0, dst=area)
     cv2.putText(frame, text, (x, y), cv2.FONT_HERSHEY_SIMPLEX, 0.6 * s, BLACK, thick + 2, cv2.LINE_AA)
     cv2.putText(frame, text, (x, y), cv2.FONT_HERSHEY_SIMPLEX, 0.6 * s, color, thick, cv2.LINE_AA)
 
@@ -170,23 +184,39 @@ def ident_color(x) -> tuple[int, int, int]:
     return GREEN if x.sure else YELLOW
 
 
-def draw_idents(frame: np.ndarray, bases, idents, to_px) -> None:
-    """Operative names (ident.Ident) under the bases (circles.Circle). The
-    team part of the label is left out."""
+def draw_idents(frame: np.ndarray, bases, idents, to_px, scores: bool = True, team_colors: dict[str, tuple[int, int, int]] | None = None) -> None:
+    """Operative names (ident.Ident) under the bases (circles.Circle), on a
+    dark box. The team part of the label is left out. `scores`: the score
+    after a name that is not confirmed. `team_colors`: circle and name colour
+    per team; then a base without a name gets a grey circle and `?`. Without
+    it the colour is `ident_color`."""
     s = _scale(frame)
     thick = max(1, round(2 * s))
     a = np.linspace(0, 2 * np.pi, 64, endpoint=False)
     for c, x in zip(bases, idents):
         r = 0.5 * c.diameter_mm
         color = ident_color(x)
+        ring_color = color
+        if team_colors:
+            team = None if x.label is None else x.label.partition("/")[0]
+            ring_color = team_colors.get(team, GREY if team is None else color)
         ring = c.center_mm + r * np.c_[np.cos(a), np.sin(a)]
         pts = np.rint(to_px(ring)).astype(np.int32).reshape(-1, 1, 2)
-        cv2.polylines(frame, [pts], True, color, thick, cv2.LINE_AA)
+        cv2.polylines(frame, [pts], True, ring_color, thick, cv2.LINE_AA)
         name = "?" if x.label is None else x.label.partition("/")[2] or x.label
-        if x.label is not None and not x.confirmed:
+        if scores and x.label is not None and not x.confirmed:
             name += f" {x.score:.2f}"
         bottom = np.rint(to_px((c.center_mm + (0.0, r + 2.0)).reshape(1, 2))[0]).astype(int)
-        _label(frame, name, (int(bottom[0]), int(bottom[1])), color, s, thick)
+        _label(frame, name, (int(bottom[0]), int(bottom[1])), ring_color, s, thick, box=True)
+
+
+def draw_outline_mm(frame: np.ndarray, points_mm, to_px, color: tuple[int, int, int]) -> None:
+    """Heavy outline of a polygon in board mm (a selected terrain item)."""
+    s = _scale(frame)
+    thick = max(1, round(3 * s))
+    pts = np.rint(to_px(_dense(np.asarray(points_mm, float), 5.0))).astype(np.int32).reshape(-1, 1, 2)
+    cv2.polylines(frame, [pts], True, BLACK, thick + 2, cv2.LINE_AA)
+    cv2.polylines(frame, [pts], True, color, thick, cv2.LINE_AA)
 
 
 def draw_circle_mm(frame: np.ndarray, center_mm, radius_mm: float, to_px, color: tuple[int, int, int]) -> None:

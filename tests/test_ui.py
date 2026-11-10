@@ -584,20 +584,21 @@ def queued_notices(win: MainWindow) -> list[str]:
 
 
 @pytest.mark.parametrize(
-    "text, wanted",
+    "text, wanted, layout",
     [
-        ('[ui]\nlayout = "no-such"\n', "unknown layout"),
-        ("not toml [", "ui.toml not used"),
-        ('[layouts.inspector]\npanel_side = "up"\n', "panel_side"),
-        ('[layouts.inspector]\ndebug_open = "yes"\n', "debug_open"),
+        ('[ui]\nlayout = "no-such"\n', "unknown layout", DEFAULT_LAYOUT),
+        ("not toml [", "ui.toml not used", DEFAULT_LAYOUT),
+        ('[ui]\nlayout = "inspector"\n[layouts.inspector]\npanel_side = "up"\n', "panel_side", "inspector"),
+        ('[ui]\nlayout = "inspector"\n[layouts.inspector]\ndebug_open = "yes"\n', "debug_open", "inspector"),
+        ('[layouts.rosters]\ndebug_open = "yes"\n', "debug_open", DEFAULT_LAYOUT),
     ],
 )
-def test_bad_settings_do_not_stop_the_app(qapp, tmp_path, recorded, text, wanted):
+def test_bad_settings_do_not_stop_the_app(qapp, tmp_path, recorded, text, wanted, layout):
     session, frame, _ = recorded
     path = tmp_path / "ui.toml"
     path.write_text(text)
     win = MainWindow(session, FakeCamera(frame), path)
-    assert win.current_layout.name == DEFAULT_LAYOUT
+    assert win.current_layout.name == layout
     assert wanted in " ".join(queued_notices(win))
     win.close()
 
@@ -659,8 +660,10 @@ def test_layout_change_closes_the_popup(window, monkeypatch):
 def test_l_key_goes_to_the_next_layout_and_saves_it(window):
     assert window.current_layout.name == "panel"
     press(window, "app.layout")
-    assert isinstance(window.current_layout, InspectorLayout)
-    assert load_ui_settings(window.ui_file).layout == "inspector" and window.layout_items["inspector"].isChecked()
+    assert window.current_layout.name == "rosters"
+    assert load_ui_settings(window.ui_file).layout == "rosters" and window.layout_items["rosters"].isChecked()
+    press(window, "app.layout")
+    assert isinstance(window.current_layout, InspectorLayout) and window.layout_items["inspector"].isChecked()
     press(window, "app.layout")
     assert window.current_layout.name == "panel" and window.layout_items["panel"].isChecked()
 
@@ -725,7 +728,7 @@ def test_inspector_controls_follow_the_state(idle_inspector, recorded):
 def test_inspector_debug_opens_with_the_toggle_and_the_option(qapp, tmp_path, recorded):
     session, frame, _ = recorded
     path = tmp_path / "ui.toml"
-    path.write_text('[layouts.inspector]\ndebug_open = true\npanel_side = "left"\n')
+    path.write_text('[ui]\nlayout = "inspector"\n[layouts.inspector]\ndebug_open = true\npanel_side = "left"\n')
     win = MainWindow(session, FakeCamera(frame), path)
     win.show()
     layout = win.current_layout
@@ -798,8 +801,11 @@ def test_inspector_operative_row_selects_the_base_and_esc_goes_back(inspector):
     wait_until(lambda: layout.operatives.count() == 3)
     row_click(layout.operatives, 2)
     wait_until(lambda: inspector.state["selected"] == 2)
-    press(inspector, "snapshot.back")
-    wait_until(lambda: inspector.state["selected"] is None and inspector.state["mode"] == "snapshot")
+    press(inspector, "snapshot.back")  # back to the live video, the base stays selected
+    wait_until(lambda: inspector.state["mode"] == "live" and inspector.state["selected"] == 2)
+    assert layout.stack.currentWidget() is layout.pages["selected"]
+    press(inspector, "snapshot.back")  # in the live video: clears the selection
+    wait_until(lambda: inspector.state["selected"] is None)
 
 
 def test_dispatch_returns_none_while_busy(window):
@@ -919,4 +925,149 @@ def test_map_choice_is_saved_and_restored(qapp, tmp_path, named_setup):
     assert win.worker.commands.qsize() == 2  # restore: terrain type, then layout
     win.dispatch("map.layout", name=None)
     assert load_ui_settings(path).map_layout is None and load_ui_settings(path).map_terrain == "Test World"
+    win.close()
+
+
+# --- the rosters layout -------------------------------------------------------------
+
+
+@pytest.fixture
+def rosters(qapp, tmp_path, named_setup):
+    cfg, frame = named_setup
+    win = started_window(tmp_path, cfg, frame, "rosters")
+    yield win
+    win.close()
+
+
+@pytest.fixture
+def idle_rosters(qapp, tmp_path, recorded):
+    session, frame, _ = recorded
+    win = MainWindow(session, FakeCamera(frame), layout_file(tmp_path, "rosters"))
+    win.resize(1400, 900)
+    win.show()
+    yield win
+    win.close()
+
+
+def test_rosters_is_the_default_layout():
+    assert DEFAULT_LAYOUT == "rosters" and list(LAYOUTS)[0] == "rosters"
+
+
+def test_scores_are_percentages():
+    from battlesight.ui.parts import candidate_text, roster_row
+
+    assert candidate_text({"label": "orks/Nob", "score": 0.781}) == "orks/Nob   78%"
+    row = {"name": "Nob", "base_index": None, "score": None, "confirmed": False}
+    assert roster_row(row) == ("Nob", "?", "none")
+    assert roster_row(dict(row, base_index=1, score=0.78)) == ("Nob", "78%", "warn")
+    name, mark, level = roster_row(dict(row, base_index=1, score=0.78, confirmed=True))
+    assert name == "Nob" and mark not in ("", "?") and "%" not in mark and level == "ok"
+
+
+def test_rosters_shows_mode_badge_team_list_and_commands(idle_rosters, recorded):
+    layout = idle_rosters.current_layout
+    frames = recorded[2]
+    idle_rosters._on_frame(frames["live"], 0)
+    assert idle_rosters.video.badge[0] == "Live" and not layout.back.isVisibleTo(idle_rosters)
+    assert not layout.accept.isVisibleTo(idle_rosters) and not layout.add_operative.isEnabled()
+    left, right = layout.rosters
+    assert left.team.currentText() == "orks" and right.team.currentText() == "-"
+    assert [left.operatives.item(i).text() for i in range(3)] == ["Burna", "Grot", "Nob"]
+    assert [left.operatives.mark(i) for i in range(3)] == ["?", "?", "?"]
+    assert right.team.model().item(1).isEnabled() is False  # orks is on the left side
+    assert left.team.model().item(1).isEnabled() is True
+    assert right.operatives.count() == 0
+    assert layout.stack.currentWidget() is layout.pages["empty"]
+
+    idle_rosters._on_frame(frames["snapshot"], 0)
+    assert idle_rosters.video.badge[0] == "Snapshot" and layout.back.isVisibleTo(idle_rosters)
+    assert layout.accept.isVisibleTo(idle_rosters) and layout.accept.text() == "Accept all identification"
+    assert all(left.operatives.mark(i).endswith("%") for i in range(3))
+    snap = frames["snapshot"].state
+    accepted = replace(frames["snapshot"], state=dict(snap, unconfirmed=0))
+    idle_rosters._on_frame(accepted, 0)
+    assert not layout.accept.isVisibleTo(idle_rosters)
+
+
+def test_rosters_inspector_shows_the_operative(idle_rosters, recorded):
+    layout = idle_rosters.current_layout
+    frame = recorded[2]["ring"]
+    idle_rosters._on_frame(frame, 0)
+    state = frame.state
+    base = state["bases"][state["selected"]]
+    team, name = base["label"].split("/")
+    assert layout.title.text() == f"{team} - {name} ({base['diameter_mm']:g}mm)"
+    assert layout.stack.currentWidget() is layout.pages["operative"] and layout.crop._image is not None
+    assert layout.ring.slider.value() == 6 and layout.ring.value.text() == '6"'
+    assert not layout.candidates.isVisibleTo(idle_rosters) and layout.close.isVisibleTo(idle_rosters)
+    layout.change.click()
+    assert layout.candidates.isVisibleTo(idle_rosters) and layout.candidates.item(0).text().endswith("%")
+    idle_rosters._on_frame(recorded[2]["target"], 0)  # same base: the list stays open
+    assert layout.candidates.isVisibleTo(idle_rosters) and layout.distance.text().startswith("Rim to rim: ")
+    idle_rosters._on_frame(recorded[2]["base selected, no names"], 0)
+    assert layout.title.text().startswith("Base (") and not layout.change.isEnabled()
+
+
+def test_rosters_inspector_shows_an_opening(idle_rosters, recorded):
+    layout = idle_rosters.current_layout
+    live = recorded[2]["live"]
+    for kind, title in (("hatchway", "Hatchway"), ("breach", "Breach point")):
+        idle_rosters._on_frame(replace(live, state=dict(live.state, selected_opening={"index": 0, "kind": kind})), 0)
+        assert layout.stack.currentWidget() is layout.pages["opening"] and layout.title.text() == title
+        assert not layout.open_close.isEnabled()
+
+
+def test_rosters_row_slider_and_name_fix_run_actions(rosters):
+    open_names(rosters)
+    layout = rosters.current_layout
+    left = layout.rosters[0]
+    wait_until(lambda: left.operatives.count() == 3 and left.operatives.mark(0).endswith("%"))
+    rows = rosters.state["rosters"][0]["operatives"]
+    row_click(left.operatives, 1)
+    wait_until(lambda: rosters.state["selected"] == rows[1]["base_index"])
+    wait_until(lambda: layout.stack.currentWidget() is layout.pages["operative"] and layout.ring.isEnabled())
+    layout.ring.slider.setValue(4)
+    wait_until(lambda: rosters.state["ring_in"] == 4)
+    layout.ring.slider.setValue(0)
+    wait_until(lambda: rosters.state["ring_in"] is None)
+    layout.change.click()
+    wait_until(lambda: layout.candidates.count() > 0)
+    index = rosters.state["selected"]
+    label = rosters.state["candidates"][0]["label"]
+    row_click(layout.candidates, 0)
+    wait_until(lambda: rosters.state["bases"][index]["confirmed"] and rosters.state["bases"][index]["label"] == label)
+    press(rosters, "snapshot.back")
+    wait_until(lambda: rosters.state["mode"] == "live" and rosters.video.badge[0] == "Live")
+    assert any(b["label"] for b in rosters.state["bases"])  # the names stay on the live video
+    layout.close.click()
+    wait_until(lambda: rosters.state["selected"] is None and layout.stack.currentWidget() is layout.pages["empty"])
+
+
+def test_rosters_team_choice_sends_the_action(rosters):
+    right = rosters.current_layout.rosters[1]
+    assert right.team.itemText(1) == "orks"
+    right.team.activated.emit(1)  # orks is on the left already
+    wait_until(lambda: rosters.state["notice"] is not None and "other side" in rosters.state["notice"]["text"])
+    rosters.current_layout.rosters[0].team.activated.emit(0)
+    wait_until(lambda: rosters.state["team_slots"] == [None, None])
+    right.team.activated.emit(1)
+    wait_until(lambda: rosters.state["team_slots"] == [None, "orks"] and right.operatives.count() == 3)
+
+
+def test_rosters_debug_goes_to_the_status_bar(idle_rosters, recorded):
+    layout = idle_rosters.current_layout
+    idle_rosters._on_frame(recorded[2]["live"], 0)
+    assert not idle_rosters.debug_label.isVisible()
+    assert layout.debug_toggle.text() == "Show"
+    layout.debug_toggle.click()
+    assert idle_rosters.debug_label.isVisible() and idle_rosters.debug_label.text().startswith("fit ")
+    assert "tags" not in idle_rosters.debug_label.text() and layout.debug_toggle.text() == "Hide"
+    idle_rosters.set_layout("panel")
+    assert not idle_rosters.debug_label.isVisible()
+    path = idle_rosters.ui_file
+    path.write_text('[ui]\nlayout = "rosters"\n[layouts.rosters]\ndebug_open = true\n')
+    session, frame, _ = recorded
+    win = MainWindow(session, FakeCamera(frame), path)
+    win.show()
+    assert win.debug_label.isVisible() and win.current_layout.debug_toggle.isChecked() and win.current_layout.debug_toggle.text() == "Hide"
     win.close()

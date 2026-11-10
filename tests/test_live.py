@@ -12,7 +12,7 @@ import pytest
 import battlesight.app as app
 from battlesight import ident as idt
 from battlesight.camera import CameraSettings, ImageSource
-from battlesight.live import ACTIONS, LiveSession
+from battlesight.live import ACTIONS, PREVIEW_PAD_MM, LiveSession
 
 from .conftest import render_board
 from .test_ident import SIZES, enroll_from, ident_cfg, make_gallery, paint_board
@@ -114,7 +114,11 @@ def test_crop_of_the_selected_base_is_next_to_the_state(tmp_path, named):
     x, y = live.state["bases"][1]["position_px"]
     session.dispatch("board.click", x=x, y=y)
     live = session.step(frame)
-    assert live.crop is session.session.crops[1]
+    full = session.session.crops[1]
+    assert live.crop.flags.c_contiguous and live.crop.shape[0] < full.shape[0]
+    diameter = session.session.diameters_mm[1]
+    side_mm = live.crop.shape[0] / (full.shape[0] / (diameter + 2 * idt.STORE_PAD_MM))
+    assert side_mm == pytest.approx(diameter + 2 * PREVIEW_PAD_MM, abs=1.0)
     session.dispatch("base.deselect")
     assert session.current().crop is None
 
@@ -241,19 +245,105 @@ def test_name_fix_flow(tmp_path, named, display_width):
     assert s["unconfirmed"] == 0
 
 
-def test_back_clears_selection_then_closes(tmp_path, named):
+def test_back_goes_live_and_keeps_names_and_selection(tmp_path, named):
     cfg, frame = named
     session = make_session(tmp_path, cfg, frame, teams=("orks",))
     settled(session, frame)
     session.dispatch("snapshot.name")
-    base = session.step(frame).state["bases"][0]
+    snap = session.step(frame)
+    base = snap.state["bases"][0]
     session.dispatch("board.click", x=base["position_px"][0], y=base["position_px"][1])
     assert session.state()["selected"] == 0
     session.dispatch("snapshot.back")
+    live = session.step(frame)
+    s = live.state
+    assert s["mode"] == "live" and s["selected"] == 0 and s["naming"]
+    assert [b["label"] for b in s["bases"]] == [b["label"] for b in snap.state["bases"]]
+    assert s["bases"][0]["position_px"] == pytest.approx(base["position_px"], abs=1.0)  # same top-down mapping
+    assert live.image is not snap.image
+    # Clicks work on the live video too.
+    other = s["bases"][1]
+    session.dispatch("board.click", x=other["position_px"][0], y=other["position_px"][1])
+    assert session.state()["target"] == 1
+    session.dispatch("snapshot.back")  # in the live video: clears the selection
     s = session.state()
-    assert s["selected"] is None and s["mode"] == "snapshot"
+    assert s["mode"] == "live" and s["selected"] is None and s["naming"]
+
+
+def test_live_camera_view_without_a_board_fit_has_no_base_positions(tmp_path, named):
+    cfg, frame = named
+    session = make_session(tmp_path, cfg, frame, teams=("orks",))
+    settled(session, frame)
+    session.dispatch("snapshot.name")
+    session.step(frame)
     session.dispatch("snapshot.back")
-    assert session.state()["mode"] == "live"
+    session.dispatch("view.top_down")
+    camera = session.step(frame).state
+    assert camera["top_down"] is False and all(b["position_px"] is not None for b in camera["bases"])
+    blank = np.full_like(frame, 128)
+    for _ in range(SETTLE):  # the drift monitor waits some frames before LOST
+        lost = session.step(blank).state
+    assert lost["drift"]["status"] == "LOST"
+    assert len(lost["bases"]) == 3 and all(b["position_px"] is None for b in lost["bases"])
+    assert_json_safe(lost)
+
+
+def test_base_select_by_index(tmp_path, named):
+    cfg, frame = named
+    session = make_session(tmp_path, cfg, frame, teams=("orks",))
+    settled(session, frame)
+    session.dispatch("base.select", index=0)
+    assert session.state()["selected"] is None and session.state()["notice"]["level"] == "error"
+    session.dispatch("snapshot.name")
+    session.step(frame)
+    session.dispatch("base.select", index=2)
+    session.dispatch("ring.3")
+    session.dispatch("base.select", index=1)
+    s = session.state()
+    assert s["selected"] == 1 and s["ring_in"] is None and s["candidates"]
+
+
+def test_team_lists_follow_the_snapshot(tmp_path, named):
+    cfg, frame = named
+    session = make_session(tmp_path, cfg, frame, teams=("orks",))
+    s = session.state()
+    assert s["team_choices"] == ["orks"] and s["team_slots"] == ["orks", None]
+    roster = s["rosters"][0]
+    assert s["rosters"][1] is None and roster["team"] == "orks"
+    assert {r["name"] for r in roster["operatives"]} == set(GAME)
+    assert all(r["base_index"] is None and r["score"] is None and not r["confirmed"] for r in roster["operatives"])
+    settled(session, frame)
+    session.dispatch("snapshot.name")
+    s = session.step(frame).state
+    assert_json_safe(s)
+    rows = {r["name"]: r for r in s["rosters"][0]["operatives"]}
+    for b in s["bases"]:
+        row = rows[b["label"].split("/")[1]]
+        assert row["base_index"] == b["index"] and row["score"] == b["score"]
+    session.dispatch("names.accept")
+    assert all(r["confirmed"] for r in session.state()["rosters"][0]["operatives"])
+
+
+def test_team_change_resets_the_gallery_and_keeps_the_names(tmp_path, named):
+    cfg, frame = named
+    session = make_session(tmp_path, cfg, frame)
+    assert session.state()["team_slots"] == [None, None]
+    settled(session, frame)
+    session.dispatch("snapshot.name")  # no team chosen: all gallery teams
+    assert session.step(frame).state["naming"]
+    assert session.gallery is not None
+    session.dispatch("team.set", slot=1, name="orks")
+    s = session.state()
+    assert s["team_slots"] == [None, "orks"] and session.teams == ["orks"]
+    assert session.gallery is None and not session.gallery_tried and s["naming"]
+    assert "identify" in s["notice"]["text"]
+    session.dispatch("team.set", slot=0, name="orks")
+    s = session.state()
+    assert s["team_slots"] == [None, "orks"] and "other side" in s["notice"]["text"]
+    session.dispatch("team.set", slot=0, name="elves")
+    assert "no team" in session.state()["notice"]["text"]
+    session.dispatch("team.set", slot=1, name=None)
+    assert session.state()["team_slots"] == [None, None] and session.teams is None
 
 
 def test_click_with_no_operative_of_that_size(tmp_path):
@@ -524,19 +614,21 @@ def test_view_change_keeps_ring_and_distance(tmp_path):
     assert camera.state["ring_in"] == 2 and camera.state["distance"] == top.state["distance"]
 
 
-def test_esc_and_a_new_snapshot_clear_the_measurement(tmp_path):
+def test_esc_keeps_the_measurement_and_a_new_snapshot_clears_it(tmp_path):
     cfg = ident_cfg()
     frame = paint_board(cfg, GAME)
     session, state = bases_snapshot(tmp_path, cfg, frame)
     click_base(session, state, 0)
     click_base(session, state, 1)
     session.dispatch("ring.2")
+    before = session.state()
     session.dispatch("snapshot.back")
     s = session.state()
-    assert (s["selected"], s["target"], s["ring_in"], s["distance"], s["mode"]) == (None, None, None, None, "snapshot")
-    click_base(session, state, 0)
+    assert s["mode"] == "live"
+    assert (s["selected"], s["target"], s["ring_in"], s["distance"]) == (0, 1, 2, before["distance"])
     session.dispatch("snapshot.bases")
-    assert session.state()["selected"] is None
+    s = session.state()
+    assert s["selected"] is None and s["mode"] == "snapshot"
 
 
 def test_choosing_a_name_clears_the_measurement(tmp_path, named):
@@ -643,3 +735,80 @@ def test_terrain_keys_are_off_until_turned_on(tmp_path):
     session.dispatch("view.keys")
     keyed = session.step(frame)
     assert keyed.state["keys"] is True and not np.array_equal(keyed.image, plain.image)
+
+
+def opening_px(session) -> tuple[float, float]:
+    center = session.openings[0].points.mean(axis=0)
+    p = np.asarray(session._to_px(center.reshape(1, 2)), float).reshape(2) * session.win.scale
+    return float(p[0]), float(p[1])
+
+
+def test_click_selects_a_hatchway_in_live_and_snapshot(tmp_path):
+    cfg = ident_cfg()
+    frame = paint_board(cfg, GAME)
+    write_map(tmp_path / "maps")
+    session = make_session(tmp_path, cfg, frame)
+    session.dispatch("map.layout", name="Small")
+    plain = settled(session, frame)
+    assert len(session.openings) == 1
+    x, y = opening_px(session)
+    session.dispatch("board.click", x=x, y=y)
+    s = session.step(frame)
+    assert s.state["selected_opening"] == {"index": 0, "kind": session.openings[0].kind}
+    assert s.state["selected_opening"]["kind"] in ("hatchway", "breach")
+    assert not np.array_equal(s.image, plain.image)  # outline drawn
+    assert ACTIONS_BY_ID["base.deselect"].enabled(s.state)
+    session.dispatch("board.click", x=x, y=y)  # the same opening again: clear
+    assert session.state()["selected_opening"] is None
+
+    session.dispatch("snapshot.bases")
+    snap = session.step(frame).state
+    x, y = opening_px(session)
+    session.dispatch("board.select", x=x, y=y)
+    assert session.state()["selected_opening"]["index"] == 0
+    click_base(session, snap, 0)  # a base replaces the opening
+    s = session.state()
+    assert s["selected"] == 0 and s["selected_opening"] is None
+    session.dispatch("board.click", x=x, y=y)
+    s = session.state()
+    assert s["selected"] is None and s["selected_opening"] is not None
+    session.dispatch("base.deselect")
+    assert session.state()["selected_opening"] is None
+    session.dispatch("board.click", x=x, y=y)
+    session.dispatch("map.layout", name=None)
+    assert session.state()["selected_opening"] is None
+
+
+def test_names_on_the_live_image_have_no_scores(tmp_path):
+    from battlesight.overlay import draw_idents
+
+    class C:
+        center_mm = np.array([50.0, 50.0])
+        diameter_mm = 32.0
+
+    x = idt.Ident("orks/Nob", 0.5, 0.0)
+    a = np.full((200, 200, 3), 128, np.uint8)
+    b = a.copy()
+    draw_idents(a, [C()], [x], lambda p: np.asarray(p, float), scores=True)
+    draw_idents(b, [C()], [x], lambda p: np.asarray(p, float), scores=False)
+    assert not np.array_equal(a, b)
+
+
+def test_team_colors_paint_the_circles():
+    from battlesight.overlay import BLUE, GREY, RED, draw_idents
+
+    class C:
+        def __init__(self, x):
+            self.center_mm = np.array([x, 50.0])
+            self.diameter_mm = 32.0
+
+    bases = [C(40.0), C(100.0), C(160.0)]
+    idents = [idt.Ident("orks/Nob", 0.9, 0.5, sure=True), idt.Ident("elves/Ari", 0.9, 0.5, sure=True), idt.Ident(None, 0.0, 0.0)]
+    img = np.zeros((120, 220, 3), np.uint8)
+    draw_idents(img, bases, idents, lambda p: np.asarray(p, float), team_colors={"orks": RED, "elves": BLUE})
+    for x, color in ((40, RED), (100, BLUE), (160, GREY)):
+        rim = img[30:51, x - 20 : x + 21].reshape(-1, 3).sum(axis=0).astype(float)  # upper half, no name there
+        assert np.allclose(rim / rim.max(), np.array(color) / max(color), atol=0.05)  # anti-aliased: same hue
+        name = img[60:120, x - 30 : x + 31].reshape(-1, 3)
+        name = name[name.sum(axis=1) > 150].sum(axis=0).astype(float)  # the text, not its dark box
+        assert np.allclose(name / name.max(), np.array(color) / max(color), atol=0.1)

@@ -22,7 +22,7 @@ from PySide6.QtWidgets import QApplication, QLabel, QMainWindow, QMenu, QMessage
 
 from ..live import ACTIONS, Action, LiveFrame, LiveSession
 from .layouts import DEFAULT_LAYOUT, LAYOUTS, Layout
-from .parts import COLORS, DRIFT_LEVEL, VideoWidget, action_group, candidate_text, distance_text
+from .parts import COLORS, DRIFT_LEVEL, VideoWidget, action_group, candidate_text, debug_line, distance_text
 from .settings import DEFAULT_UI_FILE, load_ui_settings, save_layout, save_map
 
 QT_KEYS = {"space": "Space", "Esc": "Esc"}
@@ -60,6 +60,7 @@ def status_text(state: dict[str, Any]) -> tuple[str, str]:
 def help_text() -> str:
     rows = [f"{a.key}\t{a.label}" for a in ACTIONS if a.key]
     rows.append("click\ta base: select it. Click a second base: measure the distance")
+    rows.append("click\ta hatchway or a breach point: select it")
     rows.append("right click\ta base after space: choose its name")
     return "\n".join(rows)
 
@@ -155,6 +156,10 @@ class MainWindow(QMainWindow):
         self.notice_label = QLabel()
         self.statusBar().addWidget(self.status_label, 1)
         self.statusBar().addPermanentWidget(self.notice_label)
+        self.debug_label = QLabel()  # a layout turns it on with show_debug
+        self.debug_label.setStyleSheet(f"color: {COLORS['none']}")
+        self.debug_label.setVisible(False)
+        self.statusBar().addPermanentWidget(self.debug_label)
         self.menu_actions: dict[str, tuple[Action, QAction]] = {}
         self.layout_items: dict[str, QAction] = {}
         self.shortcuts: dict[str, QShortcut] = {}
@@ -205,6 +210,12 @@ class MainWindow(QMainWindow):
         self.video.width_changed.connect(self._on_width)  # the first resize sends the width
         return self.video
 
+    def show_debug(self, on: bool) -> None:
+        """Show the debug values at the right end of the status bar."""
+        self.debug_label.setVisible(on)
+        if on and self.state is not None:
+            self.debug_label.setText(debug_line(self.state))
+
     def selected_crop(self) -> np.ndarray | None:
         return None if self.last_frame is None else self.last_frame.crop
 
@@ -228,6 +239,7 @@ class MainWindow(QMainWindow):
             self.popup.close()
             self.popup = None
         options = self.ui_settings.options_for(name)
+        self.show_debug(False)  # the new layout turns it on again when it wants it
         layout = LAYOUTS[name]()
         try:
             root = layout.build(self, options)
@@ -332,6 +344,8 @@ class MainWindow(QMainWindow):
         self.status_label.setStyleSheet(f"color: {COLORS[level]}")
         notice = state["notice"]
         self.notice_label.setText("" if notice is None else notice["text"])
+        if self.debug_label.isVisible():
+            self.debug_label.setText(debug_line(state))
         if notice is not None:
             self.notice_label.setStyleSheet(f"color: {COLORS[notice['level']]}")
 

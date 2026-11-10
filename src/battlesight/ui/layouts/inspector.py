@@ -24,9 +24,10 @@ CROP_HEIGHT = 220
 
 
 def page_for(state: dict[str, Any]) -> str:
-    if state["mode"] == "live":
-        return "live"
-    return "snapshot" if state["selected"] is None else "selected"
+    """The base page also in the live video: the bases of the last snapshot stay there."""
+    if state["selected"] is not None:
+        return "selected"
+    return "live" if state["mode"] == "live" else "snapshot"
 
 
 def summary_text(state: dict[str, Any]) -> str:
