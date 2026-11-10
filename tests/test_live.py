@@ -76,6 +76,9 @@ def test_live_state(tmp_path):
     assert_json_safe(s)
     assert s["mode"] == "live" and s["camera"] and s["drift"]["ok"] and s["drift"]["status"] == "OK"
     assert s["lens"] == "nominal" and s["reference_set"] is False and s["snapshot_ok"] is None
+    assert s["resolution"] == [frame.shape[1], frame.shape[0]]
+    small = cv2.resize(frame, (frame.shape[1] // 2, frame.shape[0] // 2))
+    assert session.step(small).state["resolution"] == [small.shape[1], small.shape[0]]
     assert s["bases"] == [] and s["selected"] is None and s["notice"] is None
     assert s["debug"]["tags"] == 4 and s["debug"]["fit_max_mm"] is not None
     assert live.image is not frame

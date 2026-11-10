@@ -36,6 +36,9 @@ def status_text(state: dict[str, Any]) -> tuple[str, str]:
     if drift is None:
         return "waiting for the first frame", "warn"
     parts = [drift["text"], f"{state['lens']} lens"]
+    if state.get("resolution"):
+        w, h = state["resolution"]
+        parts.append(f"{w}x{h}")
     if state["busy"]:
         parts.append("working ...")
     elif state["mode"] == "live":

@@ -126,7 +126,7 @@ def open_names(win: MainWindow) -> dict:
 
 def base_state(**over) -> dict:
     drift = {"status": "OK", "ok": True, "text": "4 corners OK", "lost": [], "card": None}
-    state = dict(camera=True, drift=drift, lens="nominal", busy=False, mode="live", reference_set=True, snapshot_ok=None, naming=False, bases=[], ring_in=None, distance=None)
+    state = dict(camera=True, drift=drift, lens="nominal", resolution=[3840, 2160], busy=False, mode="live", reference_set=True, snapshot_ok=None, naming=False, bases=[], ring_in=None, distance=None)
     state.update(over)
     return state
 
@@ -136,7 +136,7 @@ def base_state(**over) -> dict:
     [
         (dict(camera=False), "camera down", "error"),
         (dict(drift=None), "waiting for the first frame", "warn"),
-        (dict(), "4 corners OK  |  nominal lens", "ok"),
+        (dict(), "4 corners OK  |  nominal lens  |  3840x2160", "ok"),
         (dict(busy=True), "working", "ok"),
         (dict(mode="snapshot", snapshot_ok=False), "snapshot failed", "ok"),
         (dict(mode="snapshot", snapshot_ok=True, naming=True, bases=[{"label": "a"}, {"label": None}]), "1/2 named", "ok"),

@@ -536,6 +536,7 @@ class LiveSession:
             "drift": self._drift_state(),
             "camera": self.camera_up,
             "lens": self.lens.source,
+            "resolution": None if self.frame is None else [int(self.frame.shape[1]), int(self.frame.shape[0])],  # newest frame
             "teams": sorted(self.gallery.team_dirs) if self.gallery is not None else self.teams,
             "reference_set": self.pipe.has_reference,
             "snapshot_ok": None if self.result is None else bool(self.result.ok),
