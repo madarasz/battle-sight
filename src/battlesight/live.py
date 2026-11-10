@@ -28,11 +28,13 @@ import numpy as np
 
 from . import ident as idt
 from . import measure
+from . import moves
 from . import terrain as ter
+from . import walls
 from .calib import DriftMonitor, DriftReport, DriftStatus, TagDetector, board_corners_px, lens_for_frame
 from .camera import CameraSettings
 from .config import BoardConfig
-from .overlay import BLUE, GREEN, MAGENTA, RED, WHITE, YELLOW, draw_bases, draw_board_corners, draw_circle_mm, draw_grid, draw_health_bars, draw_idents, draw_outline_mm, draw_rim_line, draw_tags, draw_terrain, fit_to_width
+from .overlay import BLUE, GREEN, MAGENTA, RED, WHITE, YELLOW, draw_bases, draw_board_corners, draw_circle_mm, draw_grid, draw_health_bars, draw_idents, draw_move_mm, draw_outline_mm, draw_path_mm, draw_range_mm, draw_rim_line, draw_tags, draw_terrain, fit_to_width
 from .pipeline import Pipeline
 from .rectify import fit_view, mm_to_rect, warp_board
 
@@ -297,12 +299,15 @@ ACTIONS: tuple[Action, ...] = (
     Action("view.terrain", "Layout", checked=lambda s: s["terrain"], enabled=lambda s: s["map_layout"] is not None),
     Action("view.zones", "Drop zones", checked=lambda s: s["zones"], enabled=lambda s: s["map_layout"] is not None),
     Action("view.keys", "Terrain keys", checked=lambda s: s["keys"], enabled=lambda s: s["map_layout"] is not None),
+    Action("measure.walls", "Measure around walls", "w", checked=lambda s: s["around_walls"], enabled=lambda s: s["map_layout"] is not None),
     Action("map.terrain_type", "Terrain type", args=("name",)),
     Action("map.layout", "Layout", args=("name",)),
     Action("team.set", "Team", args=("slot", "name")),
     Action("reference.take", "Take empty-board reference", "e"),
     Action("reference.clear", "Clear reference", "c", enabled=lambda s: s["reference_set"]),
+    Action("measure.move", "Measure movement", "m", checked=lambda s: s["movement"]),
     Action("board.click", "Click the board", args=("x", "y"), enabled=_in_snapshot),
+    Action("board.hover", "Point at the board", args=("x", "y")),
     Action("board.select", "Select for names", args=("x", "y"), enabled=_in_snapshot),
     Action("base.choose", "Set name", args=("label", "index"), enabled=_has_selection),
     Action("base.select", "Select operative", args=("index",)),
@@ -388,6 +393,14 @@ class LiveSession:
         self.terrain = True  # terrain overlay on, when a map layout is chosen
         self.zones = False  # drop zones of the layout off
         self.keys = False  # wall keys (A1, B2, ...) off
+        self.around_walls = False  # measure around walls, not through them; on at each layout load
+        self.movement = False  # the ring is the area that the selected base can move to
+        self.hover_mm: np.ndarray | None = None  # board position of the mouse pointer
+        self._move_field: tuple[Any, moves.MoveField, list[np.ndarray]] | None = None  # key, field, outline
+        self._move_route: tuple[Any, Any] | None = None  # key, route to the pointer
+        self._navigator: tuple[Any, walls.Navigator] | None = None  # for the layout and its open openings
+        self._wall_path: tuple[Any, Any] | None = None  # last path around walls, with its key
+        self._wall_range: tuple[Any, Any] | None = None  # last range area, with its key
         self.maps_root = Path(maps_root)
         self.maps: list[ter.MapEntry] = []
         self.terrain_type: str | None = None
@@ -432,6 +445,9 @@ class LiveSession:
             "view.terrain": self._toggle_terrain,
             "view.zones": self._toggle_zones,
             "view.keys": self._toggle_keys,
+            "measure.walls": self._toggle_around_walls,
+            "measure.move": self._toggle_movement,
+            "board.hover": self._hover,
             "map.terrain_type": self._set_terrain_type,
             "map.layout": self._set_map_layout,
             "team.set": self._set_team,
@@ -564,13 +580,123 @@ class LiveSession:
             return
         to_px, a = self._to_px, found[self.selected]
         draw_circle_mm(img, a.center_mm, 0.5 * a.diameter_mm, to_px, WHITE)
-        if self.ring_in is not None:
+        around = self._walls_on()
+        if self.ring_in is not None and self.movement:
+            field, outline = self._field(found)
+            draw_range_mm(img, outline, to_px, MAGENTA)
+            route = self._route(found)
+            if route is not None:
+                draw_move_mm(img, route[1], field.radius, route[2], route[0], to_px)
+        elif self.ring_in is not None and around:
+            draw_range_mm(img, self._range_around(a), to_px, MAGENTA)
+        elif self.ring_in is not None:
             draw_circle_mm(img, a.center_mm, measure.ring_radius_mm(a.diameter_mm, self.ring_in), to_px, MAGENTA)
         if self.target is not None:
             b = found[self.target]
-            gap, start, end = measure.rim_gap(a.center_mm, a.diameter_mm, b.center_mm, b.diameter_mm)
             draw_circle_mm(img, b.center_mm, 0.5 * b.diameter_mm, to_px, MAGENTA)
-            draw_rim_line(img, start, end, f'{gap / measure.MM_PER_INCH:.2f}"', to_px)
+            if around:
+                path = self._path_around(a, b)
+                if path is not None:  # no line when the walls close all paths
+                    draw_path_mm(img, path[1], f'{path[0] / measure.MM_PER_INCH:.2f}"', to_px)
+            else:
+                gap, start, end = measure.rim_gap(a.center_mm, a.diameter_mm, b.center_mm, b.diameter_mm)
+                draw_rim_line(img, start, end, f'{gap / measure.MM_PER_INCH:.2f}"', to_px)
+
+    # --- movement -------------------------------------------------------------------
+
+    def _enemies(self, found: list) -> list[tuple[tuple[float, float], float]]:
+        """The bases of the other team than the selected base: they block its
+        movement. Bases without a name block nothing."""
+        if self.session is None or self.selected is None:
+            return []
+        labels = [x.label for x in self.session.idents]
+        mine = labels[self.selected]
+        if mine is None:
+            return []
+        team = mine.partition("/")[0]
+        return [((float(c.center_mm[0]), float(c.center_mm[1])), float(c.diameter_mm)) for c, label in zip(found, labels) if label is not None and label.partition("/")[0] != team]
+
+    def _field(self, found: list) -> tuple[moves.MoveField, list[np.ndarray]]:
+        """Movement field of the selected base for the ring distance, and its outline."""
+        a, enemies = found[self.selected], self._enemies(found)
+        key = (self.map_layout, frozenset(self.opened), self._base_key(a), self.ring_in, tuple(enemies))
+        if self._move_field is None or self._move_field[0] != key:
+            size = (self.cfg.width_mm, self.cfg.height_mm)
+            rects, gaps = (), ()
+            if self.map_layout is not None:
+                shapes = self._shapes_now()
+                xs, ys = self.cfg.grid_lines_mm()
+                rects, gaps = walls.obstacles(shapes, size, (xs[0], ys[0], xs[-1], ys[-1])), walls.open_gaps(shapes)
+            field = moves.move_field(a.center_mm, a.diameter_mm, self.ring_in, rects, gaps, enemies, size)
+            self._move_field = (key, field, field.outline())
+            self._move_route = None
+        return self._move_field[1], self._move_field[2]
+
+    def _route(self, found: list):
+        """The increments from the selected base to the pointer, or None."""
+        if not self.movement or self.selected is None or self.ring_in is None or self.hover_mm is None or not found:
+            return None
+        field, _ = self._field(found)
+        key = (self._move_field[0], float(self.hover_mm[0]), float(self.hover_mm[1]))
+        if self._move_route is None or self._move_route[0] != key:
+            self._move_route = (key, field.route(self.hover_mm))
+        return self._move_route[1]
+
+    def _move_state(self) -> dict[str, Any] | None:
+        """`in`: inches of the move to the pointer, `increments`: inches of each straight increment."""
+        route = self._route(self._found())
+        return None if route is None else {"in": int(route[0]), "increments": [int(c) for c in route[2]]}
+
+    def _toggle_movement(self) -> None:
+        self.movement = not self.movement
+        self.dirty = True
+
+    def _hover(self, x: float | None, y: float | None) -> None:
+        """The mouse pointer is at this pixel of the image (None: not on the image)."""
+        at = None if x is None or y is None or not self._mapped() else self._to_mm(x, y)
+        if (at is None) != (self.hover_mm is None) or (at is not None and not np.allclose(at, self.hover_mm)):
+            self.hover_mm = at
+            if self.movement and self.ring_in is not None:
+                self.dirty = True
+
+    # --- measurement around walls ---------------------------------------------------
+
+    def _walls_on(self) -> bool:
+        return self.around_walls and self.map_layout is not None
+
+    def _nav(self) -> tuple[Any, walls.Navigator]:
+        """The navigator of the layout with its open openings, and its key."""
+        key = (self.map_layout, frozenset(self.opened))
+        if self._navigator is None or self._navigator[0] != key:
+            size = (self.cfg.width_mm, self.cfg.height_mm)
+            xs, ys = self.cfg.grid_lines_mm()
+            rects = walls.obstacles(self._shapes_now(), size, (xs[0], ys[0], xs[-1], ys[-1]))
+            self._navigator = (key, walls.Navigator(rects, size))
+        return self._navigator
+
+    @staticmethod
+    def _base_key(c) -> tuple[float, float, float]:
+        return (float(c.center_mm[0]), float(c.center_mm[1]), float(c.diameter_mm))
+
+    def _path_around(self, a, b) -> tuple[float, np.ndarray] | None:
+        """Shortest path between two base rims around the walls (kept until a base or the terrain changes)."""
+        nav_key, nav = self._nav()
+        key = (nav_key, self._base_key(a), self._base_key(b))
+        if self._wall_path is None or self._wall_path[0] != key:
+            self._wall_path = (key, nav.path(a.center_mm, a.diameter_mm, b.center_mm, b.diameter_mm))
+        return self._wall_path[1]
+
+    def _range_around(self, a) -> list[np.ndarray]:
+        """Outline of the area within the ring distance of the base, around the walls."""
+        nav_key, nav = self._nav()
+        key = (nav_key, self._base_key(a), self.ring_in)
+        if self._wall_range is None or self._wall_range[0] != key:
+            self._wall_range = (key, nav.reach(a.center_mm, a.diameter_mm, self.ring_in * measure.MM_PER_INCH))
+        return self._wall_range[1]
+
+    def _toggle_around_walls(self) -> None:
+        self.around_walls = not self.around_walls
+        self.dirty = True
 
     # --- mapping of the shown image -------------------------------------------------
 
@@ -619,6 +745,9 @@ class LiveSession:
             "terrain": self.terrain,
             "zones": self.zones,
             "keys": self.keys,
+            "around_walls": self.around_walls,
+            "movement": self.movement,
+            "move": self._move_state(),
             "terrain_types": sorted({e.terrain for e in self.maps}),
             "terrain_type": self.terrain_type,
             "map_layouts": [e.name for e in self.maps if e.terrain == self.terrain_type],
@@ -672,13 +801,19 @@ class LiveSession:
             return []
         return self.result.scratch.get("bases") or []
 
-    def _distance_state(self) -> dict[str, float] | None:
+    def _distance_state(self) -> dict[str, Any] | None:
+        """`around`: measured around the walls; then `mm` and `in` are None when there is no path."""
         if self.selected is None or self.target is None:
             return None
         found = self._found()
         a, b = found[self.selected], found[self.target]
+        if self._walls_on():
+            path = self._path_around(a, b)
+            if path is None:
+                return {"mm": None, "in": None, "around": True}
+            return {"mm": _num(path[0]), "in": _num(path[0] / measure.MM_PER_INCH), "around": True}
         gap = measure.rim_gap(a.center_mm, a.diameter_mm, b.center_mm, b.diameter_mm)[0]
-        return {"mm": _num(gap), "in": _num(gap / measure.MM_PER_INCH)}
+        return {"mm": _num(gap), "in": _num(gap / measure.MM_PER_INCH), "around": False}
 
     def _bases_state(self) -> list[dict[str, Any]]:
         found = self._found()
@@ -942,10 +1077,14 @@ class LiveSession:
         types = sorted({e.terrain for e in self.maps})
         self.terrain_type = types[0] if types else None
 
+    def _shapes_now(self) -> list[ter.Shape]:
+        """The shapes of the layout, the open openings with `open` set."""
+        opened = {id(self.openings[i]) for i in self.opened}
+        return [replace(s, open=True) if id(s) in opened else s for s in self.terrain_shapes]
+
     def _draw_terrain(self, img: np.ndarray, to_px) -> None:
         switch = {"zone": self.zones, "wall_key": self.keys, "teleporter_key": self.keys}
-        opened = {id(self.openings[i]) for i in self.opened}
-        shown = [replace(s, open=True) if id(s) in opened else s for s in self.terrain_shapes if switch.get(s.kind, self.terrain)]
+        shown = [s for s in self._shapes_now() if switch.get(s.kind, self.terrain)]
         if shown:
             draw_terrain(img, shown, to_px)
 
@@ -976,6 +1115,7 @@ class LiveSession:
         self.dirty = True
         self.map_layout, self.terrain_shapes, self.openings, self.selected_opening = None, [], [], None
         self.opened = set()  # a new layout starts with all hatchways and breach points closed
+        self._navigator = self._wall_path = self._wall_range = self._move_field = self._move_route = None
         if name is None:
             return
         entry = next((e for e in self.maps if e.terrain == self.terrain_type and e.name == name), None)
@@ -988,6 +1128,7 @@ class LiveSession:
             self.notice.error(f"map not loaded: {exc}")
             return
         self.map_layout, self.terrain_shapes, self.terrain = name, ter.shapes(tmap, self.cfg), True
+        self.around_walls = True  # the rule of the terrain: no measurement through walls
         self.openings = [s for s in self.terrain_shapes if s.kind in OPENING_KINDS]
         self.notice.ok(f"map {tmap.terrain} / {tmap.name}")
 

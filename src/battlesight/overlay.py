@@ -231,13 +231,74 @@ def draw_circle_mm(frame: np.ndarray, center_mm, radius_mm: float, to_px, color:
 
 def draw_rim_line(frame: np.ndarray, start_mm, end_mm, text: str, to_px, color: tuple[int, int, int] = MAGENTA) -> None:
     """Line between two points in board mm, with `text` at its middle."""
+    draw_path_mm(frame, [start_mm, end_mm], text, to_px, color)
+
+
+def draw_path_mm(frame: np.ndarray, points_mm, text: str, to_px, color: tuple[int, int, int] = MAGENTA) -> None:
+    """Path of line segments in board mm, with `text` at half its length.
+    Each segment has extra points, so that it bends with lens distortion."""
     s = _scale(frame)
     thick = max(1, round(2 * s))
-    line = np.linspace(np.asarray(start_mm, float), np.asarray(end_mm, float), 32)
-    px = to_px(line)
+    pts = np.asarray(points_mm, float).reshape(-1, 2)
+    steps = np.linalg.norm(np.diff(pts, axis=0), axis=1)
+    line = [np.linspace(a, b, max(2, int(np.ceil(n / 5.0)) + 1)) for a, b, n in zip(pts[:-1], pts[1:], steps)]
+    px = to_px(np.concatenate(line))
     cv2.polylines(frame, [np.rint(px).astype(np.int32).reshape(-1, 1, 2)], False, color, thick, cv2.LINE_AA)
-    middle = np.rint(px[len(px) // 2]).astype(int)
+    along = np.concatenate([[0.0], np.cumsum(steps)])
+    half = 0.5 * along[-1]
+    k = min(int(np.searchsorted(along, half, side="right")) - 1, len(steps) - 1)
+    at = pts[k] + (pts[k + 1] - pts[k]) * ((half - along[k]) / steps[k] if steps[k] > 0 else 0.0)
+    middle = np.rint(to_px(at.reshape(1, 2))[0]).astype(int)
     _label(frame, text, (int(middle[0]), int(middle[1])), WHITE, s, thick)
+
+
+MOVE_COLOR = (215, 215, 215)
+
+
+def draw_move_mm(frame: np.ndarray, points_mm, radius_mm: float, costs, total: int, to_px, color: tuple[int, int, int] = MOVE_COLOR) -> None:
+    """Movement of a base in straight increments: the base at each bend
+    and at the end, the two lines that its rim follows, the inches of each
+    increment at its middle (for more than one increment) and the inches
+    in all below the end."""
+    s = _scale(frame)
+    thick = max(1, round(2 * s))
+    pts = np.asarray(points_mm, float).reshape(-1, 2)
+
+    def px(points: np.ndarray) -> np.ndarray:
+        return np.rint(to_px(points)).astype(np.int32).reshape(-1, 1, 2)
+
+    turn = np.linspace(0, 2 * np.pi, 64, endpoint=False)
+    for a, b in zip(pts[:-1], pts[1:]):
+        length = float(np.linalg.norm(b - a))
+        if length < 1e-6:
+            continue
+        side = radius_mm * np.array([-(b - a)[1], (b - a)[0]]) / length
+        n = max(2, int(np.ceil(length / 5.0)) + 1)
+        for off in (side, -side):
+            cv2.polylines(frame, [px(np.linspace(a + off, b + off, n))], False, color, thick, cv2.LINE_AA)
+    for p in pts[1:]:
+        cv2.polylines(frame, [px(p + radius_mm * np.c_[np.cos(turn), np.sin(turn)])], True, color, thick, cv2.LINE_AA)
+    if len(costs) > 1:
+        for a, b, cost in zip(pts[:-1], pts[1:], costs):
+            middle = px(0.5 * (a + b).reshape(1, 2))[0, 0]
+            _label(frame, f'{cost}"', (int(middle[0]), int(middle[1])), color, s, thick)
+    below = px((pts[-1] + (0.0, radius_mm + 2.0)).reshape(1, 2))[0, 0]
+    _label(frame, f'{total}"', (int(below[0]), int(below[1])), WHITE, s, thick, box=True)
+
+
+RANGE_ALPHA = 0.25
+
+
+def draw_range_mm(frame: np.ndarray, contours_mm, to_px, color: tuple[int, int, int] = MAGENTA) -> None:
+    """Area in board mm (closed contours, a contour in another one is a
+    hole): a light fill and a heavy edge, as heavy as `draw_circle_mm`."""
+    polys = [np.rint(to_px(_dense(np.asarray(c, float), 5.0))).astype(np.int32).reshape(-1, 1, 2) for c in contours_mm if len(c) >= 3]
+    if not polys:
+        return
+    layer = frame.copy()
+    cv2.fillPoly(layer, polys, color, cv2.LINE_AA)  # even-odd: holes stay clear
+    cv2.addWeighted(layer, RANGE_ALPHA, frame, 1 - RANGE_ALPHA, 0, dst=frame)
+    cv2.polylines(frame, polys, True, color, max(1, round(4 * _scale(frame))), cv2.LINE_AA)
 
 
 def draw_dashed_circle(

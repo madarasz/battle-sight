@@ -166,6 +166,71 @@ ring and no target. The ring keeps to the selected base and is sampled in
 board mm, so it also bends with the lens in the camera view. Touching or
 overlapping bases have a distance of 0.
 
+Measurement around walls (`walls.py`, action `measure.walls`, key `w`, check
+box "Measure around walls"; enabled only with a layout, on at each layout
+load). The obstacles are axis-aligned rectangles from the terrain shapes
+(`walls.obstacles`): walls, pillars, wall ends, closed hatchways and breach
+points. An open opening cuts a gap of its width in its wall. The measure line
+has no width: it can touch a corner or run along a wall face. Other bases do
+not block it. Terrain on an outer grid line (`BoardConfig.grid_lines_mm`)
+blocks as far as the board edge (its rectangle goes 1 mm past the edge), and
+a path does not bend at a corner that is off the board: the printed margin
+between a pillar and the board edge is no way around it.
+
+- Distance: `Navigator.path` gives the shortest path between the two rims. A
+  clear centre line gives the same result as `measure.rim_gap`. Else Dijkstra
+  runs on the visibility graph of the rectangle corners (exact lengths; a base
+  links to a corner through 64 rim points and the rim point on the line to
+  its centre). `state["distance"]` is `{"mm", "in", "around"}`; with
+  `around = true` and no path, `mm` and `in` are null and the UI shows
+  `no path`.
+- Ring: `Navigator.reach` gives the outline of all points with a path length
+  of N in or less. Sources are the base centre, 16 rim points and each corner
+  nearer than the range; each source fills a disc with the range that is
+  left, without the shadow of each rectangle. The union is a mask at
+  `walls.RANGE_PX_PER_MM` (4), its contours go back to board mm (a contour in
+  another one is a hole). `overlay.draw_range_mm` fills it and draws the edge.
+Movement (`moves.py`, action `measure.move`, key `m`, check box "Measure
+movement" next to the ring control; works with and without a layout). With it
+on, the ring of N in is the area that the selected base can move to, and the
+front end sends the pointer position (`board.hover`, `x` / `y` in image pixels
+or null) for the route to the pointer. The distance to a target does not
+change.
+
+- Rule: a move is a chain of straight steps of 1 in or less, each step counts
+  as 1 in. Thus a straight increment counts as its length rounded up.
+- `moves.move_field` makes a raster (`MOVE_PX_PER_MM` = 1) of the positions
+  of the base centre. `stand`: board inset by the base radius, without the
+  terrain rectangles grown by the base radius (`SLACK_MM` = 0.5 less) and
+  without the enemy discs (radius = both radii). `free` adds a zone around
+  each open gap (`walls.open_gaps`, base radius + 3 mm around the gap line,
+  without the terrain itself): the base can be over the wall parts there
+  while it moves, but it cannot stop. A line in the gap (`barrier`) costs
+  1 in more to go over.
+- Field: level N + 1 = all points that a point of level N sees within 1 in
+  (rays on the raster, `_visible`); far from terrain a plain dilation. Only
+  the edge of level N is a source. A step over a gap line gives level N + 2.
+  One straight line from the start gets the exact length rounded up
+  (`_seen_from`). A base that starts a little in terrain gets out over
+  `ESCAPE_MM`.
+- `MoveField.outline`: reached `stand` positions, grown by the base radius
+  (the area that the base covers), contours in board mm.
+- `MoveField.route(point)`: goes back level by level to the start, then picks
+  the chain positions that give the fewest inches and the fewest increments.
+  An increment up to `ROUND_SLACK_IN` (0.06) over a full inch counts as that
+  inch. A point on the covered area that the centre cannot get to goes to the
+  nearest position in reach.
+- Enemies: bases with a name of another team than the selected base
+  (`LiveSession._enemies`). No name on the selected base: nothing blocks.
+- `state["movement"]`, `state["move"]` = `{"in", "increments"}` or null. The
+  status bar shows `move 5" (3 + 2)`. Layout 6 at 9 in: about 0.15 s for a new
+  field, about 2 ms for a route. The shell sends one pointer position at a
+  time and keeps only the newest (`MainWindow._on_hover`).
+
+- `LiveSession` keeps the navigator per layout and set of open openings, and
+  the last path and area per base position, because the live view draws again
+  on each frame. Layout 6 at 9 in: about 0.1 s for a new area.
+
 Openings: a left or right click with no base under it selects the hatchway or
 breach point of the map layout within 8 mm (`OPENING_HIT_MM`), live and
 snapshot. One thing is selected at a time: a base or an opening. State
@@ -230,6 +295,9 @@ selected. `Esc` clears the selected base.
 | left click on a hatchway or breach point | Select it (no base under the click). |
 | `1` to `9` | Ring on the selected base: base radius + N in. |
 | `0` | Remove the ring. |
+| `w` | Measure around walls on or off (`measure.walls`, only with a layout). |
+| `m` | Measure movement on or off (`measure.move`). |
+| mouse pointer on the board | With `measure.move` and a ring: the route to the pointer (`board.hover`). |
 | `-`, `+` | One wound less or more on the selected named base (`wounds.minus`, `wounds.plus`). |
 | `o` | Open or close the selected hatchway or breach point (`opening.toggle`). |
 | right click on a base | Select it and show its names (after `space`). |
@@ -262,10 +330,10 @@ of the status bar; off at each layout change). It must not import `pipeline`,
 `ident`, `calib` or `camera`.
 
 `rosters` (Option 3 of `specs/ui.md`): a top bar with the sections View
-(`MapPicker`, view toggles), Commands (`snapshot.name`, `names.accept` shown
+(`MapPicker`, view toggles and `measure.walls`), Commands (`snapshot.name`, `names.accept` shown
 only with `unconfirmed > 0`, a disabled "Add operative", `snapshot.back` shown
 only in a snapshot), Inspector (operative: title `Team - Name (40mm)`, crop,
-`WoundsControl`, `RingSlider`, distance, "Change identification" that shows a
+`WoundsControl`, `RingSlider`, `measure.move`, distance, "Change identification" that shows a
 `CandidateList`; opening: "Hatchway" / "Breach point" and `OpeningControl`
 (state and Open / Close button); `✕` = `base.deselect`), Reference and Debug.
 A `TeamRoster` each side of the video; the mark of a row starts with

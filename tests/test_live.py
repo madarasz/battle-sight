@@ -4,6 +4,7 @@ no window, no model download."""
 from __future__ import annotations
 
 import json
+from types import SimpleNamespace
 
 import cv2
 import numpy as np
@@ -11,6 +12,7 @@ import pytest
 
 import battlesight.app as app
 from battlesight import ident as idt
+from battlesight import walls
 from battlesight.camera import CameraSettings, ImageSource
 from battlesight.live import ACTIONS, PREVIEW_PAD_MM, LiveSession
 
@@ -918,3 +920,192 @@ def test_hatchway_opens_and_closes_and_a_new_layout_closes_it(tmp_path):
     session.dispatch("opening.toggle")
     session.dispatch("map.layout", name="Small")  # the game starts again with all closed
     assert session.state()["openings"][0]["open"] is False
+
+
+# A wall with a hatchway between Nob (300, 350) and Burna (450, 200): x = 381, y = 241.3 to 292.1 (1 in grid).
+# The straight line goes through the hatchway.
+WALL_MAP = """schema = 1
+name = "Wall"
+terrain = "Test World"
+pillars = [[15, 9.5], [15, 11.5]]
+
+[[wall]]
+key = "A2"
+from = [15, 9.5]
+to = [15, 11.5]
+opening = true
+"""
+
+
+def wall_session(tmp_path):
+    """Bases snapshot on the layout `Wall`; indexes of Nob and Burna."""
+    cfg = ident_cfg()
+    frame = paint_board(cfg, GAME)
+    write_map(tmp_path / "maps", file="wall.toml", text=WALL_MAP)
+    session = make_session(tmp_path, cfg, frame)
+    session.dispatch("map.layout", name="Wall")
+    settled(session, frame)
+    session.dispatch("snapshot.bases")
+    state = session.step(frame).state
+    index = {game_name(session, i): i for i in range(len(state["bases"]))}
+    return session, frame, state, index["Nob"], index["Burna"]
+
+
+def test_measure_around_walls_is_on_with_a_layout_and_off_without(tmp_path):
+    cfg = ident_cfg()
+    frame = paint_board(cfg, GAME)
+    write_map(tmp_path / "maps", file="wall.toml", text=WALL_MAP)
+    session = make_session(tmp_path, cfg, frame)
+    action = ACTIONS_BY_ID["measure.walls"]
+    s = session.state()
+    assert s["around_walls"] is False and not action.enabled(s) and action.key == "w"
+    session.dispatch("map.layout", name="Wall")
+    s = session.state()
+    assert s["around_walls"] is True and action.enabled(s) and action.checked(s)
+    session.dispatch("measure.walls")
+    assert session.state()["around_walls"] is False
+    session.dispatch("map.layout", name="Wall")  # each layout load turns it on
+    assert session.state()["around_walls"] is True
+    session.dispatch("map.layout", name=None)
+    assert not action.enabled(session.state())
+
+
+def test_distance_goes_around_a_wall_and_through_an_open_hatchway(tmp_path):
+    session, frame, state, nob, burna = wall_session(tmp_path)
+    straight = np.linalg.norm(np.subtract(GAME["Nob"][0], GAME["Burna"][0])) - 0.5 * SIZES["Nob"] - 0.5 * SIZES["Burna"]
+    click_base(session, state, nob)
+    click_base(session, state, burna)
+    around = session.step(frame)
+    d = around.state["distance"]
+    assert_json_safe(around.state)
+    assert d["around"] is True and straight + 5.0 < d["mm"] < straight + 12.0  # around the pillar at the wall end
+    assert d["in"] == pytest.approx(d["mm"] / 25.4, abs=1e-3)
+
+    session.dispatch("measure.walls")
+    plain = session.step(frame)
+    assert plain.state["distance"]["around"] is False and abs(plain.state["distance"]["mm"] - straight) < 2.0
+    assert not np.array_equal(plain.image, around.image)
+    session.dispatch("measure.walls")
+    assert np.array_equal(session.step(frame).image, around.image)
+
+    x, y = opening_px(session)
+    session.dispatch("board.click", x=x, y=y)
+    session.dispatch("opening.toggle")
+    click_base(session, state, nob)
+    click_base(session, state, burna)
+    through = session.step(frame).state["distance"]
+    assert through["around"] is True and abs(through["mm"] - straight) < 2.0  # through the gap
+
+    session.dispatch("map.layout", name=None)  # no layout: no walls
+    assert session.state()["distance"]["around"] is False
+
+
+def test_ring_around_walls_is_a_filled_area_that_stops_at_the_wall(tmp_path):
+    session, frame, state, nob, _ = wall_session(tmp_path)
+    cfg = session.cfg
+    click_base(session, state, nob)
+    before = session.step(frame).image.copy()
+    session.dispatch("ring.4")
+    area = session.step(frame).image.copy()
+    outline = session._wall_range[1]
+    session.dispatch("measure.walls")
+    ring = session.step(frame).image.copy()
+
+    def changed(image, at_mm) -> bool:
+        x, y = np.rint((np.asarray(at_mm) + cfg.rectify_margin_mm) * cfg.rectify_px_per_mm * session.win.scale).astype(int)
+        return bool(np.any(image[y, x] != before[y, x]))
+
+    center = np.asarray(GAME["Nob"][0])
+    assert changed(area, center + (-60.0, 0.0)) and not changed(ring, center + (-60.0, 0.0))  # the fill, open floor
+    behind = (386.0, 268.0)  # in the plain ring, but behind the wall
+    assert np.linalg.norm(behind - center) < 0.5 * SIZES["Nob"] + 4 * 25.4
+    assert not walls.contains(outline, behind) and walls.contains(outline, center + (-60.0, 0.0))
+    assert np.count_nonzero(np.any(area != before, axis=2)) > 5 * np.count_nonzero(np.any(ring != before, axis=2))
+
+    session.dispatch("measure.walls")
+    session.dispatch("ring.clear")
+    assert np.array_equal(session.step(frame).image, before)
+
+
+def hover(session, at_mm) -> None:
+    """Put the mouse pointer on a board position."""
+    p = np.asarray(session._to_px(np.asarray(at_mm, float).reshape(1, 2)), float).reshape(2) * session.win.scale
+    session.dispatch("board.hover", x=float(p[0]), y=float(p[1]))
+
+
+def test_movement_area_and_increments_to_the_pointer(tmp_path):
+    cfg = ident_cfg()
+    frame = paint_board(cfg, GAME)
+    session, state = bases_snapshot(tmp_path, cfg, frame)
+    action = ACTIONS_BY_ID["measure.move"]
+    assert state["movement"] is False and state["move"] is None and action.key == "m" and action.enabled(state)
+    nob = next(i for i in range(len(state["bases"])) if game_name(session, i) == "Nob")
+    click_base(session, state, nob)
+    session.dispatch("ring.3")
+    ring = session.step(frame).image.copy()
+    hover(session, np.add(GAME["Nob"][0], (60.0, 0.0)))
+    assert session.state()["move"] is None and np.array_equal(session.step(frame).image, ring)  # off: no route
+
+    session.dispatch("measure.move")
+    live = session.step(frame)
+    assert_json_safe(live.state)
+    assert live.state["movement"] is True and action.checked(live.state)
+    assert live.state["move"] == {"in": 3, "increments": [3]}  # 60 mm in a straight line
+    area = live.image.copy()
+    assert not np.array_equal(area, ring)
+
+    hover(session, np.add(GAME["Nob"][0], (0.0, -20.0)))
+    moved = session.step(frame)
+    assert moved.state["move"] == {"in": 1, "increments": [1]} and not np.array_equal(moved.image, area)
+    hover(session, np.add(GAME["Nob"][0], (0.0, 3 * 25.4 + 0.5 * SIZES["Nob"] + 30.0)))  # out of reach
+    assert session.state()["move"] is None
+    session.dispatch("board.hover", x=None, y=None)  # the pointer left the image
+    assert session.state()["move"] is None
+    session.dispatch("ring.clear")
+    hover(session, np.add(GAME["Nob"][0], (60.0, 0.0)))
+    assert session.state()["move"] is None  # no ring: no movement area
+
+
+def test_movement_goes_around_a_wall_and_through_an_open_hatchway(tmp_path):
+    session, frame, state, nob, _ = wall_session(tmp_path)
+    goal = (421.5, 225.0)  # the straight line to it goes through the hatchway, but the pillars are too near for the base
+    click_base(session, state, nob)
+    session.dispatch("measure.move")
+    session.dispatch("ring.9")
+    hover(session, goal)
+    around = session.step(frame).state["move"]
+    assert len(around["increments"]) >= 2 and around["in"] == sum(around["increments"]) >= 7
+
+    x, y = opening_px(session)
+    session.dispatch("board.click", x=x, y=y)
+    session.dispatch("opening.toggle")
+    click_base(session, state, nob)
+    session.dispatch("ring.9")
+    hover(session, goal)
+    field = session._field(session._found())[0]
+    assert field.barrier.any()  # the open hatchway is in the movement field
+    through = session.step(frame).state["move"]
+    assert through["in"] == sum(through["increments"]) and through["in"] <= around["in"]  # this wall is short: the way around is as good
+
+    session.dispatch("map.layout", name=None)  # no terrain: straight
+    assert session.state()["move"] == {"in": 7, "increments": [7]}
+
+
+def test_only_named_bases_of_the_other_team_block_the_movement(tmp_path):
+    cfg = ident_cfg()
+    frame = paint_board(cfg, GAME)
+    session, state = bases_snapshot(tmp_path, cfg, frame)
+    found = session._found()
+    session.selected = 0
+    assert session._enemies(found) == []  # no names
+    for labels, blocking in (
+        (["red/a", "blue/b", "red/c"], [1]),
+        (["red/a", None, "blue/c"], [2]),
+        ([None, "blue/b", "red/c"], []),  # the selected base has no name
+        (["red/a", "red/b", "red/c"], []),
+    ):
+        session.session = SimpleNamespace(idents=[SimpleNamespace(label=label) for label in labels])
+        got = session._enemies(found)
+        assert [center for center, _ in got] == [tuple(float(v) for v in found[i].center_mm) for i in blocking]
+        assert [size for _, size in got] == [found[i].diameter_mm for i in blocking]
+    session.session = None

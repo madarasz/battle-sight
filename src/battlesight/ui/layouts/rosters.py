@@ -16,7 +16,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QAbstractButton, QComboBox, QGridLayout, QGroupBox, QHBoxLayout, QLabel, QPushButton, QStackedWidget, QToolButton, QVBoxLayout, QWidget
 
 from ...live import ACTIONS, Action
-from ..parts import COLORS, CandidateList, MapPicker, OpeningControl, RingSlider, TeamRoster, VideoWidget, WoundsControl, action_control, distance_text, show_action_state
+from ..parts import COLORS, CandidateList, MapPicker, OpeningControl, RingSlider, TeamRoster, VideoWidget, WoundsControl, action_control, distance_label, show_action_state
 
 if TYPE_CHECKING:
     from . import Shell
@@ -121,7 +121,7 @@ class RostersLayout:
         toggles = QGridLayout()
         toggles.setVerticalSpacing(10)
         toggles.setHorizontalSpacing(14)
-        for k, action_id in enumerate(("view.top_down", "view.grid", "view.terrain", "view.zones", "view.keys")):
+        for k, action_id in enumerate(("view.top_down", "view.grid", "view.terrain", "view.zones", "view.keys", "measure.walls")):
             toggles.addWidget(self._control(action_id), k // 3, k % 3)
         column.addLayout(toggles)
         column.addStretch(1)
@@ -217,6 +217,7 @@ class RostersLayout:
         column.addWidget(self.wounds)
         self.ring = RingSlider(self.shell.dispatch)
         column.addWidget(self.ring)
+        column.addWidget(self._control("measure.move"))
         self.distance = QLabel()
         column.addWidget(self.distance)
         self.candidates = CandidateList(self.shell.dispatch)
@@ -269,6 +270,6 @@ class RostersLayout:
             self.wounds.show_state(state)
             self.ring.show_state(state)
             distance = state["distance"]
-            self.distance.setText("Click a second base to measure." if distance is None else f"Rim to rim: {distance_text(distance)}")
+            self.distance.setText("Click a second base to measure." if distance is None else distance_label(distance))
             self.change.setEnabled(bool(state["candidates"]))
             self.candidates.show_state(state)

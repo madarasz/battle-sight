@@ -183,6 +183,55 @@ video.
 
 The measurement is from base edge to base edge. It is on the board surface.
 
+#### Measure around walls
+
+On Tomb World you cannot measure through walls, pillars, closed hatchways and
+closed breach points. With a layout, the **Measure around walls** check box
+(View section, or key `w`) is on, and the app obeys this rule:
+
+- The distance to a second base is along the shortest path around the walls.
+  The line bends at the wall corners. An open hatchway or breach point lets
+  the line through. When all paths are closed, the app shows `no path`.
+- The ring becomes a magenta area: all points that you can get to with a
+  measurement of that many inches or less. The area stops at walls and goes
+  around their ends.
+
+A pillar or a wall at the side of the board stops the measurement as far as
+the edge of the board: there is no way between it and the edge.
+
+Open or close a hatchway (key `o`) and the measurement changes with it. Other
+operatives do not stop the measurement. Clear the check box to measure in a
+straight line again. Without a layout, the measurement is always straight.
+
+#### Measure movement
+
+The **Measure movement** check box (below the "Distance" slider, or key `m`)
+changes the ring into the area that the selected operative can move to:
+
+1. Click a base, then set the "Distance" slider (or push `1` to `9`) to the
+   move distance in inches.
+2. Set the **Measure movement** check box. The magenta area shows all places
+   that the base can cover with that move.
+3. Move the mouse pointer into the area. The app draws the best move to that
+   point in grey: the base at each bend and at the end, the inches of each
+   straight part, and the inches in all below the end. The status line shows
+   the same, for example `move 5" (3 + 2)`.
+
+The rules of the move:
+
+- A move is made of straight parts. Each part counts as its length, rounded
+  up to a full inch (2.75 in counts as 3 in).
+- The base cannot go through walls and pillars, and it stays on the board.
+  The full base must go past a corner, not only its centre.
+- Through an open hatchway or breach point, only the centre of the base must
+  go through. The base size does not matter there. This costs 1 in more. The
+  base cannot stop while it is over the wall.
+- A base of the other team stops the move. Bases of the same team and bases
+  without a name do not. Thus name the operatives first (`space`).
+
+The distance to a second base stays as it was. Without a layout, only other
+bases and the board edge stop the move.
+
 ### Wounds and hatchways
 
 The app keeps two values of the game for you:
@@ -219,6 +268,8 @@ Push `h` to see this list in the window. The menus have the same actions.
 | Click a hatchway or a breach point | Select it. |
 | `1` to `9` | Draw a ring around the selected base, this many inches from its edge. |
 | `0` | Remove the ring. |
+| `w` | Turn "Measure around walls" on or off (only with a layout). |
+| `m` | Turn "Measure movement" on or off. |
 | `-` and `+` | Remove or add one wound of the selected operative. |
 | `o` | Open or close the selected hatchway or breach point. |
 | Right-click a base | Select this base and show the list of names for this base size. |
@@ -317,6 +368,11 @@ On the camera image:
 - Magenta circle around the base, with space between them: the range ring.
 - Magenta circle on a base and a magenta line with a number: the second base
   and the distance in inches from edge to edge.
+- Magenta area with a heavy edge, and a magenta line with bends: the range
+  and the distance with "Measure around walls" on.
+- Grey circles with lines between them, and numbers: the move to the mouse
+  pointer with "Measure movement" on. Each circle is the base at a bend or at
+  the end of the move.
 
 With "Adjust perspective" on, the board is upright, the cards are in the corners of
 the image, and the grid sits on the printed lines.

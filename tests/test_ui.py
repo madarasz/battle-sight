@@ -23,7 +23,7 @@ from battlesight.ui import shell  # noqa: E402
 from battlesight.ui.layouts import DEFAULT_LAYOUT, LAYOUTS  # noqa: E402
 from battlesight.ui.layouts.inspector import InspectorLayout, page_for, summary_text  # noqa: E402
 from battlesight.ui.layouts.panel import PanelLayout  # noqa: E402
-from battlesight.ui.parts import debug_text  # noqa: E402
+from battlesight.ui.parts import debug_text, distance_label  # noqa: E402
 from battlesight.ui.parts import VideoWidget  # noqa: E402
 from battlesight.ui.settings import load_ui_settings, save_layout  # noqa: E402
 from battlesight.ui.shell import MainWindow, help_text, status_text  # noqa: E402
@@ -143,6 +143,10 @@ def base_state(**over) -> dict:
         (dict(mode="snapshot", snapshot_ok=True, bases=[{"label": None}]), "1 bases", "ok"),
         (dict(mode="snapshot", snapshot_ok=True, bases=[{"label": None}], ring_in=6), "ring 6 in", "ok"),
         (dict(mode="snapshot", snapshot_ok=True, bases=[{"label": None}], distance={"mm": 127.0, "in": 5.0}), 'rim to rim 5.00"', "ok"),
+        (dict(mode="snapshot", snapshot_ok=True, bases=[{"label": None}], distance={"mm": 127.0, "in": 5.0, "around": True}), 'around walls 5.00"', "ok"),
+        (dict(mode="snapshot", snapshot_ok=True, bases=[{"label": None}], distance={"mm": None, "in": None, "around": True}), "around walls no path", "ok"),
+        (dict(mode="snapshot", snapshot_ok=True, bases=[{"label": None}], ring_in=6, move={"in": 5, "increments": [3, 2]}), 'move 5" (3 + 2)', "ok"),
+        (dict(mode="snapshot", snapshot_ok=True, bases=[{"label": None}], ring_in=6, move={"in": 3, "increments": [3]}), 'ring 6 in  |  move 3"', "ok"),
     ],
 )
 def test_status_text(over, text, level):
@@ -500,6 +504,60 @@ def test_layout_shows_each_recorded_state(idle_window, recorded):
         idle_window.worker._gui_free.clear()
         idle_window._on_frame(frame, 0)
         assert idle_window.worker._gui_free.is_set()
+
+
+def test_distance_label_names_the_kind_of_measurement():
+    assert distance_label({"mm": 127.0, "in": 5.0, "around": False}) == 'Rim to rim: 5.00"'
+    assert distance_label({"mm": 127.0, "in": 5.0, "around": True}) == 'Around walls: 5.00"'
+    assert distance_label({"mm": None, "in": None, "around": True}) == "Around walls: no path"
+
+
+def test_each_layout_has_the_around_walls_check_box(idle_window, recorded):
+    boxes = [b for b in idle_window.centralWidget().findChildren(QAbstractButton) if b.text() == "Measure around walls"]
+    assert len(boxes) == 1 and boxes[0].isCheckable()
+    state = dict(recorded[2]["live"].state)
+    idle_window.current_layout.on_state({**state, "map_layout": None, "around_walls": False})
+    assert not boxes[0].isEnabled() and not boxes[0].isChecked()
+    idle_window.current_layout.on_state({**state, "map_layout": "Small", "around_walls": True})
+    assert boxes[0].isEnabled() and boxes[0].isChecked()
+
+
+def test_each_layout_has_the_movement_check_box(idle_window, recorded):
+    boxes = [b for b in idle_window.centralWidget().findChildren(QAbstractButton) if b.text() == "Measure movement"]
+    assert len(boxes) == 1 and boxes[0].isCheckable()
+    state = dict(recorded[2]["base selected"].state)
+    idle_window.current_layout.on_state({**state, "movement": True})
+    assert boxes[0].isChecked()
+    idle_window.current_layout.on_state({**state, "movement": False})
+    assert not boxes[0].isChecked()
+
+
+def test_pointer_positions_go_to_the_worker_one_at_a_time(idle_window, recorded):
+    win = idle_window
+    frame = recorded[2]["base selected"]
+    win._on_frame(frame, 0)
+    win._on_hover((10.0, 20.0))
+    assert win.worker.sent == 0  # movement is off
+    win.state = {**frame.state, "movement": True, "ring_in": 3}
+    win._on_hover((10.0, 20.0))
+    assert win.worker.sent == 1 and win.worker.commands.get_nowait() == ("board.hover", {"x": 10.0, "y": 20.0})
+    win._on_hover((11.0, 20.0))
+    win._on_hover(None)  # only the newest waits
+    assert win.worker.sent == 1
+    win._on_frame(frame, 1)  # the worker did the first one
+    assert win.worker.sent == 2 and win.worker.commands.get_nowait() == ("board.hover", {"x": None, "y": None})
+
+
+def test_video_widget_reports_the_pointer(qapp):
+    video = VideoWidget()
+    video.resize(400, 300)
+    video.set_image(np.zeros((300, 400, 3), np.uint8))
+    seen = []
+    video.hovered.connect(seen.append)
+    assert video.hasMouseTracking()
+    video.mouseMoveEvent(QMouseEvent(QEvent.Type.MouseMove, QPointF(100.0, 50.0), QPointF(100.0, 50.0), Qt.MouseButton.NoButton, Qt.MouseButton.NoButton, Qt.KeyboardModifier.NoModifier))
+    video.leaveEvent(None)
+    assert seen == [(100.0, 50.0), None]
 
 
 def test_layout_controls_never_take_the_focus(idle_window):

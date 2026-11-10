@@ -12,7 +12,7 @@ from PySide6.QtWidgets import QAbstractButton, QCheckBox, QStyledItemDelegate, Q
 
 from ..live import ACTIONS, Action
 
-ACTION_GROUPS = {"wounds": "Game", "opening": "Game", "team": "View", "map": "View", "snapshot": "Snapshot", "base": "Snapshot", "names": "Snapshot", "frame": "Snapshot", "ring": "Measure", "view": "View", "reference": "Reference", "app": "Help"}
+ACTION_GROUPS = {"wounds": "Game", "opening": "Game", "team": "View", "map": "View", "snapshot": "Snapshot", "base": "Snapshot", "names": "Snapshot", "frame": "Snapshot", "ring": "Measure", "measure": "Measure", "view": "View", "reference": "Reference", "app": "Help"}
 RING_COLUMNS = 5
 COLORS = {"none": "#8a8a8a", "ok": "#2e9e4f", "done": "#2e9e4f", "warn": "#c98a00", "hint": "#c98a00", "error": "#d03a3a"}
 DRIFT_LEVEL = {"OK": "ok", "NO_REFERENCE": "warn", "MOVED": "warn", "CARD_MOVED": "error", "LOST": "error"}
@@ -73,8 +73,13 @@ def candidate_text(candidate: dict[str, Any]) -> str:
     return candidate["label"] if score is None else f"{candidate['label']}   {percent(score)}"
 
 
-def distance_text(distance: dict[str, float]) -> str:
-    return f'{distance["in"]:.2f}"'
+def distance_text(distance: dict[str, Any]) -> str:
+    return "no path" if distance["in"] is None else f'{distance["in"]:.2f}"'
+
+
+def distance_label(distance: dict[str, Any]) -> str:
+    """`Rim to rim: 5.25"`, or `Around walls: 6.10"` for a distance measured around the walls."""
+    return f'{"Around walls" if distance.get("around") else "Rim to rim"}: {distance_text(distance)}'
 
 
 def debug_text(state: dict[str, Any]) -> str:
@@ -213,6 +218,7 @@ class VideoWidget(QWidget):
     in image pixels and its width in screen pixels."""
 
     clicked = Signal(float, float, QPoint)  # image x, image y, global position of the click
+    hovered = Signal(object)  # (image x, image y) of the mouse pointer, None when it is not on the image
     right_clicked = Signal(float, float, QPoint)
     width_changed = Signal(int)
 
@@ -220,6 +226,7 @@ class VideoWidget(QWidget):
         super().__init__(parent)
         self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.setMinimumSize(320, 240)
+        self.setMouseTracking(True)  # pointer positions with no button down
         self._array: np.ndarray | None = None  # keeps the pixels of `_image` alive
         self._image: QImage | None = None
         self.badge: tuple[str, str] | None = None  # text and dot colour at the top right
@@ -290,6 +297,12 @@ class VideoWidget(QWidget):
         at = self.to_image(event.position())
         if signal is not None and at is not None:
             signal.emit(at[0], at[1], event.globalPosition().toPoint())
+
+    def mouseMoveEvent(self, event: QMouseEvent) -> None:
+        self.hovered.emit(self.to_image(event.position()))
+
+    def leaveEvent(self, _event) -> None:
+        self.hovered.emit(None)
 
     def resizeEvent(self, _event) -> None:
         self.width_changed.emit(int(self.width() * self.devicePixelRatioF()))

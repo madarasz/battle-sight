@@ -22,7 +22,7 @@ from PySide6.QtWidgets import QApplication, QLabel, QMainWindow, QMenu, QMessage
 
 from ..live import ACTIONS, Action, LiveFrame, LiveSession
 from .layouts import DEFAULT_LAYOUT, LAYOUTS, Layout
-from .parts import COLORS, DRIFT_LEVEL, VideoWidget, action_group, candidate_text, debug_line, distance_text
+from .parts import COLORS, DRIFT_LEVEL, VideoWidget, action_group, candidate_text, debug_line, distance_label
 from .settings import DEFAULT_UI_FILE, load_ui_settings, save_layout, save_map
 
 QT_KEYS = {"space": "Space", "Esc": "Esc"}
@@ -52,8 +52,12 @@ def status_text(state: dict[str, Any]) -> tuple[str, str]:
         parts.append(f"{len(state['bases'])} bases")
     if state["ring_in"] is not None:
         parts.append(f"ring {state['ring_in']} in")
+    if state.get("move") is not None:
+        move = state["move"]
+        steps = "" if len(move["increments"]) < 2 else " (" + " + ".join(str(c) for c in move["increments"]) + ")"
+        parts.append(f'move {move["in"]}"{steps}')
     if state["distance"] is not None:
-        parts.append(f"rim to rim {distance_text(state['distance'])}")
+        parts.append(distance_label(state["distance"]).replace(":", "", 1).lower())
     return "  |  ".join(parts), DRIFT_LEVEL[drift["status"]]
 
 
@@ -167,6 +171,8 @@ class MainWindow(QMainWindow):
         self._build_keys()
         self.popup: QMenu | None = None
         self._pending_click: tuple[int, QPoint] | None = None  # command number, global position
+        self._hover_sent: int | None = None  # command number of the pointer position that the worker has
+        self._hover_next: tuple | None = None  # (position or None,) to send after it
         self.worker.frame_ready.connect(self._on_frame)
         self.ui_file = Path(ui_file)
         self.ui_settings = load_ui_settings(self.ui_file)
@@ -207,6 +213,7 @@ class MainWindow(QMainWindow):
         self.video = VideoWidget()
         self.video.clicked.connect(self._on_click)
         self.video.right_clicked.connect(self._on_right_click)
+        self.video.hovered.connect(self._on_hover)
         self.video.width_changed.connect(self._on_width)  # the first resize sends the width
         return self.video
 
@@ -317,9 +324,29 @@ class MainWindow(QMainWindow):
         if number is not None:
             self._pending_click = number, global_pos
 
+    def _on_hover(self, at) -> None:
+        """The pointer moved. Only the movement measurement uses it. One
+        position is with the worker at a time; the newest waits."""
+        state = self.state
+        if state is None or not state.get("movement") or state["ring_in"] is None or state["selected"] is None:
+            return
+        self._hover_next = (at,)
+        self._send_hover()
+
+    def _send_hover(self) -> None:
+        if self._hover_sent is not None or self._hover_next is None:
+            return
+        (at,) = self._hover_next
+        self._hover_next = None
+        x, y = (None, None) if at is None else at
+        self._hover_sent = self.dispatch("board.hover", x=x, y=y)
+
     def _on_frame(self, live: LiveFrame, done: int) -> None:
         try:
             self._show_frame(live)
+            if self._hover_sent is not None and done >= self._hover_sent:
+                self._hover_sent = None
+                self._send_hover()
             if self._pending_click is not None and done >= self._pending_click[0]:
                 if self.current_layout.name_popup:
                     self._open_name_popup(live.state, self._pending_click[1])

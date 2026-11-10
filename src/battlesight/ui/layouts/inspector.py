@@ -13,7 +13,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QAbstractButton, QHBoxLayout, QLabel, QStackedWidget, QToolButton, QVBoxLayout, QWidget
 
 from ...live import ACTIONS, Action
-from ..parts import CandidateList, DebugView, MapPicker, OpeningControl, OperativeList, VideoWidget, WoundsControl, action_control, distance_text, panel_side, ring_controls, show_action_state
+from ..parts import CandidateList, DebugView, MapPicker, OpeningControl, OperativeList, VideoWidget, WoundsControl, action_control, distance_label, panel_side, ring_controls, show_action_state
 
 if TYPE_CHECKING:
     from . import Shell
@@ -70,7 +70,7 @@ class InspectorLayout:
         column = QVBoxLayout(panel)
         self.map_picker = MapPicker(self.shell.dispatch)
         column.addWidget(self.map_picker)
-        self._add_controls(column, "view.top_down", "view.grid", "view.terrain", "view.zones", "view.keys")
+        self._add_controls(column, "view.top_down", "view.grid", "view.terrain", "view.zones", "view.keys", "measure.walls")
         self.stack = QStackedWidget()
         for name, make in (("live", self._live_page), ("snapshot", self._snapshot_page), ("selected", self._selected_page), ("opening", self._opening_page)):
             self.pages[name] = page = QWidget()
@@ -122,6 +122,7 @@ class InspectorLayout:
         grid, rings = ring_controls(self.shell.dispatch)
         column.addWidget(grid)
         self.controls.extend(rings)
+        self._add_controls(column, "measure.move")
         self.distance = QLabel()
         self.distance.setWordWrap(True)
         column.addWidget(self.distance)
@@ -160,5 +161,5 @@ class InspectorLayout:
             self.crop.set_image(crop)
             self.wounds.show_state(state)
             distance = state["distance"]
-            self.distance.setText("Click a second base to measure." if distance is None else f"Rim to rim: {distance_text(distance)}")
+            self.distance.setText("Click a second base to measure." if distance is None else distance_label(distance))
             self.candidates.show_state(state)
