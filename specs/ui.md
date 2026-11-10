@@ -33,7 +33,7 @@ Not in scope: `enroll`, `gallery`, `calibrate`, `image-pipeline` and the tools. 
 | Function | Key or mouse | Available in | State to show |
 |---|---|---|---|
 | Find bases and names | `space` | live, snapshot | busy, result count |
-| Find bases only | `b` | live, snapshot | busy, result count |
+| Find bases only (key and menu, no button) | `b` | live, snapshot | busy, result count |
 | "Adjust perspective": top-down (default) or camera view | `v` | live, snapshot | which view |
 | Grid | `g` | live, snapshot | on or off |
 | Take empty-board reference | `e` | live, snapshot | reference is set or not set |
@@ -57,8 +57,8 @@ Values that the app does not show today, for the debug area: tags found (`DriftR
 | Source | Feature | UI need |
 |---|---|---|
 | Priority 5 | Select an operative, ring radius 1 to 9 in, second operative gives the rim-to-rim distance | Selection, keys `1` to `9`, a place for the distance |
-| Priority 6 | Tokens, rings, list of operatives in range | Selection of a token, a result list |
-| Priority 7 | Setup mode: click door endpoints, save a named map. Game mode: click to open or close | A setup state, map load and save |
+| Priority 6 | Terrain layout of the game, from a map file (done) | Terrain type and layout lists, toggles for layout, drop zones and terrain keys |
+| Priority 7 | Tokens, rings, list of operatives in range | Selection of a token, a result list |
 | `specs/about-project`, plan section 9 | Wounds and statuses per operative | A persistent list of operatives |
 
 ## 5. Structure options
@@ -109,7 +109,7 @@ A short fixed part on top (status and view toggles). Below it, the panel changes
 +----------------------+-------------+  +-------------+  +-------------+
 ```
 
-- Good: Only the controls that apply are on the screen. The name menu becomes a real list with crop and scores. The list of operatives in the snapshot state covers most of Option 3 at low cost. Priority 5 goes in "Base selected", priority 6 adds "Token selected", priority 7 adds a "Doors" state. Camera view about 1580 x 890.
+- Good: Only the controls that apply are on the screen. The name menu becomes a real list with crop and scores. The list of operatives in the snapshot state covers most of Option 3 at low cost. Priority 5 goes in "Base selected", priority 6 adds the map lists at the top, priority 7 adds "Token selected". Camera view about 1580 x 890.
 - Bad: The controls move when the state changes, so a user must learn the states. The name menu moves off the frame, so the eyes go from the base to the panel.
 
 ### Option 3: two team rosters
@@ -171,7 +171,7 @@ A top switch selects one of three workspaces. Each has its own panel. It follows
 +--------------------------------+-------------+
 ```
 
-- Good: Guides a new user through the game order. The plan has a setup mode and a game mode for priority 7. Each panel stays short.
+- Good: Guides a new user through the game order. Setup (map choice) and game steps fit it. Each panel stays short.
 - Bad: Today the Setup workspace has only the reference, and Play is empty until priority 5. More clicks during a game: a snapshot and a fix can be needed each turn. It needs a mode state that the core does not have.
 
 ### Comparison
@@ -231,7 +231,7 @@ The app has many layouts on one game core. A layout only places widgets. It has 
 Each function is one registered action. A new priority adds its actions to this list, one time.
 
 ```python
-Action("snapshot.name", label="Find and name", key="space", enabled=lambda s: not s["busy"])
+Action("snapshot.name", label="Identify operatives", key="space", enabled=lambda s: not s["busy"])
 Action("view.grid",     label="Grid",          key="g",     checked=lambda s: s["grid"])
 Action("base.choose",   label="Set name",      key=None,    enabled=lambda s: s["selected"] is not None)
 ```
@@ -250,7 +250,7 @@ The state dict is JSON-safe. The worker sends it with each frame.
 |---|---|
 | `mode` | `live` or `snapshot`. |
 | `busy` | A snapshot or a model load is running. |
-| `top_down`, `grid`, `show_tags` | View settings. |
+| `top_down`, `grid`, `terrain`, `zones`, `keys` | View settings. |
 | `drift` | Status value, summary text, lost tags, moved card. |
 | `camera` | Camera up or down. |
 | `lens`, `teams`, `reference_set` | Facts for the status view. |
@@ -388,7 +388,7 @@ Status on 2026-11-08: all steps of section 12 are in the work tree. They are not
 | `LAYOUTS`, `DEFAULT_LAYOUT`, `Layout`, `Shell` | `ui/layouts/__init__.py` | The layout list and the interface. |
 | `PanelLayout` | `ui/layouts/panel.py` | Controls from `ACTIONS`. Option `panel_side` (`left`, `right`). |
 | `InspectorLayout`, `page_for`, `summary_text` | `ui/layouts/inspector.py` | Pages `live`, `snapshot`, `selected`. Options `panel_side`, `debug_open`. |
-| `StatusView`, `DebugView`, `OperativeList`, `CandidateList` | `ui/parts.py` | Shared parts. A list fills again only when its data changes. |
+| `MapPicker`, `DebugView`, `OperativeList`, `CandidateList` | `ui/parts.py` | Shared parts. A list fills again only when its data changes. |
 | `LiveFrame.crop` | `live.py` | The board around the selected base, or `None`. |
 | `action_control`, `action_group`, `show_action_state` | `ui/parts.py` | One control for one action. |
 | `load_ui_settings`, `save_layout`, `DEFAULT_UI_FILE` | `ui/settings.py` | `data/ui.toml`. No Qt. `save_layout` edits only the `[ui] layout` line. |
@@ -397,7 +397,7 @@ Status on 2026-11-08: all steps of section 12 are in the work tree. They are not
 | `VideoWidget` | `ui/parts.py` | `set_image`, `clicked(x, y, global_pos)`, `width_changed(px)`. |
 | `ImageSource` | `camera.py` | One image file as a camera (`--image-source`). |
 
-Actions that section 3 does not list: `view.tags` (no key), `base.deselect` (no key), `board.click(x, y)` (left click), `board.select(x, y)` (right click: replaces the selection), `base.choose(label, index=None)`, `ring.1` to `ring.9`, `ring.clear`.
+Actions that section 3 does not list: `view.terrain`, `view.zones`, `view.keys`, `map.terrain_type(name)`, `map.layout(name)` (no keys), `base.deselect` (no key), `board.click(x, y)` (left click), `board.select(x, y)` (right click: replaces the selection), `base.choose(label, index=None)`, `ring.1` to `ring.9`, `ring.clear`.
 
 The live view (`LiveSession.top_down`) and the snapshot (`BoardWindow.top_down`) have separate views. A snapshot always opens top-down. `v` keeps the selected base, the ring and the distance, because they are in board mm. The old `_Live`, `_Notice`, `_BoardWindow`, `overlay.Menu` and `HELP_KEYS` no longer exist.
 

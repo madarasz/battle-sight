@@ -80,3 +80,18 @@ mask = true              # true: grey out the board around each operative (needs
 mask_threshold = 25.0    # Lab colour distance from the empty board that counts as the operative
 mask_min_base = 0.25     # under this changed part of the base disc the empty-board photo is wrong: no mask for this crop
 mask_max_fraction = 0.6  # over this part of the crop circle the mask is wrong (light change, old photo): no mask for this crop
+
+[terrain]
+# Terrain footprints where they touch the board (map files in data/maps/).
+wall_mm = 4.0              # wall thickness
+pillar_mm = 13.0           # pillar square side
+wall_end_mm = 6.5          # wall end (half pillar): pillar_mm across the wall, this along it, past the wall end
+hatchway_width_mm = 22.0   # along the wall, at the wall centre
+hatchway_depth_mm = 10.0   # across the wall
+breach_long_mm = 35.0      # breach point on a 2-grid wall (A1); as thick as the wall
+breach_short_mm = 28.0     # breach point on a 1-grid wall (B2)
+objective_mm = 40.0        # objective marker diameter
+objective_range_mm = 25.4  # dashed circle this far from the marker edge (1 in)
+breach_walls = ["A1", "B2"]     # wall keys with a breach point; an opening on another wall is a hatchway
+no_middle_pillar = ["A2"]       # A walls (2 grid) with no pillar at the middle; all other A walls have one
+teleporter_mm = 60.0       # teleporter pad diameter

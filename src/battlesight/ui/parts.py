@@ -8,11 +8,11 @@ from typing import Any
 import numpy as np
 from PySide6.QtCore import QPoint, QPointF, QRectF, Qt, Signal
 from PySide6.QtGui import QColor, QImage, QMouseEvent, QPainter
-from PySide6.QtWidgets import QAbstractButton, QCheckBox, QGridLayout, QLabel, QListWidget, QListWidgetItem, QPushButton, QWidget
+from PySide6.QtWidgets import QAbstractButton, QCheckBox, QComboBox, QFormLayout, QGridLayout, QLabel, QListWidget, QListWidgetItem, QPushButton, QWidget
 
 from ..live import ACTIONS, Action
 
-ACTION_GROUPS = {"snapshot": "Snapshot", "base": "Snapshot", "names": "Snapshot", "frame": "Snapshot", "ring": "Measure", "view": "View", "reference": "Reference", "app": "Help"}
+ACTION_GROUPS = {"map": "View", "snapshot": "Snapshot", "base": "Snapshot", "names": "Snapshot", "frame": "Snapshot", "ring": "Measure", "view": "View", "reference": "Reference", "app": "Help"}
 RING_COLUMNS = 5
 COLORS = {"ok": "#2e9e4f", "done": "#2e9e4f", "warn": "#c98a00", "hint": "#c98a00", "error": "#d03a3a"}
 DRIFT_LEVEL = {"OK": "ok", "NO_REFERENCE": "warn", "MOVED": "warn", "CARD_MOVED": "error", "LOST": "error"}
@@ -88,23 +88,44 @@ def debug_text(state: dict[str, Any]) -> str:
     )
 
 
-class StatusView(QLabel):
-    """Drift status or camera state, in its colour."""
+NO_LAYOUT = "None"
 
-    def __init__(self, parent: QWidget | None = None):
+
+class MapPicker(QWidget):
+    """Two drop-down lists: terrain type and map layout ("None" = no map).
+    They fill again only when their lists change, and only a choice of the
+    user sends an action."""
+
+    def __init__(self, dispatch: Callable[..., Any], parent: QWidget | None = None):
         super().__init__(parent)
-        self.setWordWrap(True)
+        self.dispatch = dispatch
+        self.shown: Any = None
+        form = QFormLayout(self)
+        form.setContentsMargins(0, 0, 0, 0)
+        self.terrain = QComboBox()
+        self.layout_box = QComboBox()
+        for box in (self.terrain, self.layout_box):
+            box.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+            box.view().setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        form.addRow("Terrain type", self.terrain)
+        form.addRow("Layout", self.layout_box)
+        self.terrain.activated.connect(lambda i: self.dispatch("map.terrain_type", name=self.terrain.itemText(i)))
+        self.layout_box.activated.connect(lambda i: self.dispatch("map.layout", name=None if i == 0 else self.layout_box.itemText(i)))
 
     def show_state(self, state: dict[str, Any]) -> None:
-        drift = state["drift"]
-        if not state["camera"]:
-            text, level = "camera down", "error"
-        elif drift is None:
-            text, level = "waiting for the first frame", "warn"
-        else:
-            text, level = drift["text"], DRIFT_LEVEL[drift["status"]]
-        self.setText(text)
-        self.setStyleSheet(f"color: {COLORS[level]}")
+        shown = (tuple(state["terrain_types"]), state["terrain_type"], tuple(state["map_layouts"]), state["map_layout"])
+        if shown == self.shown:
+            return
+        self.shown = shown
+        types, terrain, layouts, layout = shown
+        for box, items, current in ((self.terrain, types, terrain), (self.layout_box, (NO_LAYOUT, *layouts), layout or NO_LAYOUT)):
+            box.blockSignals(True)
+            box.clear()
+            box.addItems(list(items))
+            box.setCurrentIndex(max(0, box.findText(current)) if current is not None else -1)
+            box.blockSignals(False)
+        self.terrain.setEnabled(bool(types))
+        self.layout_box.setEnabled(bool(types))
 
 
 class DebugView(QLabel):

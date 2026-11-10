@@ -522,8 +522,8 @@ def test_a_layout_error_keeps_the_frame_flow(idle_window, recorded):
 # --- the panel layout ---------------------------------------------------------------
 
 
-def test_panel_has_one_control_per_action_without_args(idle_panel):
-    assert set(idle_panel.current_layout.controls) == {a.id for a in ACTIONS if not a.args}
+def test_panel_has_one_control_per_action_without_args_or_control_flag(idle_panel):
+    assert set(idle_panel.current_layout.controls) == {a.id for a in ACTIONS if not a.args and a.control}
 
 
 def test_panel_shows_debug_values(idle_panel, recorded):
@@ -544,7 +544,8 @@ def test_panel_button_runs_the_action(window):
     grid = window.state["grid"]
     window.current_layout.controls["view.grid"][1].click()
     wait_until(lambda: window.state["grid"] is (not grid))
-    window.current_layout.controls["snapshot.bases"][1].click()
+    assert "snapshot.bases" not in window.current_layout.controls  # key and menu only
+    window.shortcuts["snapshot.bases"].activated.emit()
     wait_until(lambda: window.state["mode"] == "snapshot" and not window.state["busy"])
     window.current_layout.controls["snapshot.back"][1].click()
     wait_until(lambda: window.state["mode"] == "live")
@@ -667,7 +668,7 @@ def test_l_key_goes_to_the_next_layout_and_saves_it(window):
 def test_view_menu_changes_the_layout(window):
     window.layout_items["inspector"].trigger()
     assert window.current_layout.name == "inspector"
-    wait_until(lambda: window.current_layout.status.text().startswith("4 corners OK"))
+    wait_until(lambda: window.status_label.text().startswith("4 corners OK"))
 
 
 def test_the_opened_layout_comes_from_the_file(inspector):
@@ -745,7 +746,8 @@ def test_inspector_list_does_not_fill_again_with_the_same_data(idle_inspector, r
 
 
 def test_inspector_buttons_run_actions(inspector):
-    control_of(inspector, "snapshot.bases").click()
+    assert all(action.id != "snapshot.bases" for action, _ in inspector.current_layout.controls)
+    inspector.shortcuts["snapshot.bases"].activated.emit()
     wait_until(lambda: inspector.state["mode"] == "snapshot" and not inspector.state["busy"])
     layout = inspector.current_layout
     wait_until(lambda: layout.stack.currentWidget() is layout.pages["snapshot"] and layout.operatives.count() == 3)
@@ -884,3 +886,37 @@ def test_run_window_opens_and_closes(monkeypatch, tmp_path, qapp):
     monkeypatch.setattr(MainWindow, "start", start_then_close)
     assert shell.run_window(session, camera) == 0
     assert camera.released
+
+
+def test_map_picker_fills_from_state_and_sends_the_choice(qapp, tmp_path):
+    from battlesight.ui.parts import MapPicker
+
+    sent = []
+    picker = MapPicker(lambda action_id, **args: sent.append((action_id, args)))
+    state = {"terrain_types": ["Tomb World"], "terrain_type": "Tomb World", "map_layouts": ["Layout 6", "Layout 7"], "map_layout": None}
+    picker.show_state(state)
+    assert [picker.layout_box.itemText(i) for i in range(picker.layout_box.count())] == ["None", "Layout 6", "Layout 7"]
+    assert picker.layout_box.currentText() == "None" and picker.terrain.currentText() == "Tomb World"
+    assert sent == []  # filling sends nothing
+    picker.layout_box.activated.emit(2)
+    picker.layout_box.activated.emit(0)
+    picker.terrain.activated.emit(0)
+    assert sent == [("map.layout", {"name": "Layout 7"}), ("map.layout", {"name": None}), ("map.terrain_type", {"name": "Tomb World"})]
+
+
+def test_map_choice_is_saved_and_restored(qapp, tmp_path, named_setup):
+    from battlesight.ui.settings import save_map
+
+    from .test_live import write_map
+
+    cfg, frame = named_setup
+    write_map(tmp_path / "maps")
+    path = layout_file(tmp_path, "inspector")
+    save_map(path, "Test World", "Small")
+    settings = load_ui_settings(path)
+    assert (settings.layout, settings.map_terrain, settings.map_layout) == ("inspector", "Test World", "Small")
+    win = MainWindow(make_session(tmp_path, cfg, frame), FakeCamera(frame), path)
+    assert win.worker.commands.qsize() == 2  # restore: terrain type, then layout
+    win.dispatch("map.layout", name=None)
+    assert load_ui_settings(path).map_layout is None and load_ui_settings(path).map_terrain == "Test World"
+    win.close()

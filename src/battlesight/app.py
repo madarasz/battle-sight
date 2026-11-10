@@ -5,6 +5,7 @@
     battlesight gallery --team A [B]
     battlesight calibrate [--source S | --images PATH...]
     battlesight image-pipeline PATH... [--reference FILE] [--team A [B]] [--out DIR] [--json FILE|-] [--show]
+    battlesight map FILE... [--out DIR]
 
 Live app: tracks the four corner cards on every frame (the board position
 updates by itself when the board or the camera moves) and shows the camera or
@@ -23,6 +24,8 @@ gallery: lists the gallery and checks each photo against the rest.
 calibrate: lens calibration with the ChArUco sheet (tools/make_charuco.py).
 image-pipeline: runs all stages on saved photos, writes a JSON report and
 overlay images. Exit code 0 all stages passed, 1 a stage failed, 2 bad input.
+map: checks terrain map files (data/maps/) and draws each on an empty board
+(--out). Exit code 0 all files good, 1 a file has an error, 2 a file is missing.
 """
 
 from __future__ import annotations
@@ -620,6 +623,59 @@ def cmd_image_pipeline(args: argparse.Namespace) -> int:
     return 1 if any_failed else 0
 
 
+def render_map(tmap, cfg: BoardConfig) -> np.ndarray:
+    """A map file on an empty top-down board, with the grid and its numbers."""
+    from .overlay import BLACK, draw_grid, draw_terrain
+    from .rectify import mm_to_rect
+    from .terrain import shapes
+
+    m, ppm = cfg.rectify_margin_mm, cfg.rectify_px_per_mm
+    w, h = int(round((cfg.width_mm + 2 * m) * ppm)), int(round((cfg.height_mm + 2 * m) * ppm))
+    img = np.full((h, w, 3), 255, np.uint8)
+    to_px = lambda p: mm_to_rect(cfg, p)  # noqa: E731
+    board = np.rint(to_px(cfg.board_corners_mm())).astype(np.int32)
+    cv2.fillPoly(img, [board], (200, 215, 225))
+    draw_grid(img, cfg, to_px, color=(150, 150, 150), outline=BLACK)
+    draw_terrain(img, shapes(tmap, cfg), to_px)
+    xs, ys = cfg.grid_lines_mm()
+    for k, x in enumerate(xs):
+        p = to_px(np.array([[x, -m / 2]]))[0]
+        cv2.putText(img, str(k), (int(p[0]) - 8, int(p[1]) + 8), cv2.FONT_HERSHEY_SIMPLEX, 0.8, BLACK, 2, cv2.LINE_AA)
+    for k, y in enumerate(ys):
+        p = to_px(np.array([[-m / 2, y]]))[0]
+        cv2.putText(img, str(k), (int(p[0]) - 8, int(p[1]) + 8), cv2.FONT_HERSHEY_SIMPLEX, 0.8, BLACK, 2, cv2.LINE_AA)
+    cv2.putText(img, f"{tmap.terrain} / {tmap.name}", (10, h - 12), cv2.FONT_HERSHEY_SIMPLEX, 0.7, BLACK, 2, cv2.LINE_AA)
+    return img
+
+
+def cmd_map(args: argparse.Namespace) -> int:
+    from .terrain import MapError, load_map, summary
+
+    cfg = BoardConfig.load(args.config)
+    out_dir = Path(args.out) if args.out else None
+    if out_dir is not None:
+        out_dir.mkdir(parents=True, exist_ok=True)
+    missing = bad = 0
+    for name in args.files:
+        path = Path(name)
+        if not path.is_file():
+            print(f"error: {path}: no such file", file=sys.stderr)
+            missing += 1
+            continue
+        try:
+            tmap = load_map(path, cfg)
+        except MapError as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            bad += 1
+            continue
+        print(f"ok   {path}: {summary(tmap)}")
+        if out_dir is not None:
+            target = out_dir / f"{path.stem}.png"
+            cv2.imwrite(str(target), render_map(tmap, cfg))
+            print(f"     drawn to {target}")
+    return 2 if missing else 1 if bad else 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="battlesight", description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--version", action="version", version=f"battlesight {__version__}")
@@ -663,6 +719,12 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--show", action="store_true", help="show each overlay in a window (any key next, q quit)")
     p.add_argument("-q", "--quiet", action="store_true", help="no per-image status lines")
     p.set_defaults(func=cmd_image_pipeline)
+
+    p = sub.add_parser("map", help="check terrain map files and draw them on an empty board")
+    p.add_argument("files", nargs="+", help="map files (data/maps/<terrain>/<layout>.toml)")
+    p.add_argument("--config", default=str(DEFAULT_CONFIG), help="board TOML config (grid and [terrain] sizes)")
+    p.add_argument("--out", default=None, help="folder for <file>.png, the map drawn on an empty board")
+    p.set_defaults(func=cmd_map)
     args = parser.parse_args(argv)
     if args.image_source and args.func is not cmd_live:
         parser.error("--image-source works only with the live app (no command)")

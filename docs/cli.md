@@ -17,6 +17,7 @@ uv run battlesight --version
 | `battlesight gallery` | gallery folder | List the gallery and check each photo against the rest. |
 | `battlesight calibrate` | live camera or saved photos | Calibrate the lens with the ChArUco sheet. Write the `[lens]` table of `data/camera.toml`. |
 | `battlesight image-pipeline` | saved photos | Run all stages on photos. Write a JSON report and overlay images. Use it for tests and automation. |
+| `battlesight map` | map files | Check terrain map files and draw each on an empty board. |
 | `tools/list_cameras.py` | cameras | Find the camera and save its source, frame size and frame rate to `data/camera.toml`. |
 | `tools/make_tags.py` | none | Print sheet of the corner cards: `data/print/corner_tags.pdf`. |
 | `tools/make_charuco.py` | none | Lens calibration sheet: `data/print/charuco.pdf`. |
@@ -218,6 +219,12 @@ at a layout change. It keeps all other text.
 | `[ui] layout` | | `inspector`, `panel` | `inspector` |
 | `[layouts.<name>] panel_side` | both | `left`, `right` | `right` |
 | `[layouts.inspector] debug_open` | `inspector` | `true`, `false` | `false` |
+| `[map] terrain` | | terrain type of the last run (`""` = none) | first type |
+| `[map] layout` | | layout name of the last run (`""` = none) | none |
+
+The shell writes the `[map]` lines when the user chooses a terrain type or a
+layout in the `MapPicker` drop-down lists, and sends them again at the next
+start.
 
 The debug values come from `state["debug"]`: `tags`, `fit_max_mm`, `fps`
 (smoothed, of `LiveSession.step`) and `detect_ms` (tag detection of the last
@@ -716,6 +723,96 @@ The Tomb World values come from the test photos: the thick section lines are
 12 mm from each edge of a 703 x 606 mm board, (703 - 24) / 7 = (606 - 24) /
 6 = 97 mm apart. For a new map, find the lines in `out/<name>.rectified.jpg`
 and set the margin and sections or pitch.
+
+## Terrain maps
+
+`terrain.py` reads map files: one layout of one terrain type per file, in
+`data/maps/<terrain folder>/<layout>.toml` (committed). An agent writes them
+from a photo of the layout card with the project skill
+`.claude/skills/record-map/` (reading rules there). No detection code.
+
+The live app has no key and no option for maps. `MapPicker` (`ui/parts.py`)
+at the top of the panel of each layout sends `map.terrain_type` and
+`map.layout` (`name = None` = no layout); `view.terrain` ("Layout", on at
+the start) shows or hides walls, pillars, openings and discs; `view.zones`
+("Drop zones", off at the start) shows or hides the zones; `view.keys`
+("Terrain keys", off at the start) shows or hides the wall keys (above a
+horizontal wall, right of a vertical wall). All three are enabled only with a
+layout. State: `terrain_types`, `terrain_type`, `map_layouts`, `map_layout`,
+`terrain`, `zones`, `keys`. A bad file gives a notice, never a stop. `overlay.draw_terrain`
+draws the shapes in the live view, both views, and the snapshot.
+
+### File format
+
+```toml
+schema = 1
+name = "Layout 6"            # shown in the "Layout" list
+terrain = "Tomb World"       # shown in the "Terrain type" list
+source = "layout card 6, photo"
+
+pillars = [[0, 1], [1, 1], [3, 1], [4, 1]]   # grid points
+wall_ends = [[6, 3]]         # half pillar, past the end of its one wall
+
+[[wall]]
+key = "A1"                   # wall label on the card: A1..A4 (2 grid), B1..B4 (1 grid)
+from = [3, 1]                # pillar centres
+to = [5, 1]
+opening = true               # hexagon marker next to the wall; A1, B2: breach point, others: hatchway
+opening_at = [4.5, 1]        # needed when a pillar is at the wall middle
+
+[[objective]]
+at = [5, 2]                  # or at_mm = [x, y] in board mm
+
+[[teleporter]]
+at = [2, 2.5]
+
+[[zone]]
+name = "grey"                # "grey" | "orange" (fill colour)
+from = [0, 0]                # top-left grid point
+to = [7, 1]                  # bottom-right; a side on an outer grid line goes to the board edge
+```
+
+A grid point `[col, row]` is an intersection of the `[grid]` lines (index
+from 0, steps of 0.5; Tomb World col 0..7, row 0..6). `at_mm` is board mm.
+
+`load_map` raises `MapError` when: the schema is not 1, `name` or `terrain`
+is missing, a key is unknown, a point is not on the half grid or is outside
+the grid or board, a wall is not horizontal or vertical, a wall `key` is not
+`A<n>` or `B<n>`, an A wall is not 2 grid or a B wall not 1 grid long, an A
+wall (except `no_middle_pillar`) has no middle pillar or another wall has
+one, `opening` is not true or false, `opening_at` is given with no opening, two walls are the same, a wall end has no pillar or wall end, a
+wall end touches not exactly 1 wall, two pillars share a point, a pillar
+inside a wall is not at its middle, an opening of a wall with a middle pillar
+has no `opening_at`, `opening_at` is not the centre between two pillars, a
+zone has `from` not top-left of `to`.
+
+### Shapes and `[terrain]` sizes
+
+`shapes(map, cfg)` gives the footprints in board mm, with the sizes of
+`[terrain]` in `data/board.toml`:
+
+| Key | Default | Shape |
+|---|---|---|
+| `wall_mm` | `4.0` | Wall: rectangle pillar centre to pillar centre, this thick. |
+| `pillar_mm` | `13.0` | Pillar: square on the grid point. |
+| `wall_end_mm` | `6.5` | Wall end: `pillar_mm` across the wall, this along it, from the point away from the wall (it adds to the wall length). |
+| `hatchway_width_mm`, `hatchway_depth_mm` | `22.0`, `10.0` | Hatchway: at the opening centre, width along the wall. |
+| `breach_long_mm`, `breach_short_mm` | `35.0`, `28.0` | Breach point on a 2-grid (A1) or 1-grid (B2) wall, as thick as the wall. |
+| `objective_mm` | `40.0` | Objective marker diameter. |
+| `breach_walls` | `["A1", "B2"]` | Wall keys whose opening is a breach point; the opening of another wall is a hatchway. |
+| `no_middle_pillar` | `["A2"]` | A walls with no pillar at the middle. |
+| `objective_range_mm` | `25.4` | Dashed circle this far from the marker edge (1 in), shape `objective_range`. |
+| `teleporter_mm` | `60.0` | Teleporter pad diameter. |
+
+### `map` command
+
+```bash
+uv run battlesight map data/maps/tomb-world/layout-6.toml --out out/maps/
+```
+
+Checks each file and prints its counts. With `--out`, writes
+`<file>.png`: the map on an empty top-down board with the grid numbers.
+Exit code 0 all files good, 1 a file has an error, 2 a file is missing.
 
 ## Automated tests
 

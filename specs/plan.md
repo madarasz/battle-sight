@@ -1,6 +1,6 @@
 # Battle Sight: research and plan
 
-Status: priorities 1 (board corners), 2 (undistort and rectify), 3 (bases), 4 (operative ID) and 5 (rings and distances) are done. UI foundation: game core (`live.py`), Qt window (`ui/shell.py`) and the layouts `inspector` and `panel` are done. Some checks with real hardware are open (`specs/ui.md`, section 13). Date: 2026-11-10.
+Status: priorities 1 (board corners), 2 (undistort and rectify), 3 (bases), 4 (operative ID), 5 (rings and distances) and 6 (terrain layouts) are done. Priority 7 (tokens) is next. UI foundation: game core (`live.py`), Qt window (`ui/shell.py`) and the layouts `inspector` and `panel` are done. Some checks with real hardware are open (`specs/ui.md`, section 13). Date: 2026-11-10.
 
 ## 1. Decisions made
 
@@ -15,8 +15,8 @@ Status: priorities 1 (board corners), 2 (undistort and rectify), 3 (bases), 4 (o
 | Grid | Map dependent, from config. Tomb World: the 7 x 6 printed sections (97 mm) inside a 12 mm margin; an inch grid does not agree with its print. Volkus: 1 in grid. |
 | Board frame | One square AprilTag card under each board corner. The tag sits in the card's outer quadrant, diagonal to the corner. The board corner rests on the inner quadrant, both edges against a printed L that stays visible just outside the board, so the tag's inner margin corner is the board corner. Nothing covers the play area. Board coordinate origin is one corner. Grid offset is configurable. |
 | Geometry | All measurement is 2D in the board plane. No vantages, no heights. |
-| Walls | Not tracked, not measured. They block placement physically. No map overlay of wall layouts. |
-| Doors | Hatchways and breach points are placed by clicking on the rectified image once per map, snapped to the tile grid, saved as a named map file. App draws 1 in and 2 in bands from their edges. |
+| Walls | Not detected in the image. Each layout is a map file, recorded by an agent from a photo of the layout card, and drawn as an overlay. Not used in measurements yet. |
+| Doors | Hatchways and breach points are part of the map file: a marker next to a wall gives an opening, the wall key gives its kind (A1 and B2: breach point, other walls: hatchway). No clicks, no vision detection. |
 | Bases | Round bases 25, 28, 32, 40, 50 mm, measured at the bottom, where the base touches the board. Later: 35 x 60 mm oval. |
 | Tokens | Round tokens 20 and 40 mm. |
 | Measure mode | Snapshot first. Key press triggers detect and measure on a clean frame. Live tracking later. |
@@ -34,8 +34,8 @@ Order from the owner. Each phase has a done test.
 | 3 | Find bases and positions | Detection is separate from identity. Background subtraction against an empty-board reference, then edge points, then circle fit with the known diameter set. Later: a YOLO segmentation model trained on base rims. | All bases found on a Tomb World board with walls. Center error under 2 mm. Correct diameter class. |
 | 4 | Identify operatives | Crop around each found base. DINOv2 embedding. Nearest neighbor in an enrolled gallery (10 to 20 photos per operative from this camera). User confirms or fixes with one click. Fixes feed the gallery. | 9 of 10 bases labeled right on first try. |
 | 5 | Rings and distances | Select operative. Hotkey picks N in 1 to 9. Draw circle with radius = base radius + N in. Select a second operative: draw and print rim-to-rim distance. | Ring and distance match a tape measure within 2 mm. |
-| 6 | Tokens | Detect 20 and 40 mm round tokens with the same circle fit, different diameter set. Rings 1 to 9 in. Mark every operative whose base rim lies within the selected distance. | Tokens found. In-range list matches tape measure. |
-| 7 | Hatchways and breach points | Setup mode: user clicks two endpoints per door on the rectified image. Click snaps to the printed tile grid. Thickness from config. Saved as a named map file, reused next game. Game mode: click toggles open or closed. Draw 1 in or 2 in band from the rectangle edge (rounded-rectangle offset). Vision detection rejected: door types look alike from above, models hide walls, state needs user input anyway. Optional later: template match to auto-suggest positions on map load. | Map saved and reloaded. Bands drawn. Operative in or out of band matches tape measure. |
+| 6 | Terrain layouts | One map file per layout card (`data/maps/<terrain>/<layout>.toml`): walls with their card key, pillars, wall ends, hatchways and breach points, objective markers, teleporter pads, drop zones. An agent records the file from a photo of the card (skill `record-map`); the loader checks it. The UI chooses terrain type and layout, and toggles the layout, the drop zones and the terrain keys. Vision detection rejected: models hide walls, and the card already holds the layout. | Map file of a card loads, and its overlay sits on the real terrain of a photo of that layout. |
+| 7 | Tokens | Detect 20 and 40 mm round tokens with the same circle fit, different diameter set. Rings 1 to 9 in. Mark every operative whose base rim lies within the selected distance. | Tokens found. In-range list matches tape measure. |
 
 Answer to the question in priority 3: yes, bases come before identity. Detection is pure geometry and needs no training. Identity runs on the crop around each found base. Keeping them separate means a new team only needs gallery photos, never a retrained detector.
 
@@ -56,8 +56,8 @@ A priority is done only when its "Done when" test above and its UI part below ar
 | Priorities 1 to 4 | Exist: `view.*`, `reference.*`, `snapshot.*`, `board.click`, `base.choose`, `names.*`, `frame.save`. | Exist: `drift`, `lens`, `reference_set`, `bases`, `selected`, `candidates`. | Live, Snapshot and Base selected panels. | Part of the UI foundation. |
 | UI foundation, before priority 5 | Add `app.layout` (`l`). | Add fps and detect time to `debug`. | First version. | `specs/ui.md` section 11 passes. Steps 2 to 5 of `specs/ui.md` section 12 are done. |
 | 5 Rings and distances | `ring.1` to `ring.9` (keys `1` to `9`), `ring.clear` (`0`). | `target` (second base), `ring_in`, `distance` (rim to rim, in mm and in). | Base selected: ring buttons and the distance. | In each layout, a key draws the ring on the selected base, and a second base shows the distance in the status area. |
-| 6 Tokens | Token selection through `board.click`. The ring actions also apply to a token. | `tokens`, `selected_token`, `in_range`. | New Token selected panel with the in-range list. | In each layout, a selected token shows its ring and the list of operatives in range. |
-| 7 Hatchways and breach points | `doors.edit` (`d`), `doors.save`, `doors.load`, `door.toggle`. Door clicks go through `board.click`. | `doors_mode`, `map_name`, `doors` (ends, open or closed). | New Doors panel: map name, save, load. | In each layout, a user can click doors, save and load a map, and open or close a door. |
+| 6 Terrain layouts (done) | `map.terrain_type(name)`, `map.layout(name)`, `view.terrain` ("Layout"), `view.zones` ("Drop zones"), `view.keys` ("Terrain keys"). No keys. | `terrain_types`, `terrain_type`, `map_layouts`, `map_layout`, `terrain`, `zones`, `keys`. | Terrain type and Layout drop-down lists at the top of the panel (both layouts), the toggles with the view controls. | In each layout, a user chooses a layout and sees it on the board; the choice stays for the next start. |
+| 7 Tokens | Token selection through `board.click`. The ring actions also apply to a token. | `tokens`, `selected_token`, `in_range`. | New Token selected panel with the in-range list. | In each layout, a selected token shows its ring and the list of operatives in range. |
 | Later: wounds and statuses | `operative.wound`, `operative.status`. | `roster`. | Roster list in the Snapshot panel. | Build the `rosters` layout (`specs/ui.md`, Option 3). |
 
 Priority 5 changed the meaning of a click. The first left click selects a base, and a click on another base sets `target`. The name list is in the Base selected panel of `inspector`, and a right click opens the name popup in the other layouts.
@@ -72,8 +72,8 @@ Feasible. Risk per priority:
 | 3 | Medium | Known diameters make circle fit robust under partial occlusion by the model body. Dark board and wall shadows lower contrast. |
 | 4 | Medium | Works when models look different from above. Enrollment photos must come from the real camera. |
 | 5 | Low | Pure math after 3. |
-| 6 | Low to medium | Metallic or transparent tokens reflect light. Printed ring on the token helps. |
-| 7 | Low to medium | Rectangles of known size are easy when visible. Click fallback covers the rest. |
+| 6 | Low | No vision. Risk is a wrong reading of the card; the loader checks and the drawn map is compared with the photo. |
+| 7 | Low to medium | Metallic or transparent tokens reflect light. Printed ring on the token helps. |
 
 ## 4. Camera geometry
 
@@ -131,7 +131,7 @@ battle-sight/
     rectify.py        # homography, thickness correction, warp to board mm space, edge and grid checks
     circles.py        # background subtraction, known-radius circle fit (bases and tokens)
     ident.py          # embeddings, gallery, kNN
-    doors.py          # hatchway and breach point rectangles, open/closed state
+    terrain.py        # map files: walls, pillars, hatchways, breach points, objectives, zones
     measure.py        # rim-to-rim distances, rings, bands, in-range tests
     overlay.py        # drawing in board coordinates
     live.py           # game core of the live app: LiveSession, actions, state (no Qt)
@@ -140,8 +140,8 @@ battle-sight/
     ui.toml           # selected layout and layout options (git-ignored)
     print/            # printable sheets: corner tags, ChArUco target
     teams/            # gallery per team: enrollment images and embeddings (git-ignored)
-    maps/             # clicked door positions per Tomb World layout
-    sizes.toml        # base, token, door dimensions
+    maps/             # terrain map files per layout (agent-recorded from the card photo)
+    sizes.toml        # base and token dimensions (terrain sizes: [terrain] in board.toml)
   tools/
     make_charuco.py   # print sheet for lens calibration (`battlesight calibrate`)
     make_tags.py      # print sheet for AprilTags
@@ -169,5 +169,5 @@ Resolved inside the phase that needs them.
 - Priority 4: in code (`ident.py`, stage `ident`, commands `ident`, `enroll`, `gallery`, `image --team`). Crop = base diameter + 25 mm board each side from the bases image, grey outside a circle. DINOv2 small (`facebook/dinov2-small`, `transformers`, MPS), class token + mean patch token. Gallery per team in `data/teams/<team>/`, base size per operative in `team.toml`; only operatives of the base size class can match. Each gallery crop at 8 rotations. Score = mean of the 3 best photos. Hungarian one-to-one assignment, because each operative is on the board once. Fix = click base, click name; the crop goes into the gallery at once. 2026-11-07 first check on the 2 test photos (no real gallery): about 90 ms for 10 bases; crops of different operatives score 0.5 to 0.87, one model in both photos 0.75, so the board around the base weighs much. Marked done by the owner on 2026-11-10. Baseline (`tests/images/ident_baseline.json`, real gallery, 2 teams, 554 files): on the 2 4K photos with reference, all 15 correctly detected bases have the right name, 15 of 19 bases in total (1 wrong size, 3 missed). On all 4 photos: 22 of 34 bases right (accuracy 0.65), naming accuracy 0.88, 1 of 4 photos passes the "9 of 10" test. The 4K losses come from base detection, not from naming. The 2 older photos have no reference (7 of 15 right). 2026-11-10: 17 gallery photos were crops of the 2 4K test photos (name fixes on `--image-source`), so those scores were too good; the benchmark now leaves such copies out (`ident_bench.copies_of`), `Gallery.add` refuses the same crop two times, 13 identical extra files moved out of the gallery. Baseline with the roster and fixed-radius detection (gallery 586 files): 28 of 34 right (accuracy 0.82), naming accuracy 0.93, 0 wrong sizes, 4 missed, 2 of 4 photos pass (both 4K photos 19 of 19). Naming alone on the true base positions: 31 of 34. All 6 losses are on the 2 photos without a reference.
 - Priority 5: in code (`measure.py`, `ring.*`, `board.click`, `board.select`). Ring radius and rim-to-rim distance come from the found base circles in board mm. Works after `space` and after `b`. A ring belongs to the selected base, so a new selection starts with no ring. The synthetic test: ring radius within 1 mm, distance within 2 mm. Open: the done test with a tape measure on the real board.
 - UI foundation: open decisions are in `specs/ui.md`, section 10.
-- Priority 7: door thickness in mm for config. Grid snap pitch (1 in, or half inch if walls sit between lines).
+- Priority 6: done 2026-11-10. `terrain.py`, `data/maps/<terrain>/<layout>.toml`, written by an agent from a photo of the layout card (skill `record-map`), not clicked. Walls with their card key (A1..A4, B1..B4), pillars (A walls except A2 have a middle pillar), wall ends, hatchways and breach points (at the centre between two pillars; A1 and B2 walls have breach points), objectives, teleporter pads, deployment zones. Sizes in `[terrain]` of `data/board.toml`. Overlay chosen in the UI (terrain type and layout drop-down lists), with toggles for the layout, the drop zones and the terrain keys (wall keys, `T` on teleporter pads). A dashed circle 1 in around each objective marker. Command `battlesight map` checks a file and draws it. Done test: Layout 6 drawn on `tomb-world-4k-1.empty.png` (the same layout), walls, pillars, objective markers and their 1 in circles on the real ones.
 - Later: roster format, wounds and statuses, live tracking, oval bases, Volkus board.

@@ -227,3 +227,75 @@ def draw_dashed_circle(
     for k in range(dashes):
         a0 = k * step
         cv2.ellipse(frame, c, (r, r), 0, a0, a0 + duty * step, color, thickness, cv2.LINE_AA)
+
+
+ORANGE = (0, 140, 255)
+TERRAIN_FILL = {
+    "wall": (235, 235, 235),
+    "pillar": (170, 170, 170),
+    "wall_end": (170, 170, 170),
+    "hatchway": YELLOW,
+    "breach": ORANGE,
+}
+ZONE_FILL = {"orange": (40, 110, 220), "grey": (220, 220, 220)}
+ZONE_ALPHA = 0.3
+
+
+def _dense(poly: np.ndarray, step_mm: float = 10.0) -> np.ndarray:
+    """Closed polygon in mm with extra points every `step_mm`, so that it bends
+    with lens distortion when drawn in the camera frame."""
+    pts = []
+    for a, b in zip(poly, np.roll(poly, -1, axis=0)):
+        n = max(1, int(np.ceil(np.linalg.norm(b - a) / step_mm)))
+        pts.append(np.linspace(a, b, n, endpoint=False))
+    return np.concatenate(pts)
+
+
+def draw_terrain(frame: np.ndarray, shapes, to_px) -> None:
+    """Draw terrain footprints (terrain.Shape, board mm) with `to_px`: zones
+    as a light fill, walls, pillars and openings filled, objectives and
+    teleporter pads as rings, a dashed circle 1 in around each objective,
+    wall keys above horizontal walls and right of vertical walls."""
+    s = _scale(frame)
+    thick = max(1, round(2 * s))
+
+    def px(points: np.ndarray) -> np.ndarray:
+        return np.rint(to_px(points)).astype(np.int32).reshape(-1, 1, 2)
+
+    zones = [sh for sh in shapes if sh.kind == "zone"]
+    if zones:
+        layer = frame.copy()
+        for sh in zones:
+            cv2.fillPoly(layer, [px(_dense(sh.points))], ZONE_FILL.get(sh.name, ZONE_FILL["grey"]), cv2.LINE_AA)
+        cv2.addWeighted(layer, ZONE_ALPHA, frame, 1 - ZONE_ALPHA, 0, dst=frame)
+        for sh in zones:
+            cv2.polylines(frame, [px(_dense(sh.points))], True, ZONE_FILL.get(sh.name, ZONE_FILL["grey"]), thick, cv2.LINE_AA)
+    for sh in shapes:
+        if sh.kind in TERRAIN_FILL:
+            pts = px(_dense(sh.points, 5.0))
+            cv2.fillPoly(frame, [pts], TERRAIN_FILL[sh.kind], cv2.LINE_AA)
+            cv2.polylines(frame, [pts], True, BLACK, 1, cv2.LINE_AA)
+        elif sh.kind == "objective":
+            cv2.polylines(frame, [px(sh.points)], True, BLACK, thick + 2, cv2.LINE_AA)
+            cv2.polylines(frame, [px(sh.points)], True, WHITE, thick, cv2.LINE_AA)
+            c = px(np.array([sh.center]))[0, 0]
+            cv2.drawMarker(frame, (int(c[0]), int(c[1])), WHITE, cv2.MARKER_TILTED_CROSS, int(10 * s), thick, cv2.LINE_AA)
+        elif sh.kind == "teleporter":
+            cv2.polylines(frame, [px(sh.points)], True, BLACK, thick + 2, cv2.LINE_AA)
+            cv2.polylines(frame, [px(sh.points)], True, CYAN, thick, cv2.LINE_AA)
+        elif sh.kind in ("wall_key", "teleporter_key"):
+            a = to_px(sh.points)[0]
+            (tw, th), _ = cv2.getTextSize(sh.name, cv2.FONT_HERSHEY_SIMPLEX, 0.8 * s, thick)
+            if sh.kind == "teleporter_key":
+                org = (int(a[0] - tw / 2), int(a[1] + th / 2))  # centred on the pad
+            else:
+                org = (int(a[0]), int(a[1] + th / 2)) if sh.vertical else (int(a[0] - tw / 2), int(a[1]))
+            pad = max(2, int(4 * s))
+            box = frame[max(0, org[1] - th - pad) : org[1] + pad, max(0, org[0] - pad) : org[0] + tw + pad]
+            box[:] = (box * 0.25).astype(frame.dtype)  # dark box under the text
+            cv2.putText(frame, sh.name, org, cv2.FONT_HERSHEY_SIMPLEX, 0.8 * s, WHITE, thick, cv2.LINE_AA)
+        elif sh.kind == "objective_range":
+            pts = to_px(sh.points)
+            for k in range(0, len(pts), 2):  # dashes: every other segment of the sampled circle
+                seg = np.rint(pts[[k, (k + 1) % len(pts)]]).astype(np.int32).reshape(-1, 1, 2)
+                cv2.polylines(frame, [seg], False, WHITE, thick, cv2.LINE_AA)

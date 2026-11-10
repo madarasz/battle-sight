@@ -12,8 +12,8 @@ bases, the range rings and the distances between operatives.
 3. ✅ Bases: find round bases, size and position
 4. ✅ Operative ID: name each base from a photo gallery
 5. ✅ Rings and distances: range rings, rim-to-rim distance
-6. 🚧 Tokens: find tokens, list operatives in range
-7. 🚧 Doors: click hatchways once per map, draw 1 in and 2 in bands
+6. ✅ Terrain layouts: walls, hatchways, objectives and drop zones of each layout card
+7. ⏳ Tokens: find tokens, list operatives in range
 
 ✅ done · ⏳ next · 🚧 not started
 
@@ -67,6 +67,31 @@ result on the screen and the names do not change.
 |---|---|
 | `inspector` | The panel changes with your work: live view, result, or the base that you clicked. |
 | `panel` | The panel is always the same and has all the controls. |
+
+### Terrain map
+
+At the top of the panel, choose the map of this game:
+
+1. **Terrain type**: the terrain set, for example `Tomb World`.
+2. **Layout**: the layout card, for example `Layout 6`. Choose `None` for no
+   map.
+
+The app draws the walls, pillars, hatchways, breach points, objective markers,
+teleporter pads of the layout on the board, and a dashed circle 1 in around
+each objective marker. Use the **Layout** check box (View menu) to show or
+hide them. Use the **Drop zones** check box to show or hide the deployment
+zones. Use the **Terrain keys** check box to show the label of each wall
+(for example `A1`, `B3`), above a horizontal wall and at the right of a
+vertical wall, and a `T` on each teleporter pad. The keys are on top of the
+other terrain. The drop zones and the terrain keys are off at the start. The app keeps the terrain type
+and layout for the next start.
+
+Put the board so that it agrees with the layout card: corner card 0 is at the
+top-left corner of the card picture. If the drawing does not sit on the real
+walls, turn the board or the cards.
+
+To add a layout, give a photo of the layout card to the AI agent (Claude Code)
+and ask it to record the map. It writes a file in `data/maps/tomb-world/`.
 
 ### Live view
 
@@ -177,8 +202,8 @@ tells the board status, in all layouts. It also tells the ring size and the dist
 
 In the `inspector` layout, the panel shows:
 
-- At the top: the board status, and the view controls.
-- In the live view: the buttons to find bases, and if the app has an
+- At the top: the terrain type and layout lists, and the view controls.
+- In the live view: the "Identify operatives" button, and if the app has an
   empty-board photo.
 - With a result: how many operatives have a name, and one row for each base.
   Green is sure, yellow is not sure, red `?` is unknown.
@@ -194,6 +219,11 @@ On the camera image:
 - White cross: the board corner that the app calculated.
 - Thin green lines: the board outline between the four corners.
 - Yellow lines: the map grid.
+- Terrain (when you chose a layout): white walls, grey pillars, yellow
+  hatchways, orange breach points, white rings with a cross for objective
+  markers and a white dashed circle 1 in around them, blue rings for
+  teleporter pads. With **Drop zones** on: a light grey and an orange area
+  for the deployment zones.
 - Green circle with a number: a base that the app found, and its size in mm.
   The circle is the bottom edge of the base, where it touches the board.
 - Name under a base (after `space`): the operative and a score from 0 to 1.

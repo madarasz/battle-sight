@@ -24,7 +24,7 @@ SETTLE = 7  # more than settle_frames of the test config
 
 def make_session(tmp_path, cfg, frame, **over) -> LiveSession:
     size = (frame.shape[1], frame.shape[0])
-    args = dict(gallery_root=tmp_path / "gallery", reference_path=tmp_path / "ref" / "empty.png", snapshot_dir=tmp_path / "snaps")
+    args = dict(gallery_root=tmp_path / "gallery", reference_path=tmp_path / "ref" / "empty.png", snapshot_dir=tmp_path / "snaps", maps_root=tmp_path / "maps")
     args.update(over)
     return LiveSession(cfg, CameraSettings(), size, **args)
 
@@ -116,20 +116,16 @@ def test_crop_of_the_selected_base_is_next_to_the_state(tmp_path, named):
     assert session.current().crop is None
 
 
-def test_view_grid_and_tag_actions_change_state_and_image(tmp_path):
+def test_view_grid_actions_change_state_and_image(tmp_path):
     cfg = ident_cfg()
     frame, _ = render_board(cfg)
     session = make_session(tmp_path, cfg, frame)
     session.dispatch("view.top_down")  # the camera view
     camera = settled(session, frame)
 
-    session.dispatch("view.tags")
-    no_tags = session.step(frame)
-    assert no_tags.state["show_tags"] is False and not np.array_equal(no_tags.image, camera.image)
-
     session.dispatch("view.grid")
     no_grid = session.step(frame)
-    assert no_grid.state["grid"] is False and not np.array_equal(no_grid.image, no_tags.image)
+    assert no_grid.state["grid"] is False and not np.array_equal(no_grid.image, camera.image)
 
     session.dispatch("view.top_down")
     top = session.step(frame)
@@ -552,3 +548,95 @@ def test_choosing_a_name_clears_the_measurement(tmp_path, named):
     session.dispatch("base.choose", label=label, index=0)
     s = session.state()
     assert s["selected"] is None and s["target"] is None and s["bases"][0]["confirmed"]
+
+
+SMALL_MAP = """schema = 1
+name = "Small"
+terrain = "Test World"
+pillars = [[2, 2], [4, 2]]
+
+[[wall]]
+key = "A2"
+from = [2, 2]
+to = [4, 2]
+opening = true
+"""
+
+
+def write_map(root, folder="test-world", file="small.toml", text=SMALL_MAP):
+    path = root / folder / file
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(text)
+    return path
+
+
+def test_map_layout_draws_terrain_and_toggles(tmp_path):
+    cfg = ident_cfg()
+    frame, _ = render_board(cfg)
+    write_map(tmp_path / "maps")
+    session = make_session(tmp_path, cfg, frame)
+    plain = settled(session, frame)
+    assert plain.state["terrain_types"] == ["Test World"] and plain.state["terrain_type"] == "Test World"
+    assert plain.state["map_layouts"] == ["Small"] and plain.state["map_layout"] is None
+
+    session.dispatch("map.layout", name="Small")
+    shown = session.step(frame)
+    assert shown.state["map_layout"] == "Small" and shown.state["terrain"] is True
+    assert not np.array_equal(shown.image, plain.image)
+
+    session.dispatch("view.terrain")
+    hidden = session.step(frame)
+    assert hidden.state["terrain"] is False and np.array_equal(hidden.image, plain.image)
+
+    session.dispatch("map.layout", name=None)
+    assert session.step(frame).state["map_layout"] is None
+
+
+def test_bad_map_file_gives_a_notice_not_a_stop(tmp_path):
+    cfg = ident_cfg()
+    frame, _ = render_board(cfg)
+    write_map(tmp_path / "maps", text=SMALL_MAP.replace("to = [4, 2]", "to = [4, 3]"))
+    session = make_session(tmp_path, cfg, frame)
+    session.dispatch("map.layout", name="Small")
+    live = session.step(frame)
+    assert live.state["map_layout"] is None and "horizontal or vertical" in live.state["notice"]["text"]
+    session.dispatch("map.terrain_type", name="Nowhere")
+    assert "Nowhere" in session.step(frame).state["notice"]["text"]
+
+
+ZONE = '\n[[zone]]\nname = "grey"\nfrom = [0, 0]\nto = [4, 2]\n'
+
+
+def test_drop_zones_are_off_until_turned_on(tmp_path):
+    cfg = ident_cfg()
+    frame, _ = render_board(cfg)
+    write_map(tmp_path / "maps", text=SMALL_MAP + ZONE)
+    session = make_session(tmp_path, cfg, frame)
+    session.dispatch("map.layout", name="Small")
+    walls = settled(session, frame)
+    assert walls.state["zones"] is False
+    session.dispatch("view.zones")
+    zones = session.step(frame)
+    assert zones.state["zones"] is True and not np.array_equal(zones.image, walls.image)
+    session.dispatch("view.terrain")  # walls off, zones stay
+    only_zones = session.step(frame)
+    assert not np.array_equal(only_zones.image, zones.image)
+    session.dispatch("view.zones")
+    session.dispatch("map.layout", name=None)
+    assert ACTIONS_BY_ID["view.zones"].enabled(session.step(frame).state) is False
+
+
+ACTIONS_BY_ID = {a.id: a for a in ACTIONS}
+
+
+def test_terrain_keys_are_off_until_turned_on(tmp_path):
+    cfg = ident_cfg()
+    frame, _ = render_board(cfg)
+    write_map(tmp_path / "maps")
+    session = make_session(tmp_path, cfg, frame)
+    session.dispatch("map.layout", name="Small")
+    plain = settled(session, frame)
+    assert plain.state["keys"] is False and ACTIONS_BY_ID["view.keys"].enabled(plain.state)
+    session.dispatch("view.keys")
+    keyed = session.step(frame)
+    assert keyed.state["keys"] is True and not np.array_equal(keyed.image, plain.image)

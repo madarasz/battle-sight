@@ -1,0 +1,91 @@
+---
+name: record-map
+description: Record a Kill Team Tomb World terrain layout from a photo of its layout card (or of the set-up board) into a Battle Sight map file in data/maps/tomb-world/. Use when the user gives a layout card image and asks to record, save, add or create a map or layout.
+---
+
+# Record a Tomb World map from a photo
+
+You read a photo of a Tomb World layout card and write one map file:
+`data/maps/tomb-world/layout-<card number>.toml`. No script detects the
+terrain. You read the photo, write the file, draw it with the `map` command,
+and compare. Worked example: `data/maps/tomb-world/layout-6.toml` (card 6).
+Format reference: `docs/cli.md`, section "Terrain maps".
+
+## Grid
+
+- The card shows the board in the same orientation as the board under the
+  camera (corner tag 0 at the card top-left).
+- 7 x 6 grid sections. A grid point is `[col, row]`: col 0..7 from left to
+  right, row 0..6 from top to bottom. Row 0 and col 0 are the outer grid
+  lines (12 mm in from the board edge), not the board edge.
+- Points are on the grid or a half grid (steps of 0.5). When an item is off
+  the half grid, use `at_mm = [x, y]` in board mm: x = 12 + 97 * col,
+  y = 12 + 97 * row.
+- The photo has perspective and a fold. Count grid lines; do not measure
+  pixels across the whole card.
+
+## What to record
+
+| On the card | In the file |
+|---|---|
+| Black line between squares = wall, with its label (`A1`..`A4` = 2 grid long, `B1`..`B4` = 1 grid long) | `[[wall]]` with `key` (the label), `from`, `to` (pillar centres) |
+| Black square at a wall end or junction (a lighter one too) | point in `pillars` |
+| Middle of every `Ax` wall, except `A2` | point in `pillars` (the card does not draw it) |
+| Square with an ✕ at a wall end | point in `wall_ends` (half pillar past the wall end; the app adds it to the wall length) |
+| Hexagon marker next to a wall | `opening = true` (the app makes it a breach point on `A1` and `B2`, a hatchway on the other walls) |
+| No hexagon marker next to the wall | `opening = false` |
+| Circle with a skull (white or red, same meaning) | `[[objective]]` |
+| Black circle with `T` | `[[teleporter]]` |
+| Dark grey area, dark orange area | `[[zone]]`, `name = "grey"` / `"orange"`, `from` top-left, `to` bottom-right grid point. A side on an outer grid line goes on to the board edge. |
+
+Ignore: green squares along a wall, faded
+grey squares (unused pillar positions, mostly at the board edge), dashed
+lines, light terrain (`C1`, `C2`, ...), the light grey and light orange
+halves.
+
+## Openings
+
+An opening sits at the centre between two pillars, never on a pillar.
+
+- `B` wall, or `A2` (no middle pillar): leave out `opening_at`. The opening
+  is at the wall middle.
+- `A` wall with a middle pillar: give `opening_at` = the centre of the half
+  next to the hexagon marker. Example: wall `[3, 1]` to `[5, 1]`, marker next
+  to the right half: `opening_at = [4.5, 1]`.
+
+The marker can be on either side of the wall. Only its position along the
+wall matters.
+
+## Steps
+
+1. Find the grid lines and number them (col 0..7, row 0..6).
+2. List every wall: label (`key`), `from`, `to`, marker or not, which half the marker
+   is next to.
+3. List the pillars: all wall ends and junctions, plus the middle of each `A`
+   wall except `A2`. Put a wall end (✕) in `wall_ends`, not in `pillars`.
+4. Objectives and teleporters: grid or half grid. When one is clearly off
+   the half grid (for example it touches light terrain), estimate `at_mm`
+   from the nearest grid lines and add a comment.
+5. Deployment zones.
+6. Write the file. Start from `layout-6.toml`: `schema = 1`, `name =
+   "Layout <n>"`, `terrain = "Tomb World"`, `source`. Give each wall its
+   label as `key`. The same label can be on more than one wall.
+7. Check and draw it:
+
+   ```bash
+   uv run battlesight map data/maps/tomb-world/layout-<n>.toml --out out/maps/
+   ```
+
+   Exit 1 prints the problem (for example a wall end with no pillar). Fix it
+   and run again. The loader checks the key against the wall length and
+   the middle pillar (an A wall except A2 needs one). Then open
+   `out/maps/layout-<n>.png` and compare it with the photo, wall by wall:
+   wall keys (above or right of each wall), walls, pillars, openings (yellow hatchway, orange
+   breach), objectives (white ring), pads (cyan ring), zones.
+8. If a photo of the real board with this layout exists (for example
+   `tests/images/<name>.empty.png`), draw the map on it to check the
+   positions, the same way as for card 6: rectify the photo with
+   `Pipeline(cfg, until="rectify")`, then `overlay.draw_terrain` with
+   `rectify.mm_to_rect`.
+9. Tell the user the counts (the `map` command prints them) and each item
+   that you were not sure of (an off-grid objective, a faint marker).

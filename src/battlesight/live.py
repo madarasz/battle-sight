@@ -28,10 +28,11 @@ import numpy as np
 
 from . import ident as idt
 from . import measure
+from . import terrain as ter
 from .calib import DriftMonitor, DriftReport, DriftStatus, TagDetector, board_corners_px, lens_for_frame
 from .camera import CameraSettings
 from .config import BoardConfig
-from .overlay import GREEN, MAGENTA, RED, WHITE, YELLOW, draw_bases, draw_board_corners, draw_circle_mm, draw_grid, draw_idents, draw_rim_line, draw_tags, fit_to_width
+from .overlay import GREEN, MAGENTA, RED, WHITE, YELLOW, draw_bases, draw_board_corners, draw_circle_mm, draw_grid, draw_idents, draw_rim_line, draw_tags, draw_terrain, fit_to_width
 from .pipeline import Pipeline
 from .rectify import fit_view, mm_to_rect, warp_board
 
@@ -257,7 +258,8 @@ def _in_snapshot(state: dict) -> bool:
 class Action:
     """One thing that the user can do. `enabled` and `checked` only tell a
     front end how to show the control: `dispatch` does not read them, so a key
-    on a control that is off still gives its message. `args` names the values
+    on a control that is off still gives its message. `control = False` keeps
+    the action off the panels (key and menu only). `args` names the values
     that `dispatch` needs. An action with `shell = True` belongs to the front
     end (help, quit), and the core has no handler for it."""
 
@@ -268,15 +270,20 @@ class Action:
     checked: Callable[[dict], bool] | None = None
     args: tuple[str, ...] = ()
     shell: bool = False
+    control: bool = True  # False: key and menu only, no button in a panel
 
 
 ACTIONS: tuple[Action, ...] = (
-    Action("snapshot.name", "Find and name", "space", enabled=lambda s: not s["busy"]),
-    Action("snapshot.bases", "Find bases only", "b", enabled=lambda s: not s["busy"]),
+    Action("snapshot.name", "Identify operatives", "space", enabled=lambda s: not s["busy"]),
+    Action("snapshot.bases", "Find bases only", "b", enabled=lambda s: not s["busy"], control=False),
     Action("snapshot.back", "Back", "Esc", enabled=_in_snapshot),
     Action("view.top_down", "Adjust perspective", "v", checked=lambda s: s["top_down"]),
     Action("view.grid", "Grid", "g", checked=lambda s: s["grid"]),
-    Action("view.tags", "Tags and corners", checked=lambda s: s["show_tags"]),
+    Action("view.terrain", "Layout", checked=lambda s: s["terrain"], enabled=lambda s: s["map_layout"] is not None),
+    Action("view.zones", "Drop zones", checked=lambda s: s["zones"], enabled=lambda s: s["map_layout"] is not None),
+    Action("view.keys", "Terrain keys", checked=lambda s: s["keys"], enabled=lambda s: s["map_layout"] is not None),
+    Action("map.terrain_type", "Terrain type", args=("name",)),
+    Action("map.layout", "Layout", args=("name",)),
         Action("reference.take", "Take empty-board reference", "e"),
     Action("reference.clear", "Clear reference", "c", enabled=lambda s: s["reference_set"]),
     Action("board.click", "Click the board", args=("x", "y"), enabled=_in_snapshot),
@@ -330,6 +337,7 @@ class LiveSession:
         snapshot_dir: Path = SNAPSHOT_DIR,
         display_width: int = DISPLAY_WIDTH,
         clock: Callable[[], float] = time.monotonic,
+        maps_root: Path | str = ter.DEFAULT_MAPS_ROOT,
     ):
         self.cfg = cfg
         self.lens = lens_for_frame(camera, frame_size)
@@ -352,7 +360,15 @@ class LiveSession:
 
         self.top_down = True
         self.grid = True
-        self.show_tags = True
+        self.terrain = True  # terrain overlay on, when a map layout is chosen
+        self.zones = False  # drop zones of the layout off
+        self.keys = False  # wall keys (A1, B2, ...) off
+        self.maps_root = Path(maps_root)
+        self.maps: list[ter.MapEntry] = []
+        self.terrain_type: str | None = None
+        self.map_layout: str | None = None
+        self.terrain_shapes: list[ter.Shape] = []
+        self._read_maps()
         self.busy = False
         self.camera_up = True
         self.on_busy: Callable[[LiveFrame], None] | None = None  # called before a long action
@@ -381,7 +397,11 @@ class LiveSession:
             "snapshot.back": self._back,
             "view.top_down": self._toggle_view,
             "view.grid": self._toggle_grid,
-            "view.tags": self._toggle_tags,
+            "view.terrain": self._toggle_terrain,
+            "view.zones": self._toggle_zones,
+            "view.keys": self._toggle_keys,
+            "map.terrain_type": self._set_terrain_type,
+            "map.layout": self._set_map_layout,
             "reference.take": self._take_reference,
             "reference.clear": self._clear_reference,
             "board.click": self._click,
@@ -443,14 +463,16 @@ class LiveSession:
         cfg, frame, view = self.cfg, self.frame, self.view
         if self.top_down and view is not None:
             out = warp_board(frame, view, cfg)
+            self._draw_terrain(out, lambda p: mm_to_rect(cfg, p))
             if self.grid:
                 draw_grid(out, cfg, lambda p: mm_to_rect(cfg, p))
         else:
             out = frame.copy()
-            if self.show_tags:
-                draw_tags(out, self.obs, cfg, self.report)
-                reference = self.monitor.reference
-                draw_board_corners(out, board_corners_px(cfg, self.obs), board_corners_px(cfg, reference) if reference else None)
+            draw_tags(out, self.obs, cfg, self.report)
+            reference = self.monitor.reference
+            draw_board_corners(out, board_corners_px(cfg, self.obs), board_corners_px(cfg, reference) if reference else None)
+            if view is not None:
+                self._draw_terrain(out, view.mm_to_px)
             if self.grid and view is not None:
                 draw_grid(out, cfg, view.mm_to_px)
         return self.win.fit(out)
@@ -466,6 +488,7 @@ class LiveSession:
         if not r.ok:
             return win.fit(self.pipe.annotate(self.snap, r, banner=False))
         img = win.base_image(self.snap, r)
+        self._draw_terrain(img, win.to_px)
         if self.grid:
             draw_grid(img, cfg, (lambda p: mm_to_rect(cfg, p)) if win.top_down else win.view.mm_to_px)
         found = r.scratch.get("bases") or []
@@ -503,7 +526,13 @@ class LiveSession:
             "busy": self.busy,
             "top_down": self.win.top_down if self.result is not None else self.top_down,
             "grid": self.grid,
-            "show_tags": self.show_tags,
+            "terrain": self.terrain,
+            "zones": self.zones,
+            "keys": self.keys,
+            "terrain_types": sorted({e.terrain for e in self.maps}),
+            "terrain_type": self.terrain_type,
+            "map_layouts": [e.name for e in self.maps if e.terrain == self.terrain_type],
+            "map_layout": self.map_layout,
             "drift": self._drift_state(),
             "camera": self.camera_up,
             "lens": self.lens.source,
@@ -680,8 +709,60 @@ class LiveSession:
         self.grid = not self.grid
         self.dirty = True
 
-    def _toggle_tags(self) -> None:
-        self.show_tags = not self.show_tags
+    # --- terrain map ----------------------------------------------------------------
+
+    def _read_maps(self) -> None:
+        self.maps, problems = ter.list_maps(self.maps_root)
+        for text in problems:
+            self.notice.error(f"map file not used: {text}")
+        types = sorted({e.terrain for e in self.maps})
+        self.terrain_type = types[0] if types else None
+
+    def _draw_terrain(self, img: np.ndarray, to_px) -> None:
+        switch = {"zone": self.zones, "wall_key": self.keys, "teleporter_key": self.keys}
+        shown = [s for s in self.terrain_shapes if switch.get(s.kind, self.terrain)]
+        if shown:
+            draw_terrain(img, shown, to_px)
+
+    def _toggle_terrain(self) -> None:
+        self.terrain = not self.terrain
+        self.dirty = True
+
+    def _toggle_zones(self) -> None:
+        self.zones = not self.zones
+        self.dirty = True
+
+    def _toggle_keys(self) -> None:
+        self.keys = not self.keys
+        self.dirty = True
+
+    def _set_terrain_type(self, name: str) -> None:
+        """A new terrain type starts with no layout."""
+        if name not in {e.terrain for e in self.maps}:
+            self.notice.error(f"no maps of terrain type {name!r} in {self.maps_root}")
+            return
+        if name != self.terrain_type:
+            self.terrain_type = name
+            self._set_map_layout(None)
+
+    def _set_map_layout(self, name: str | None) -> None:
+        """Load the layout `name` of the terrain type, or no layout for None.
+        A bad file gives a notice and leaves no layout."""
+        self.dirty = True
+        self.map_layout, self.terrain_shapes = None, []
+        if name is None:
+            return
+        entry = next((e for e in self.maps if e.terrain == self.terrain_type and e.name == name), None)
+        if entry is None:
+            self.notice.error(f"no layout {name!r} of terrain type {self.terrain_type!r}")
+            return
+        try:
+            tmap = ter.load_map(entry.path, self.cfg)
+        except ter.MapError as exc:
+            self.notice.error(f"map not loaded: {exc}")
+            return
+        self.map_layout, self.terrain_shapes, self.terrain = name, ter.shapes(tmap, self.cfg), True
+        self.notice.ok(f"map {tmap.terrain} / {tmap.name}")
 
     def _take_reference(self) -> None:
         if not self._need_frame():

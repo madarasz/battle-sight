@@ -70,6 +70,19 @@ class BoardConfig:
     ident_mask_threshold: float = 25.0
     ident_mask_min_base: float = 0.25
     ident_mask_max_fraction: float = 0.6
+    # Terrain footprints on the board (terrain.py, map files in data/maps/).
+    terrain_wall_mm: float = 4.0  # wall thickness
+    terrain_pillar_mm: float = 13.0  # pillar square side
+    terrain_wall_end_mm: float = 6.5  # half pillar: pillar side across the wall, this along it
+    terrain_hatchway_width_mm: float = 22.0  # along the wall
+    terrain_hatchway_depth_mm: float = 10.0  # across the wall
+    terrain_breach_long_mm: float = 35.0  # breach point width on a 2-grid wall (A1)
+    terrain_breach_short_mm: float = 28.0  # breach point width on a 1-grid wall (B2)
+    terrain_objective_mm: float = 40.0  # objective marker diameter
+    terrain_objective_range_mm: float = 25.4  # dashed circle this far from the marker edge
+    terrain_breach_walls: tuple[str, ...] = ("A1", "B2")  # walls with a breach point; the other walls have hatchways
+    terrain_no_middle_pillar: tuple[str, ...] = ("A2",)  # A walls with no pillar at the middle
+    terrain_teleporter_mm: float = 60.0  # teleporter pad diameter
 
     @classmethod
     def load(cls, path: str | Path = DEFAULT_CONFIG) -> BoardConfig:
@@ -77,7 +90,7 @@ class BoardConfig:
             raw = tomllib.load(fh)
         board, tags, drift = raw["board"], raw["tags"], raw.get("drift", {})
         grid, rect, bases = raw.get("grid", {}), raw.get("rectify", {}), raw.get("bases", {})
-        ident = raw.get("ident", {})
+        ident, terrain = raw.get("ident", {}), raw.get("terrain", {})
         if "camera" in raw:
             raise ValueError("[camera] moved from the board config to data/camera.toml (focal_35mm, lens calibration)")
         d = {f.name: f.default for f in dataclasses.fields(cls)}  # a key that the file leaves out gets the default above
@@ -120,6 +133,7 @@ class BoardConfig:
             **table("rectify", rect),
             **table("bases", bases, skip=("bases_diameters_mm",)),
             **table("ident", ident),
+            **table("terrain", terrain),
         )
 
     def corner_index(self, tag_id: int) -> int | None:

@@ -1,6 +1,6 @@
 """Layout `inspector`: the video and a panel that follows the state.
 
-The top part (status and view toggles) stays. Below it one page shows: live,
+The top part (map choice and view toggles) stays. Below it one page shows: live,
 snapshot, or selected base. The name fix is a list in the panel, with the crop
 of the base and the scores, so the shell popup is off here.
 """
@@ -13,7 +13,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QAbstractButton, QHBoxLayout, QLabel, QStackedWidget, QToolButton, QVBoxLayout, QWidget
 
 from ...live import ACTIONS, Action
-from ..parts import CandidateList, DebugView, OperativeList, StatusView, VideoWidget, action_control, distance_text, panel_side, ring_controls, show_action_state
+from ..parts import CandidateList, DebugView, MapPicker, OperativeList, VideoWidget, action_control, distance_text, panel_side, ring_controls, show_action_state
 
 if TYPE_CHECKING:
     from . import Shell
@@ -64,9 +64,9 @@ class InspectorLayout:
         panel = QWidget()
         panel.setFixedWidth(PANEL_WIDTH)
         column = QVBoxLayout(panel)
-        self.status = StatusView()
-        column.addWidget(self.status)
-        self._add_controls(column, "view.top_down", "view.grid", "view.tags")
+        self.map_picker = MapPicker(self.shell.dispatch)
+        column.addWidget(self.map_picker)
+        self._add_controls(column, "view.top_down", "view.grid", "view.terrain", "view.zones", "view.keys")
         self.stack = QStackedWidget()
         for name, make in (("live", self._live_page), ("snapshot", self._snapshot_page), ("selected", self._selected_page)):
             self.pages[name] = page = QWidget()
@@ -93,7 +93,7 @@ class InspectorLayout:
             self.controls.append((action, control))
 
     def _live_page(self, column: QVBoxLayout) -> None:
-        self._add_controls(column, "snapshot.name", "snapshot.bases")
+        self._add_controls(column, "snapshot.name")
         self.reference_label = QLabel()
         column.addWidget(self.reference_label)
         self._add_controls(column, "reference.take", "reference.clear", "frame.save")
@@ -104,7 +104,7 @@ class InspectorLayout:
         column.addWidget(self.summary)
         self.operatives = OperativeList(self.shell.dispatch)
         column.addWidget(self.operatives, 1)
-        self._add_controls(column, "names.accept", "names.undo", "snapshot.name", "snapshot.bases", "frame.save", "snapshot.back")
+        self._add_controls(column, "names.accept", "names.undo", "snapshot.name", "frame.save", "snapshot.back")
 
     def _selected_page(self, column: QVBoxLayout) -> None:
         self.base_title = QLabel()
@@ -126,7 +126,7 @@ class InspectorLayout:
     def on_state(self, state: dict[str, Any]) -> None:
         for action, control in self.controls:
             show_action_state(control, action, state)
-        self.status.show_state(state)
+        self.map_picker.show_state(state)
         self.debug.show_state(state)
         page = page_for(state)
         self.stack.setCurrentWidget(self.pages[page])

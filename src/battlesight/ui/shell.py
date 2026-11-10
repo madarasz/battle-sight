@@ -23,7 +23,7 @@ from PySide6.QtWidgets import QApplication, QLabel, QMainWindow, QMenu, QMessage
 from ..live import ACTIONS, Action, LiveFrame, LiveSession
 from .layouts import DEFAULT_LAYOUT, LAYOUTS, Layout
 from .parts import COLORS, DRIFT_LEVEL, VideoWidget, action_group, candidate_text, distance_text
-from .settings import DEFAULT_UI_FILE, load_ui_settings, save_layout
+from .settings import DEFAULT_UI_FILE, load_ui_settings, save_layout, save_map
 
 QT_KEYS = {"space": "Space", "Esc": "Esc"}
 
@@ -167,6 +167,27 @@ class MainWindow(QMainWindow):
         self.video: VideoWidget | None = None
         self.current_layout: Layout | None = None
         self._install_layout(self.ui_settings.layout or DEFAULT_LAYOUT)
+        self._restore_map()
+
+    def _restore_map(self) -> None:
+        """Choose the terrain map of the last run. The commands run before the first frame."""
+        terrain, layout = self.ui_settings.map_terrain, self.ui_settings.map_layout
+        self.map_choice = [terrain, layout]
+        if terrain:
+            self.worker.submit("map.terrain_type", name=terrain)
+            if layout:
+                self.worker.submit("map.layout", name=layout)
+
+    def _save_map(self, action_id: str, name: str | None) -> None:
+        """Remember the terrain type and layout that the user chose."""
+        if action_id == "map.terrain_type":
+            self.map_choice = [name, None if name != self.map_choice[0] else self.map_choice[1]]
+        else:
+            self.map_choice[1] = name
+        try:
+            save_map(self.ui_file, *self.map_choice)
+        except (OSError, ValueError) as exc:
+            self.worker.notify(f"map choice not saved: {exc}")
 
     def start(self) -> None:
         self.worker.start()
@@ -261,6 +282,8 @@ class MainWindow(QMainWindow):
         elif action_id == "app.help":
             QMessageBox.information(self, "Keys", help_text())
         elif not self._busy():
+            if action_id in ("map.terrain_type", "map.layout"):
+                self._save_map(action_id, args.get("name"))
             return self.worker.submit(action_id, **args)
         return None
 
