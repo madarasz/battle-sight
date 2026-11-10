@@ -45,6 +45,7 @@ import numpy as np
 
 from . import circles
 from .config import BoardConfig
+from .measure import base_at
 
 DEFAULT_GALLERY_ROOT = Path(__file__).resolve().parents[2] / "data" / "teams"
 TEAM_FILE = "team.toml"
@@ -768,11 +769,7 @@ class LabelSession:
 
     def base_at(self, at_mm: Sequence[float]) -> int | None:
         """Base whose disc (plus 5 mm) holds the point, nearest centre first."""
-        if len(self.centers_mm) == 0:
-            return None
-        d = np.linalg.norm(np.asarray(self.centers_mm) - np.asarray(at_mm, float), axis=1)
-        i = int(np.argmin(d))
-        return i if d[i] <= 0.5 * self.diameters_mm[i] + 5.0 else None
+        return base_at(self.centers_mm, self.diameters_mm, at_mm)
 
     def pick(self, at_mm: Sequence[float]) -> int | None:
         self.selected = self.base_at(at_mm)

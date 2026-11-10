@@ -13,7 +13,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QAbstractButton, QHBoxLayout, QLabel, QStackedWidget, QToolButton, QVBoxLayout, QWidget
 
 from ...live import ACTIONS, Action
-from ..parts import CandidateList, DebugView, OperativeList, StatusView, VideoWidget, action_control, panel_side, show_action_state
+from ..parts import CandidateList, DebugView, OperativeList, StatusView, VideoWidget, action_control, distance_text, panel_side, ring_controls, show_action_state
 
 if TYPE_CHECKING:
     from . import Shell
@@ -113,6 +113,12 @@ class InspectorLayout:
         self.crop.setMinimumSize(100, 100)
         self.crop.setFixedHeight(CROP_HEIGHT)
         column.addWidget(self.crop)
+        grid, rings = ring_controls(self.shell.dispatch)
+        column.addWidget(grid)
+        self.controls.extend(rings)
+        self.distance = QLabel()
+        self.distance.setWordWrap(True)
+        column.addWidget(self.distance)
         self.candidates = CandidateList(self.shell.dispatch)
         column.addWidget(self.candidates, 1)
         self._add_controls(column, "snapshot.back")
@@ -135,4 +141,6 @@ class InspectorLayout:
             crop = self.shell.selected_crop()
             self.crop.setVisible(crop is not None)
             self.crop.set_image(crop)
+            distance = state["distance"]
+            self.distance.setText("Click a second base to measure." if distance is None else f"Rim to rim: {distance_text(distance)}")
             self.candidates.show_state(state)

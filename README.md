@@ -3,7 +3,7 @@
 Battle Sight helps you measure in Warhammer 40k: Kill Team. A camera above
 the table looks down on the board. A window on your computer shows the live
 video with measurement lines on top of it: the map grid, the operative
-bases, and later the range rings and the distances between operatives.
+bases, the range rings and the distances between operatives.
 
 ## Work in Progress
 
@@ -11,7 +11,7 @@ bases, and later the range rings and the distances between operatives.
 2. ✅ Undistort and rectify: lens calibration, top-down board image, map grid
 3. ✅ Bases: find round bases, size and position
 4. ✅ Operative ID: name each base from a photo gallery
-5. ⏳ Rings and distances: range rings, rim-to-rim distance
+5. ✅ Rings and distances: range rings, rim-to-rim distance
 6. 🚧 Tokens: find tokens, list operatives in range
 7. 🚧 Doors: click hatchways once per map, draw 1 in and 2 in bands
 
@@ -94,8 +94,8 @@ itself. Keep the board still for a moment after the move.
    - Green name: the app is sure.
    - Yellow name: the app is not sure. Check it.
    - Red `?`: the app does not know this operative.
-4. If a name is wrong, click the base, then click the correct name in the
-   list. In the `inspector` layout, you can also click the row of the
+4. If a name is wrong, right-click the base, then click the correct name in
+   the list. In the `inspector` layout, you can also click the row of the
    operative in the panel. The panel then shows a photo of the base and the
    list of names. In the `panel` layout, the list opens at the base. The app
    learns from each correction, so it makes fewer errors in the next games.
@@ -104,6 +104,22 @@ itself. Keep the board still for a moment after the move.
 Push `b` to find the bases without names (each base with a green circle and
 its size in mm). The result stays on the screen until the next `space` or
 `b`, or until you push `Esc`. The Terminal window also lists each base.
+
+### Measure rings and distances
+
+You can measure after `space` or after `b`.
+
+1. Click a base. A white circle shows the base that you selected.
+2. Push a key from `1` to `9`. The app draws a ring that many inches from the
+   edge of the base. Push `0` to remove the ring.
+3. Click a second base. The app draws a line between the two base edges, and
+   shows the distance in inches in the status line, for example `5.93"`.
+4. Click another base to move the line to it. Click the second base again to
+   remove the line.
+5. Click the selected base, or an empty part of the board, or push `Esc`, to
+   stop the measurement.
+
+The measurement is from base edge to base edge. It is on the board surface.
 
 ### Keys
 
@@ -117,14 +133,17 @@ Push `h` to see this list in the window. The menus have the same actions.
 | `g` | Show or hide the grid. |
 | `e` | Keep the current image as the empty-board photo. Do this on the empty board only. |
 | `c` | Forget the empty-board photo. |
-| Click a base | Show the list of names for this base size. |
+| Click a base | Select this base. When a base is selected: measure the distance to the clicked base. |
+| `1` to `9` | Draw a ring around the selected base, this many inches from its edge. |
+| `0` | Remove the ring. |
+| Right-click a base | Select this base and show the list of names for this base size. |
 | Click a name | Give this name to the base. The app keeps the photo. |
 | `a` | All names are correct: the app keeps the photos of all bases. |
 | `u` | Undo the last correction. |
 | `s` | Save a photo to `data/snapshots/`. |
 | `l` | Change to the next window layout. |
 | `h` | Show the key list. |
-| `Esc` | Close the list of names. When no list is open, go back to the live view. |
+| `Esc` | Stop the selection of a base. When no base is selected, go back to the live view. |
 | `q` | Quit. |
 
 ### Saved photos
@@ -142,7 +161,7 @@ teams, add `--team kommandos veterans`.
 ## What you see
 
 The video has no status text. The status line at the bottom of the window
-tells the board status, in all layouts. While the app finds the bases, it shows "working ...", and the keys do not work.
+tells the board status, in all layouts. It also tells the ring size and the distance between two selected bases. While the app finds the bases, it shows "working ...", and the keys do not work.
 
 | Status line | Meaning | What to do |
 |---|---|---|
@@ -163,8 +182,9 @@ In the `inspector` layout, the panel shows:
   empty-board photo.
 - With a result: how many operatives have a name, and one row for each base.
   Green is sure, yellow is not sure, red `?` is unknown.
-- After a click on a base: the size of the base, a photo of it, and the names
-  with their scores. Push `Esc` to close this.
+- After a click on a base: the size of the base, a photo of it, the ring
+  buttons, the distance to a second base, and the names with their scores.
+  Push `Esc` to close this.
 - Debug (click it to open): tags found, fit error, frames per second, and the
   time for tag detection. The `panel` layout always shows these values.
 
@@ -177,8 +197,11 @@ On the camera image:
 - Green circle with a number: a base that the app found, and its size in mm.
   The circle is the bottom edge of the base, where it touches the board.
 - Name under a base (after `space`): the operative and a score from 0 to 1.
-  Green is sure, yellow is not sure, red `?` is unknown. A white circle
-  shows the base that you clicked.
+  Green is sure, yellow is not sure, red `?` is unknown.
+- White circle: the base that you selected.
+- Magenta circle around the base, with space between them: the range ring.
+- Magenta circle on a base and a magenta line with a number: the second base
+  and the distance in inches from edge to edge.
 
 With "Adjust perspective" on, the board is upright, the cards are in the corners of
 the image, and the grid sits on the printed lines.

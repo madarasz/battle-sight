@@ -9,7 +9,7 @@ Battle Sight is an augmented reality overlay for Warhammer 40k: Kill Team. A fix
 Read these before design work:
 
 - `specs/about-project`: the owner's goals, in their own words.
-- `specs/plan.md`: decisions, the 7 priorities with "done when" tests, risks, stack, and target layout. The plan is the source of truth for scope. Priorities 1 (board corners) and 2 (rectify) are done. Priority 3 (bases) is in code; its done test waits for a test photo with an empty-board reference. Priority 4 (operative ID) is in code; its done test waits for a real gallery and a labelled game photo.
+- `specs/plan.md`: decisions, the 7 priorities with "done when" tests, risks, stack, and target layout. The plan is the source of truth for scope. Priorities 1 (board corners) and 2 (rectify) are done. Priority 3 (bases) is in code; its done test waits for a test photo with an empty-board reference. Priority 4 (operative ID) is in code; its done test waits for a real gallery and a labelled game photo. Priority 5 (rings and distances) is in code; its done test waits for a tape measure check on the real board.
 
 Work goes in priority order (1 corners, 2 undistort and rectify, 3 bases, 4 operative ID, 5 rings and distances, 6 tokens, 7 doors). Each priority has a measurable done test in the plan. Use it as the acceptance check.
 
@@ -80,6 +80,7 @@ No linter or formatter is configured.
 - `rectify.py`: `fit_view` fits a `BoardView` (homography board-surface mm -> undistorted px) to the 16 tag corners, with the board thickness correction from the planar camera pose. `warp_board` makes the top-down image. `measure_edges` and `measure_grid_lines` check it (board edges, printed grid lines). The rectify stage puts `view` and `rectified` in `scratch` for later stages.
 - Map grid: `[grid]` in `data/board.toml` and `BoardConfig.grid_lines_mm()`. Tomb World uses its 7 x 6 printed sections inside a 12 mm margin, Volkus a 1 in pitch. Never hard-code an inch grid. `docs/cli.md` "Map grid" documents it.
 - `camera.py`: `Camera` wraps `cv2.VideoCapture` and reconnects after repeated read failures. `read()` returns `None` while the camera is down. Callers must handle that. `ImageSource` has the same calls for one image file (`--image-source`). A device index uses AVFoundation on macOS (Camo, built-in camera). A URL (`is_stream`) uses FFmpeg with open and read timeouts, and `LatestFrameReader` reads it on a thread and keeps only the newest frame. `CameraSettings` loads and saves `data/camera.toml` (git-ignored, machine-local): `[camera]` from `tools/list_cameras.py`, `[lens]` from `calibrate`. Each writer keeps the other table. `app.py` `_apply_camera_settings` fills the camera options left out on the command line from it: option > file > built-in default. `docs/setup.md` has the camera troubleshooting (Camo extension blocked by MDM, stream network checks).
+- `measure.py` (priority 5): pure geometry in board mm, no window. `ring_radius_mm`, `rim_gap` (distance and end points on the rims, 0 for touching bases), `base_at` (hit test, `LabelSession.base_at` uses it). `LiveSession` holds `selected`, `target`, `ring_in`, also without names (after `b`); `LabelSession.selected` is not used by the live app. Left click (`board.click`): select, then set or move the target. Right click (`board.select`): replace the selection, the shell then opens the name popup in layouts with `name_popup`. A new selection clears the ring and the target.
 - `overlay.py`: draw-in-place helpers on BGR frames. Line and font sizes scale from a 1080p baseline, so overlays stay readable at 4K.
 - `tests/conftest.py`: `render_board` makes a synthetic top-down board with the board resting on real square AprilTag cards, tags outside the corners, with an optional homography, pixel shift, printed grid lines, and `bases` (`Base`: black rim, lighter top, model over part of the rim), `walls`, `discs` (tokens, prints). `tomb_world_grid()` is a test config with the Tomb World size and sections. `tests/test_rectify.py` adds a virtual pinhole camera for exact thickness and distortion tests. It returns the image and an `mm2px` function for ground truth. New vision tests should use this harness, not camera captures. `make_config(**over)` builds a test config without the TOML file.
 
@@ -90,7 +91,7 @@ No linter or formatter is configured.
 Layout:
 
 ```
-src/battlesight/   config.py camera.py calib.py rectify.py circles.py ident.py bench.py ident_bench.py overlay.py pipeline.py live.py app.py ui/ (shell.py parts.py settings.py layouts/)
+src/battlesight/   config.py camera.py calib.py rectify.py circles.py ident.py measure.py bench.py ident_bench.py overlay.py pipeline.py live.py app.py ui/ (shell.py parts.py settings.py layouts/)
 tools/             make_tags.py make_charuco.py list_cameras.py bench_bases.py bench_ident.py annotate_bases.py
 tests/             synthetic-board tests, test-photo tests (images/ = test photos), no camera needed
 data/              board.toml, print/ (printable sheets), snapshots/ (live saves), teams/<team>/ (gallery, git-ignored), ui.toml (layout choice, git-ignored)
@@ -101,7 +102,7 @@ docs/              setup.md (user setup), cli.md, testing.md
 
 `specs/ident-benchmark.md` is the plan for the identification benchmark, name assignment, and name baseline (parts 1 to 4 done; section 11 tuning is next).
 
-Target modules for later priorities (`doors.py`, `measure.py`) and data folders are listed in `specs/plan.md` section 7.
+Target module for later priorities (`doors.py`) and data folders are listed in `specs/plan.md` section 7.
 
 ## Design constraints from the plan
 

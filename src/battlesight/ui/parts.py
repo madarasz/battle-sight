@@ -8,11 +8,12 @@ from typing import Any
 import numpy as np
 from PySide6.QtCore import QPoint, QPointF, QRectF, Qt, Signal
 from PySide6.QtGui import QColor, QImage, QMouseEvent, QPainter
-from PySide6.QtWidgets import QAbstractButton, QCheckBox, QLabel, QListWidget, QListWidgetItem, QPushButton, QWidget
+from PySide6.QtWidgets import QAbstractButton, QCheckBox, QGridLayout, QLabel, QListWidget, QListWidgetItem, QPushButton, QWidget
 
-from ..live import Action
+from ..live import ACTIONS, Action
 
-ACTION_GROUPS = {"snapshot": "Snapshot", "base": "Snapshot", "names": "Snapshot", "frame": "Snapshot", "view": "View", "reference": "Reference", "app": "Help"}
+ACTION_GROUPS = {"snapshot": "Snapshot", "base": "Snapshot", "names": "Snapshot", "frame": "Snapshot", "ring": "Measure", "view": "View", "reference": "Reference", "app": "Help"}
+RING_COLUMNS = 5
 COLORS = {"ok": "#2e9e4f", "done": "#2e9e4f", "warn": "#c98a00", "hint": "#c98a00", "error": "#d03a3a"}
 DRIFT_LEVEL = {"OK": "ok", "NO_REFERENCE": "warn", "MOVED": "warn", "CARD_MOVED": "error", "LOST": "error"}
 
@@ -34,6 +35,20 @@ def action_control(action: Action, dispatch: Callable[[str], Any]) -> QAbstractB
     return control
 
 
+def ring_controls(dispatch: Callable[[str], Any]) -> tuple[QWidget, list[tuple[Action, QAbstractButton]]]:
+    """A compact grid with one control per ring action, and the controls."""
+    box = QWidget()
+    grid = QGridLayout(box)
+    grid.setContentsMargins(0, 0, 0, 0)
+    controls = []
+    for k, action in enumerate(a for a in ACTIONS if a.id.startswith("ring.")):
+        control = action_control(action, dispatch)
+        control.setText(action.key if action.checked is not None else "Clear")
+        grid.addWidget(control, k // RING_COLUMNS, k % RING_COLUMNS)
+        controls.append((action, control))
+    return box, controls
+
+
 def show_action_state(control: QAbstractButton, action: Action, state: dict[str, Any]) -> None:
     control.setEnabled(action.enabled(state))
     if action.checked is not None:
@@ -51,6 +66,10 @@ def panel_side(options: dict[str, Any]) -> str:
 def candidate_text(candidate: dict[str, Any]) -> str:
     score = candidate["score"]
     return candidate["label"] if score is None else f"{candidate['label']}   {score:.2f}"
+
+
+def distance_text(distance: dict[str, float]) -> str:
+    return f'{distance["in"]:.2f}"'
 
 
 def debug_text(state: dict[str, Any]) -> str:
@@ -159,6 +178,7 @@ class VideoWidget(QWidget):
     in image pixels and its width in screen pixels."""
 
     clicked = Signal(float, float, QPoint)  # image x, image y, global position of the click
+    right_clicked = Signal(float, float, QPoint)
     width_changed = Signal(int)
 
     def __init__(self, parent: QWidget | None = None):
@@ -201,11 +221,11 @@ class VideoWidget(QWidget):
             painter.drawImage(rect, self._image)
 
     def mousePressEvent(self, event: QMouseEvent) -> None:
-        if event.button() is not Qt.MouseButton.LeftButton:
-            return
+        signals = {Qt.MouseButton.LeftButton: self.clicked, Qt.MouseButton.RightButton: self.right_clicked}
+        signal = signals.get(event.button())
         at = self.to_image(event.position())
-        if at is not None:
-            self.clicked.emit(at[0], at[1], event.globalPosition().toPoint())
+        if signal is not None and at is not None:
+            signal.emit(at[0], at[1], event.globalPosition().toPoint())
 
     def resizeEvent(self, _event) -> None:
         self.width_changed.emit(int(self.width() * self.devicePixelRatioF()))

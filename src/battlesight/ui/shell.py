@@ -22,7 +22,7 @@ from PySide6.QtWidgets import QApplication, QLabel, QMainWindow, QMenu, QMessage
 
 from ..live import ACTIONS, Action, LiveFrame, LiveSession
 from .layouts import DEFAULT_LAYOUT, LAYOUTS, Layout
-from .parts import COLORS, DRIFT_LEVEL, VideoWidget, action_group, candidate_text
+from .parts import COLORS, DRIFT_LEVEL, VideoWidget, action_group, candidate_text, distance_text
 from .settings import DEFAULT_UI_FILE, load_ui_settings, save_layout
 
 QT_KEYS = {"space": "Space", "Esc": "Esc"}
@@ -47,12 +47,17 @@ def status_text(state: dict[str, Any]) -> tuple[str, str]:
         parts.append(f"{named}/{len(state['bases'])} named")
     else:
         parts.append(f"{len(state['bases'])} bases")
+    if state["ring_in"] is not None:
+        parts.append(f"ring {state['ring_in']} in")
+    if state["distance"] is not None:
+        parts.append(f"rim to rim {distance_text(state['distance'])}")
     return "  |  ".join(parts), DRIFT_LEVEL[drift["status"]]
 
 
 def help_text() -> str:
     rows = [f"{a.key}\t{a.label}" for a in ACTIONS if a.key]
-    rows.append("click\ta base after space: choose its name")
+    rows.append("click\ta base: select it. Click a second base: measure the distance")
+    rows.append("right click\ta base after space: choose its name")
     return "\n".join(rows)
 
 
@@ -172,6 +177,7 @@ class MainWindow(QMainWindow):
         """The video widget of the layout that is being built."""
         self.video = VideoWidget()
         self.video.clicked.connect(self._on_click)
+        self.video.right_clicked.connect(self._on_right_click)
         self.video.width_changed.connect(self._on_width)  # the first resize sends the width
         return self.video
 
@@ -195,7 +201,6 @@ class MainWindow(QMainWindow):
             self.worker.notify(f"unknown layout {name!r}: using {DEFAULT_LAYOUT}")
             name = DEFAULT_LAYOUT
         if self.popup is not None:
-            self.popup.aboutToHide.disconnect()  # the selected base stays
             self.popup.close()
             self.popup = None
         options = self.ui_settings.options_for(name)
@@ -266,8 +271,11 @@ class MainWindow(QMainWindow):
     def _on_width(self, width: int) -> None:
         self.worker.display_width = width
 
-    def _on_click(self, x: float, y: float, global_pos: QPoint) -> None:
-        number = self.dispatch("board.click", x=x, y=y)
+    def _on_click(self, x: float, y: float, _global_pos: QPoint) -> None:
+        self.dispatch("board.click", x=x, y=y)
+
+    def _on_right_click(self, x: float, y: float, global_pos: QPoint) -> None:
+        number = self.dispatch("board.select", x=x, y=y)
         if number is not None:
             self._pending_click = number, global_pos
 
@@ -308,7 +316,6 @@ class MainWindow(QMainWindow):
         menu = QMenu(self)
         for candidate in state["candidates"]:
             menu.addAction(candidate_text(candidate)).triggered.connect(partial(self._choose_name, candidate["label"], index))
-        menu.aboutToHide.connect(partial(self.worker.submit, "base.deselect"))
         self.popup = menu
         menu.popup(global_pos)
 

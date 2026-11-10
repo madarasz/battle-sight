@@ -126,7 +126,7 @@ def open_names(win: MainWindow) -> dict:
 
 def base_state(**over) -> dict:
     drift = {"status": "OK", "ok": True, "text": "4 corners OK", "lost": [], "card": None}
-    state = dict(camera=True, drift=drift, lens="nominal", busy=False, mode="live", reference_set=True, snapshot_ok=None, naming=False, bases=[])
+    state = dict(camera=True, drift=drift, lens="nominal", busy=False, mode="live", reference_set=True, snapshot_ok=None, naming=False, bases=[], ring_in=None, distance=None)
     state.update(over)
     return state
 
@@ -141,6 +141,8 @@ def base_state(**over) -> dict:
         (dict(mode="snapshot", snapshot_ok=False), "snapshot failed", "ok"),
         (dict(mode="snapshot", snapshot_ok=True, naming=True, bases=[{"label": "a"}, {"label": None}]), "1/2 named", "ok"),
         (dict(mode="snapshot", snapshot_ok=True, bases=[{"label": None}]), "1 bases", "ok"),
+        (dict(mode="snapshot", snapshot_ok=True, bases=[{"label": None}], ring_in=6), "ring 6 in", "ok"),
+        (dict(mode="snapshot", snapshot_ok=True, bases=[{"label": None}], distance={"mm": 127.0, "in": 5.0}), 'rim to rim 5.00"', "ok"),
     ],
 )
 def test_status_text(over, text, level):
@@ -191,11 +193,13 @@ def test_video_widget_maps_clicks_with_letterbox(qapp):
     assert (rect.width(), rect.height(), rect.y()) == (400, 200, 100)
     assert video.to_image(QPointF(200, 200)) == pytest.approx((100, 50))
     assert video.to_image(QPointF(200, 50)) is None  # on the bar
-    seen = []
-    video.clicked.connect(lambda x, y, pos: seen.append((x, y)))
+    left, right = [], []
+    video.clicked.connect(lambda x, y, pos: left.append((x, y)))
+    video.right_clicked.connect(lambda x, y, pos: right.append((x, y)))
     mouse_click(video, QPointF(100, 150))
-    mouse_click(video, QPointF(100, 150), Qt.MouseButton.RightButton)
-    assert seen == [pytest.approx((50, 25))]
+    assert left == [pytest.approx((50, 25))] and right == []
+    mouse_click(video, QPointF(300, 250), Qt.MouseButton.RightButton)
+    assert len(left) == 1 and right == [pytest.approx((150, 75))]
 
 
 # --- the window ---------------------------------------------------------------------
@@ -231,10 +235,10 @@ def test_snapshot_shows_busy_then_result_and_esc_goes_back(window):
     wait_until(lambda: window.state["mode"] == "live")
 
 
-def test_click_on_a_base_opens_names_and_choice_sets_it(window):
+def test_right_click_on_a_base_opens_names_and_choice_sets_it(window):
     state = open_names(window)
     base = state["bases"][1]
-    mouse_click(window.video, widget_pos(window, base["position_px"]))
+    mouse_click(window.video, widget_pos(window, base["position_px"]), Qt.MouseButton.RightButton)
     popup = wait_until(lambda: window.popup)
     assert window.state["selected"] == 1
     action = popup.actions()[0]
@@ -246,20 +250,46 @@ def test_click_on_a_base_opens_names_and_choice_sets_it(window):
     assert window.state["bases"][1]["label"] == label and window.state["selected"] is None
 
 
-def test_closing_the_popup_clears_the_selection(window):
+def test_closing_the_popup_keeps_the_selection(window):
     state = open_names(window)
     base = state["bases"][0]
-    mouse_click(window.video, widget_pos(window, base["position_px"]))
+    mouse_click(window.video, widget_pos(window, base["position_px"]), Qt.MouseButton.RightButton)
     popup = wait_until(lambda: window.popup)
     wait_until(lambda: window.state["selected"] == 0)
     popup.close()
-    wait_until(lambda: window.state["selected"] is None)
+    done = window.worker.done
+    wait_until(lambda: window.worker.done == done and window.state["selected"] == 0)
     assert window.state["mode"] == "snapshot"
+
+
+def test_left_click_selects_with_no_popup(window):
+    state = open_names(window)
+    mouse_click(window.video, widget_pos(window, state["bases"][0]["position_px"]))
+    wait_until(lambda: window.state["selected"] == 0)
+    assert window.popup is None and window._pending_click is None
+
+
+@pytest.mark.parametrize("layout", sorted(LAYOUTS))
+def test_ring_key_and_second_base_show_in_the_status_area_of_each_layout(qapp, tmp_path, named_setup, layout):
+    cfg, frame = named_setup
+    win = started_window(tmp_path, cfg, frame, layout)
+    try:
+        state = open_names(win)
+        mouse_click(win.video, widget_pos(win, state["bases"][0]["position_px"]))
+        wait_until(lambda: win.state["selected"] == 0)
+        press(win, "ring.6")
+        wait_until(lambda: win.state["ring_in"] == 6 and "ring 6 in" in win.status_label.text())
+        mouse_click(win.video, widget_pos(win, state["bases"][1]["position_px"]))
+        wait_until(lambda: win.state["target"] == 1 and "rim to rim" in win.status_label.text())
+        press(win, "ring.clear")
+        wait_until(lambda: win.state["ring_in"] is None and "ring" not in win.status_label.text().replace("rim to rim", ""))
+    finally:
+        win.close()
 
 
 def test_click_on_empty_board_opens_no_popup(window):
     open_names(window)
-    mouse_click(window.video, QPointF(window.video.width() / 2, 4 + window.video.image_rect().y()))
+    mouse_click(window.video, QPointF(window.video.width() / 2, 4 + window.video.image_rect().y()), Qt.MouseButton.RightButton)
     wait_until(lambda: window._pending_click is None)
     assert window.popup is None
 
@@ -280,6 +310,7 @@ def test_commands_are_dropped_while_busy(window):
     press(window, "snapshot.name")
     press(window, "view.grid")
     mouse_click(window.video, QPointF(window.video.width() / 2, window.video.height() / 2))
+    mouse_click(window.video, QPointF(window.video.width() / 2, window.video.height() / 2), Qt.MouseButton.RightButton)
     assert window.worker.sent == sent and window._pending_click is None
 
 
@@ -416,6 +447,18 @@ def recorded(tmp_path, named_setup):
     session.dispatch("board.click", x=x, y=y)
     frames["base selected"] = session.step(frame)
     assert frames["base selected"].state["selected"] == 0 and frames["snapshot"].state["naming"]
+    session.dispatch("ring.6")
+    frames["ring"] = session.step(frame)
+    x, y = snapshot.state["bases"][1]["position_px"]
+    session.dispatch("board.click", x=x, y=y)
+    frames["target"] = session.step(frame)
+    assert frames["target"].state["distance"] is not None and frames["ring"].state["ring_in"] == 6
+    session.dispatch("snapshot.bases")
+    bases_only = session.step(frame)
+    x, y = bases_only.state["bases"][0]["position_px"]
+    session.dispatch("board.click", x=x, y=y)
+    frames["base selected, no names"] = session.step(frame)
+    assert frames["base selected, no names"].crop is None
     return session, frame, frames
 
 
@@ -602,7 +645,7 @@ def test_layout_change_keeps_worker_snapshot_and_selection(window, monkeypatch):
 def test_layout_change_closes_the_popup(window, monkeypatch):
     monkeypatch.setitem(LAYOUTS, "other", OtherLayout)
     state = open_names(window)
-    mouse_click(window.video, widget_pos(window, state["bases"][0]["position_px"]))
+    mouse_click(window.video, widget_pos(window, state["bases"][0]["position_px"]), Qt.MouseButton.RightButton)
     popup = wait_until(lambda: window.popup)
     wait_until(lambda: window.state["selected"] == 0)
     window.set_layout("other")
@@ -655,7 +698,7 @@ def row_click(view: QAbstractItemView, row: int) -> None:
 
 @pytest.mark.parametrize(
     "name, page",
-    [("live", "live"), ("busy", "live"), ("camera down", "live"), ("before the first frame", "live"), ("snapshot", "snapshot"), ("base selected", "selected")],
+    [("live", "live"), ("busy", "live"), ("camera down", "live"), ("before the first frame", "live"), ("snapshot", "snapshot"), ("base selected", "selected"), ("ring", "selected"), ("target", "selected"), ("base selected, no names", "selected")],
 )
 def test_inspector_page_follows_the_state(idle_inspector, recorded, name, page):
     frame = recorded[2][name]
@@ -711,9 +754,30 @@ def test_inspector_buttons_run_actions(inspector):
     wait_until(lambda: inspector.state["mode"] == "live")
 
 
-def test_inspector_click_shows_crop_and_list_and_no_popup(inspector):
+def test_inspector_shows_ring_buttons_and_the_distance(idle_inspector, recorded):
+    layout = idle_inspector.current_layout
+    idle_inspector._on_frame(recorded[2]["base selected"], 0)
+    assert layout.distance.text() == "Click a second base to measure."
+    idle_inspector._on_frame(recorded[2]["target"], 0)
+    text = layout.distance.text()
+    assert text.startswith("Rim to rim: ") and text.endswith('"') and "mm" not in text
+    six = next(c for a, c in layout.controls if a.id == "ring.6")
+    assert six.isChecked() and six.isEnabled() and six.text() == "6"
+
+
+def test_inspector_ring_button_runs_the_action(inspector):
     state = open_names(inspector)
-    mouse_click(inspector.video, widget_pos(inspector, state["bases"][1]["position_px"]))
+    mouse_click(inspector.video, widget_pos(inspector, state["bases"][0]["position_px"]))
+    layout = inspector.current_layout
+    wait_until(lambda: layout.stack.currentWidget() is layout.pages["selected"])
+    wait_until(lambda: control_of(inspector, "ring.3").isEnabled())
+    control_of(inspector, "ring.3").click()
+    wait_until(lambda: inspector.state["ring_in"] == 3)
+
+
+def test_inspector_right_click_shows_crop_and_list_and_no_popup(inspector):
+    state = open_names(inspector)
+    mouse_click(inspector.video, widget_pos(inspector, state["bases"][1]["position_px"]), Qt.MouseButton.RightButton)
     layout = inspector.current_layout
     wait_until(lambda: layout.stack.currentWidget() is layout.pages["selected"] and layout.candidates.count() > 0)
     wait_until(lambda: inspector._pending_click is None)

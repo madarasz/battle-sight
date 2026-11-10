@@ -15,7 +15,7 @@ from battlesight.camera import CameraSettings, ImageSource
 from battlesight.live import ACTIONS, LiveSession
 
 from .conftest import render_board
-from .test_ident import enroll_from, ident_cfg, make_gallery, paint_board
+from .test_ident import SIZES, enroll_from, ident_cfg, make_gallery, paint_board
 
 TRAIN = {"Nob": ((150.0, 150.0), 0.0), "Grot": ((300.0, 200.0), 40.0), "Burna": ((450.0, 500.0), 90.0)}
 GAME = {"Nob": ((300.0, 350.0), 120.0), "Grot": ((150.0, 500.0), 200.0), "Burna": ((450.0, 200.0), 300.0)}
@@ -171,8 +171,10 @@ def test_bases_snapshot_and_back(tmp_path):
     assert_json_safe(s)
     assert s["mode"] == "snapshot" and s["snapshot_ok"] and not s["naming"] and not s["busy"]
     assert len(s["bases"]) == 3 and all(b["label"] is None for b in s["bases"])
-    session.dispatch("board.click", x=10, y=10)
+    x, y = s["bases"][0]["position_px"]
+    session.dispatch("board.select", x=x, y=y)
     assert session.state()["notice"]["text"] == "push space to name the operatives"
+    session.dispatch("snapshot.back")  # the selection
     session.dispatch("snapshot.back")
     assert session.step(frame).state["mode"] == "live"
 
@@ -263,9 +265,9 @@ def test_click_with_no_operative_of_that_size(tmp_path):
     settled(session, frame)
     session.dispatch("snapshot.name")
     base = session.step(frame).state["bases"][0]
-    session.dispatch("board.click", x=base["position_px"][0], y=base["position_px"][1])
+    session.dispatch("board.select", x=base["position_px"][0], y=base["position_px"][1])
     s = session.state()
-    assert s["selected"] is None and "mm base in the gallery" in s["notice"]["text"]
+    assert s["selected"] == 0 and s["candidates"] == [] and "mm base in the gallery" in s["notice"]["text"]
 
 
 # --- reference and saved frames ---------------------------------------------------
@@ -391,3 +393,161 @@ def test_v_changes_the_snapshot_view_and_clicks_still_hit(tmp_path, named):
 
     session.dispatch("snapshot.bases")
     assert session.step(frame).state["top_down"] is True  # the next snapshot opens top-down again
+
+
+# --- rings and distances (priority 5) -----------------------------------------------
+
+
+def bases_snapshot(tmp_path, cfg, frame):
+    session = make_session(tmp_path, cfg, frame)
+    settled(session, frame)
+    session.dispatch("snapshot.bases")
+    return session, session.step(frame).state
+
+
+def click_base(session, state, index, action="board.click"):
+    x, y = state["bases"][index]["position_px"]
+    session.dispatch(action, x=x, y=y)
+
+
+def game_name(session, index) -> str:
+    """The name in GAME of a found base."""
+    center = session._found()[index].center_mm
+    return min(GAME, key=lambda n: np.linalg.norm(np.subtract(GAME[n][0], center)))
+
+
+def test_ring_keys_need_a_selected_base(tmp_path):
+    cfg = ident_cfg()
+    frame = paint_board(cfg, GAME)
+    session, _ = bases_snapshot(tmp_path, cfg, frame)
+    session.dispatch("ring.3")
+    s = session.state()
+    assert s["ring_in"] is None and s["notice"]["text"] == "click a base first"
+    assert not next(a for a in ACTIONS if a.id == "ring.3").enabled(s)
+
+
+@pytest.mark.parametrize("inches", [1, 6, 9])
+def test_ring_is_drawn_at_base_radius_plus_inches(tmp_path, inches):
+    cfg = ident_cfg()
+    frame = paint_board(cfg, GAME)
+    session, state = bases_snapshot(tmp_path, cfg, frame)
+    click_base(session, state, 0)
+    before = session.step(frame).image.copy()
+    session.dispatch(f"ring.{inches}")
+    live = session.step(frame)
+    assert live.state["ring_in"] == inches and live.state["selected"] == 0
+    assert_json_safe(live.state)
+    assert next(a for a in ACTIONS if a.id == f"ring.{inches}").checked(live.state)
+
+    rows, cols = np.nonzero(np.any(live.image != before, axis=2))
+    assert len(rows) > 100
+    px = np.c_[cols, rows] / session.win.scale
+    mm = px / cfg.rectify_px_per_mm - cfg.rectify_margin_mm
+    base = session._found()[0]
+    radii = np.linalg.norm(mm - base.center_mm, axis=1)
+    assert np.median(radii) == pytest.approx(0.5 * base.diameter_mm + inches * 25.4, abs=1.0)
+
+    session.dispatch("ring.clear")
+    cleared = session.step(frame)
+    assert cleared.state["ring_in"] is None and np.array_equal(cleared.image, before)
+
+
+def test_second_base_gives_rim_to_rim_distance_within_2_mm(tmp_path):
+    cfg = ident_cfg()
+    frame = paint_board(cfg, GAME)
+    session, state = bases_snapshot(tmp_path, cfg, frame)
+    click_base(session, state, 0)
+    assert session.state()["distance"] is None
+    before = session.step(frame).image.copy()
+    click_base(session, state, 1)
+    live = session.step(frame)
+    s = live.state
+    assert_json_safe(s)
+    assert s["selected"] == 0 and s["target"] == 1 and not np.array_equal(live.image, before)
+    a, b = game_name(session, 0), game_name(session, 1)
+    truth = np.linalg.norm(np.subtract(GAME[a][0], GAME[b][0])) - 0.5 * SIZES[a] - 0.5 * SIZES[b]
+    assert abs(s["distance"]["mm"] - truth) < 2.0
+    assert s["distance"]["in"] == pytest.approx(s["distance"]["mm"] / 25.4, abs=1e-3)
+
+
+def test_clicks_move_and_clear_the_target_and_the_selection(tmp_path):
+    cfg = ident_cfg()
+    frame = paint_board(cfg, GAME)
+    session, state = bases_snapshot(tmp_path, cfg, frame)
+    click_base(session, state, 0)
+    click_base(session, state, 1)
+    click_base(session, state, 2)
+    assert session.state()["target"] == 2
+    click_base(session, state, 2)
+    s = session.state()
+    assert s["target"] is None and s["selected"] == 0 and s["distance"] is None
+    session.dispatch("ring.4")
+    click_base(session, state, 0)
+    s = session.state()
+    assert s["selected"] is None and s["ring_in"] is None
+
+
+def test_click_on_the_empty_board_clears_the_selection(tmp_path):
+    cfg = ident_cfg()
+    frame = paint_board(cfg, GAME)
+    session, state = bases_snapshot(tmp_path, cfg, frame)
+    click_base(session, state, 0)
+    session.dispatch("board.click", x=1, y=1)
+    assert session.state()["selected"] is None
+
+
+def test_right_click_starts_a_new_selection(tmp_path, named):
+    cfg, frame = named
+    session = make_session(tmp_path, cfg, frame, teams=("orks",))
+    settled(session, frame)
+    session.dispatch("snapshot.name")
+    state = session.step(frame).state
+    click_base(session, state, 0)
+    click_base(session, state, 1)
+    session.dispatch("ring.2")
+    click_base(session, state, 2, "board.select")
+    s = session.state()
+    assert s["selected"] == 2 and s["target"] is None and s["ring_in"] is None and s["candidates"]
+
+
+def test_view_change_keeps_ring_and_distance(tmp_path):
+    cfg = ident_cfg()
+    frame = paint_board(cfg, GAME)
+    session, state = bases_snapshot(tmp_path, cfg, frame)
+    click_base(session, state, 0)
+    click_base(session, state, 1)
+    session.dispatch("ring.2")
+    top = session.step(frame)
+    session.dispatch("view.top_down")
+    camera = session.step(frame)
+    assert camera.state["top_down"] is False and camera.image.shape != top.image.shape
+    assert camera.state["ring_in"] == 2 and camera.state["distance"] == top.state["distance"]
+
+
+def test_esc_and_a_new_snapshot_clear_the_measurement(tmp_path):
+    cfg = ident_cfg()
+    frame = paint_board(cfg, GAME)
+    session, state = bases_snapshot(tmp_path, cfg, frame)
+    click_base(session, state, 0)
+    click_base(session, state, 1)
+    session.dispatch("ring.2")
+    session.dispatch("snapshot.back")
+    s = session.state()
+    assert (s["selected"], s["target"], s["ring_in"], s["distance"], s["mode"]) == (None, None, None, None, "snapshot")
+    click_base(session, state, 0)
+    session.dispatch("snapshot.bases")
+    assert session.state()["selected"] is None
+
+
+def test_choosing_a_name_clears_the_measurement(tmp_path, named):
+    cfg, frame = named
+    session = make_session(tmp_path, cfg, frame, teams=("orks",))
+    settled(session, frame)
+    session.dispatch("snapshot.name")
+    state = session.step(frame).state
+    click_base(session, state, 0)
+    click_base(session, state, 1)
+    label = session.state()["candidates"][0]["label"]
+    session.dispatch("base.choose", label=label, index=0)
+    s = session.state()
+    assert s["selected"] is None and s["target"] is None and s["bases"][0]["confirmed"]

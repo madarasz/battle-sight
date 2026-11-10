@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING, Any, ClassVar
 from PySide6.QtWidgets import QAbstractButton, QGroupBox, QHBoxLayout, QVBoxLayout, QWidget
 
 from ...live import ACTIONS, Action
-from ..parts import DebugView, action_control, action_group, panel_side, show_action_state
+from ..parts import DebugView, action_control, action_group, panel_side, ring_controls, show_action_state
 
 if TYPE_CHECKING:
     from . import Shell
@@ -37,7 +37,7 @@ class PanelLayout:
         column = QVBoxLayout(panel)
         groups: dict[str, QVBoxLayout] = {}
         for action in ACTIONS:
-            if action.args:
+            if action.args or action.id.startswith("ring."):
                 continue
             title = action_group(action)
             if title not in groups:
@@ -47,6 +47,11 @@ class PanelLayout:
             control = action_control(action, shell.dispatch)
             groups[title].addWidget(control)
             self.controls[action.id] = (action, control)
+        box = QGroupBox("Ring")
+        grid, rings = ring_controls(shell.dispatch)
+        QVBoxLayout(box).addWidget(grid)
+        column.addWidget(box)
+        self.controls.update((action.id, (action, control)) for action, control in rings)
         box = QGroupBox("Debug")
         self.debug = DebugView()
         QVBoxLayout(box).addWidget(self.debug)

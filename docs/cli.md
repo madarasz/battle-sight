@@ -132,7 +132,8 @@ choice), red `?` = unknown (score under `ident.min_score`, or no operative
 of this base size is left).
 
 A snapshot opens in the top-down view. `v` changes its view. The live view
-keeps its own view.
+keeps its own view. The selection, the ring and the distance stay when the view
+changes.
 
 While a snapshot runs, the status bar shows `working ...`, the window stays
 usable, and the app ignores keys and clicks. Only `q` works: the window closes
@@ -144,14 +145,26 @@ base found, nothing to undo, a name set, a photo added) print to the Terminal
 and also show for 6 seconds at the right of the status bar: red for an error,
 yellow for a hint, green for done. `live.Notice` holds the last message.
 
+Rings and distances (plan priority 5, `measure.py`) work after `space` and
+after `b`. A left click on a base selects it. A left click on another base
+makes it the target: the app draws the shortest line between the two rims, and
+the status bar shows the distance in inches (`5.93"`). Another base moves the target, and a click
+on the target removes it. A click on the selected base or on the empty board
+clears the selection. Keys `1` to `9` draw a ring with radius = base radius +
+N in on the selected base, and `0` removes it. A new selection starts with no
+ring and no target. The ring keeps to the selected base and is sampled in
+board mm, so it also bends with the lens in the camera view. Touching or
+overlapping bases have a distance of 0.
+
 Fixes (plan priority 4, "user confirms or fixes with one click"): after
-`space`, click a base, then click a name in the list (a popup at the base in
-`panel`, the panel list in `inspector`). The list has the
+`space`, right-click a base, then click a name in the list (a popup at the base
+in `panel`, the panel list in `inspector`). The right click replaces the
+selection. A name choice clears the selection. The list has the
 operatives of this base size, best score first, then the operatives without
 gallery photos. The crop of the base goes into the gallery of that operative.
 A name that another base held moves to the clicked base; the other base
-becomes unknown. A click outside the popup closes it. In `inspector`, `Esc`
-clears the selected base.
+becomes unknown. A click outside the popup closes it, and the base stays
+selected. `Esc` clears the selected base.
 
 ### Keys
 
@@ -163,14 +176,17 @@ clears the selected base.
 | `g` | Grid on or off. |
 | `e` | Use the current frame as the empty-board reference and write it to `--reference`. The frame must pass `corners` and `rectify`, else the app keeps the old reference and says why. |
 | `c` | Clear the empty-board reference: single-frame detection. |
-| left click on a base | Show the names for this base (after `space`). |
+| left click on a base | Select it. With a selected base: set or move the target (second base of a distance). |
+| `1` to `9` | Ring on the selected base: base radius + N in. |
+| `0` | Remove the ring. |
+| right click on a base | Select it and show its names (after `space`). |
 | left click on a name | Set the name, add the crop to the gallery. |
 | `a` | Accept all names that are not confirmed: add their crops to the gallery. |
 | `u` | Undo the last gallery photo of this snapshot (deletes the file, gives the old name back). |
 | `s` | Save the current camera frame to `data/snapshots/snap_<date>_<time>.png`. |
 | `l` | Next layout. The choice goes to `data/ui.toml`. |
 | `h` | Show the key list. |
-| `Esc` | Close the menu. When no menu is open, close the snapshot and go back to the live view. |
+| `Esc` | Clear the selected base. When no base is selected, close the snapshot and go back to the live view. |
 | `q` | Quit. |
 
 The README section "What you see" tells what the overlay shows. The game

@@ -14,6 +14,7 @@ RED = (60, 60, 230)
 WHITE = (255, 255, 255)
 BLACK = (0, 0, 0)
 CYAN = (255, 220, 60)
+MAGENTA = (230, 70, 230)
 
 _STATUS_COLOR = {
     DriftStatus.NO_REFERENCE: YELLOW,
@@ -169,23 +170,44 @@ def ident_color(x) -> tuple[int, int, int]:
     return GREEN if x.sure else YELLOW
 
 
-def draw_idents(frame: np.ndarray, bases, idents, to_px, selected: int | None = None) -> None:
+def draw_idents(frame: np.ndarray, bases, idents, to_px) -> None:
     """Operative names (ident.Ident) under the bases (circles.Circle). The
-    team part of the label is left out. `selected` gets a white ring."""
+    team part of the label is left out."""
     s = _scale(frame)
     thick = max(1, round(2 * s))
     a = np.linspace(0, 2 * np.pi, 64, endpoint=False)
-    for i, (c, x) in enumerate(zip(bases, idents)):
+    for c, x in zip(bases, idents):
         r = 0.5 * c.diameter_mm
         color = ident_color(x)
         ring = c.center_mm + r * np.c_[np.cos(a), np.sin(a)]
         pts = np.rint(to_px(ring)).astype(np.int32).reshape(-1, 1, 2)
-        cv2.polylines(frame, [pts], True, WHITE if i == selected else color, thick * (2 if i == selected else 1), cv2.LINE_AA)
+        cv2.polylines(frame, [pts], True, color, thick, cv2.LINE_AA)
         name = "?" if x.label is None else x.label.partition("/")[2] or x.label
         if x.label is not None and not x.confirmed:
             name += f" {x.score:.2f}"
         bottom = np.rint(to_px((c.center_mm + (0.0, r + 2.0)).reshape(1, 2))[0]).astype(int)
         _label(frame, name, (int(bottom[0]), int(bottom[1])), color, s, thick)
+
+
+def draw_circle_mm(frame: np.ndarray, center_mm, radius_mm: float, to_px, color: tuple[int, int, int]) -> None:
+    """Heavy circle in board mm, sampled about every 5 mm, so that it bends
+    with lens distortion when drawn in the camera frame."""
+    n = max(64, int(np.ceil(2 * np.pi * radius_mm / 5.0)))
+    a = np.linspace(0, 2 * np.pi, n, endpoint=False)
+    ring = np.asarray(center_mm, float) + radius_mm * np.c_[np.cos(a), np.sin(a)]
+    pts = np.rint(to_px(ring)).astype(np.int32).reshape(-1, 1, 2)
+    cv2.polylines(frame, [pts], True, color, max(1, round(4 * _scale(frame))), cv2.LINE_AA)
+
+
+def draw_rim_line(frame: np.ndarray, start_mm, end_mm, text: str, to_px, color: tuple[int, int, int] = MAGENTA) -> None:
+    """Line between two points in board mm, with `text` at its middle."""
+    s = _scale(frame)
+    thick = max(1, round(2 * s))
+    line = np.linspace(np.asarray(start_mm, float), np.asarray(end_mm, float), 32)
+    px = to_px(line)
+    cv2.polylines(frame, [np.rint(px).astype(np.int32).reshape(-1, 1, 2)], False, color, thick, cv2.LINE_AA)
+    middle = np.rint(px[len(px) // 2]).astype(int)
+    _label(frame, text, (int(middle[0]), int(middle[1])), WHITE, s, thick)
 
 
 def draw_dashed_circle(

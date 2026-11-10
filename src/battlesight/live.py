@@ -19,6 +19,7 @@ import math
 import sys
 import time
 from dataclasses import dataclass
+from functools import partial
 from pathlib import Path
 from typing import Any, Callable, Sequence
 
@@ -26,10 +27,11 @@ import cv2
 import numpy as np
 
 from . import ident as idt
+from . import measure
 from .calib import DriftMonitor, DriftReport, DriftStatus, TagDetector, board_corners_px, lens_for_frame
 from .camera import CameraSettings
 from .config import BoardConfig
-from .overlay import GREEN, RED, YELLOW, draw_bases, draw_board_corners, draw_grid, draw_idents, draw_tags, fit_to_width
+from .overlay import GREEN, MAGENTA, RED, WHITE, YELLOW, draw_bases, draw_board_corners, draw_circle_mm, draw_grid, draw_idents, draw_rim_line, draw_tags, fit_to_width
 from .pipeline import Pipeline
 from .rectify import fit_view, mm_to_rect, warp_board
 
@@ -243,6 +245,14 @@ def _always(_state: dict) -> bool:
     return True
 
 
+def _has_selection(state: dict) -> bool:
+    return state["selected"] is not None
+
+
+def _in_snapshot(state: dict) -> bool:
+    return state["mode"] == "snapshot"
+
+
 @dataclass(frozen=True)
 class Action:
     """One thing that the user can do. `enabled` and `checked` only tell a
@@ -263,15 +273,18 @@ class Action:
 ACTIONS: tuple[Action, ...] = (
     Action("snapshot.name", "Find and name", "space", enabled=lambda s: not s["busy"]),
     Action("snapshot.bases", "Find bases only", "b", enabled=lambda s: not s["busy"]),
-    Action("snapshot.back", "Back", "Esc", enabled=lambda s: s["mode"] == "snapshot"),
+    Action("snapshot.back", "Back", "Esc", enabled=_in_snapshot),
     Action("view.top_down", "Adjust perspective", "v", checked=lambda s: s["top_down"]),
     Action("view.grid", "Grid", "g", checked=lambda s: s["grid"]),
     Action("view.tags", "Tags and corners", checked=lambda s: s["show_tags"]),
         Action("reference.take", "Take empty-board reference", "e"),
     Action("reference.clear", "Clear reference", "c", enabled=lambda s: s["reference_set"]),
-    Action("board.click", "Click the board", args=("x", "y"), enabled=lambda s: s["naming"]),
-    Action("base.choose", "Set name", args=("label", "index"), enabled=lambda s: s["selected"] is not None),
-    Action("base.deselect", "Clear selection", enabled=lambda s: s["selected"] is not None),
+    Action("board.click", "Click the board", args=("x", "y"), enabled=_in_snapshot),
+    Action("board.select", "Select for names", args=("x", "y"), enabled=_in_snapshot),
+    Action("base.choose", "Set name", args=("label", "index"), enabled=_has_selection),
+    Action("base.deselect", "Clear selection", enabled=_has_selection),
+    *(Action(f"ring.{n}", f"Ring {n} in", str(n), enabled=_has_selection, checked=partial(lambda n, s: s["ring_in"] == n, n)) for n in range(1, 10)),
+    Action("ring.clear", "Clear ring", "0", enabled=lambda s: s["ring_in"] is not None),
     Action("names.accept", "Accept all names", "a", enabled=lambda s: s["unconfirmed"] > 0),
     Action("names.undo", "Undo last gallery photo", "u", enabled=lambda s: s["can_undo"]),
     Action("frame.save", "Save camera frame", "s"),
@@ -354,6 +367,9 @@ class LiveSession:
         self.result = None  # FrameResult of the shown snapshot, or None = live view
         self.snap: np.ndarray | None = None  # camera frame of the snapshot
         self.session: idt.LabelSession | None = None
+        self.selected: int | None = None  # index of the selected base
+        self.target: int | None = None  # index of the second base of a distance
+        self.ring_in: int | None = None  # ring on the selected base, in inches
         self.shown: np.ndarray | None = None  # rendered snapshot
         self.dirty = True
 
@@ -367,8 +383,11 @@ class LiveSession:
             "reference.take": self._take_reference,
             "reference.clear": self._clear_reference,
             "board.click": self._click,
+            "board.select": self._select_for_names,
             "base.choose": self._choose,
             "base.deselect": self._deselect,
+            **{f"ring.{n}": partial(self._set_ring, n) for n in range(1, 10)},
+            "ring.clear": partial(self._set_ring, None),
             "names.accept": self._accept_all,
             "names.undo": self._undo,
             "frame.save": self._save_frame,
@@ -410,8 +429,8 @@ class LiveSession:
         return LiveFrame(self.image, state, self.win.scale, self._selected_crop())
 
     def _selected_crop(self) -> np.ndarray | None:
-        s = self.session
-        return None if s is None or s.selected is None or s.selected >= len(s.crops) else s.crops[s.selected]
+        s, i = self.session, self.selected
+        return None if s is None or i is None or i >= len(s.crops) else s.crops[i]
 
     def set_display_width(self, width: int) -> None:
         """Largest width of the returned image. A front end sets it to the width on the screen."""
@@ -449,10 +468,25 @@ class LiveSession:
             draw_grid(img, cfg, (lambda p: mm_to_rect(cfg, p)) if win.top_down else win.view.mm_to_px)
         found = r.scratch.get("bases") or []
         if self.session is not None:
-            draw_idents(img, found, self.session.idents, win.to_px, self.session.selected)
+            draw_idents(img, found, self.session.idents, win.to_px)
         else:
             draw_bases(img, found, win.to_px)
+        self._draw_measure(img, found)
         return win.fit(img)
+
+    def _draw_measure(self, img: np.ndarray, found: list) -> None:
+        """The selected base, its ring, the second base and the distance."""
+        if self.selected is None:
+            return
+        to_px, a = self.win.to_px, found[self.selected]
+        draw_circle_mm(img, a.center_mm, 0.5 * a.diameter_mm, to_px, WHITE)
+        if self.ring_in is not None:
+            draw_circle_mm(img, a.center_mm, measure.ring_radius_mm(a.diameter_mm, self.ring_in), to_px, MAGENTA)
+        if self.target is not None:
+            b = found[self.target]
+            gap, start, end = measure.rim_gap(a.center_mm, a.diameter_mm, b.center_mm, b.diameter_mm)
+            draw_circle_mm(img, b.center_mm, 0.5 * b.diameter_mm, to_px, MAGENTA)
+            draw_rim_line(img, start, end, f'{gap / measure.MM_PER_INCH:.2f}"', to_px)
 
     # --- state ------------------------------------------------------------------
 
@@ -461,7 +495,6 @@ class LiveSession:
         if self.result is not None:
             self._snapshot_image()  # brings the scale and the view up to date
         s = self.session
-        selected = None if s is None else s.selected
         current = self.notice.current()
         return {
             "mode": "live" if self.result is None else "snapshot",
@@ -477,7 +510,10 @@ class LiveSession:
             "snapshot_ok": None if self.result is None else bool(self.result.ok),
             "naming": s is not None,
             "bases": self._bases_state(),
-            "selected": selected,
+            "selected": self.selected,
+            "target": self.target,
+            "ring_in": self.ring_in,
+            "distance": self._distance_state(),
             "candidates": self._candidates_state(),
             "can_undo": s is not None and bool(s.added),
             "unconfirmed": 0 if s is None else sum(x.label is not None and not x.confirmed for x in s.idents),
@@ -502,10 +538,22 @@ class LiveSession:
             "card": None if r.card is None else int(r.card),
         }
 
-    def _bases_state(self) -> list[dict[str, Any]]:
+    def _found(self) -> list:
+        """The bases of a snapshot that passed, else an empty list."""
         if self.result is None or not self.result.ok:
             return []
-        found = self.result.scratch.get("bases") or []
+        return self.result.scratch.get("bases") or []
+
+    def _distance_state(self) -> dict[str, float] | None:
+        if self.selected is None or self.target is None:
+            return None
+        found = self._found()
+        a, b = found[self.selected], found[self.target]
+        gap = measure.rim_gap(a.center_mm, a.diameter_mm, b.center_mm, b.diameter_mm)[0]
+        return {"mm": _num(gap), "in": _num(gap / measure.MM_PER_INCH)}
+
+    def _bases_state(self) -> list[dict[str, Any]]:
+        found = self._found()
         if not found:
             return []
         centers = np.array([c.center_mm for c in found]).reshape(-1, 2)
@@ -525,11 +573,11 @@ class LiveSession:
         ]
 
     def _candidates_state(self) -> list[dict[str, Any]]:
-        s = self.session
-        if s is None or s.selected is None:
+        s, i = self.session, self.selected
+        if s is None or i is None:
             return []
-        scores = dict(s.idents[s.selected].candidates)
-        return [{"label": label, "score": _num(scores.get(label))} for label in s.menu()]
+        scores = dict(s.idents[i].candidates)
+        return [{"label": label, "score": _num(scores.get(label))} for label in s.menu(i)]
 
     # --- actions ----------------------------------------------------------------
 
@@ -545,6 +593,7 @@ class LiveSession:
 
     def _close_snapshot(self) -> None:
         self.result = self.snap = self.session = self.shown = None
+        self.selected = self.target = self.ring_in = None
 
     def _load_gallery(self) -> None:
         self.gallery_tried = True
@@ -601,14 +650,18 @@ class LiveSession:
         centers = np.array([c.center_mm for c in found]).reshape(-1, 2)
         return idt.LabelSession(centers, [c.diameter_mm for c in found], list(result.scratch.get("base_crops", [])), list(idents), gallery, backgrounds=list(result.scratch.get("base_backgrounds", [])))
 
-    def _deselect(self) -> None:
-        if self.session is not None:
-            self.session.selected = None
+    def _set_selected(self, index: int | None) -> None:
+        """A new selected base starts with no ring and no second base."""
+        self.selected = index
+        self.target = self.ring_in = None
         self.dirty = True
+
+    def _deselect(self) -> None:
+        self._set_selected(None)
 
     def _back(self) -> None:
         """First clear the selected base, then close the snapshot."""
-        if self.session is not None and self.session.selected is not None:
+        if self.selected is not None:
             self._deselect()
         else:
             self._close_snapshot()
@@ -619,7 +672,7 @@ class LiveSession:
             self.win.top_down = not self.win.top_down
         else:
             self.top_down = not self.top_down
-        self._deselect()
+        self.dirty = True
 
     def _toggle_grid(self) -> None:
         self.grid = not self.grid
@@ -646,32 +699,60 @@ class LiveSession:
         self.pipe.clear_reference()
         self.notice.say("empty-board reference cleared: single-frame detection")
 
+    def _base_under(self, x: float, y: float) -> int | None:
+        """The base at pixel (x, y) of the returned image."""
+        found = self._found()
+        p_mm = self.win.to_mm(x, y) if found else None
+        if p_mm is None:
+            return None
+        return measure.base_at([c.center_mm for c in found], [c.diameter_mm for c in found], p_mm)
+
     def _click(self, x: float, y: float) -> None:
-        """A click at pixel (x, y) of the returned image: select the base there."""
+        """A left click. The first base is the selected base, and another
+        base is the target of the distance. A click on one of them or on the
+        empty board takes it away."""
         if self.result is None:
             return
+        index = self._base_under(x, y)
+        if index is None or index == self.selected:
+            self._set_selected(None)
+        elif self.selected is None:
+            self._set_selected(index)
+        else:
+            self.target = None if index == self.target else index
+            self.dirty = True
+
+    def _select_for_names(self, x: float, y: float) -> None:
+        """A right click: the base there becomes the selected base, to fix its name."""
+        if self.result is None:
+            return
+        index = self._base_under(x, y)
+        self._set_selected(index)
         s = self.session
+        if index is None:
+            return
         if s is None:
             self.notice.error("push space to name the operatives")
+        elif not s.menu(index):
+            self.notice.error(f"no operative with a {s.diameters_mm[index]:g} mm base in the gallery: battlesight enroll")
+
+    def _set_ring(self, inches: int | None) -> None:
+        if self.selected is None:
+            self.notice.say("click a base first")
             return
+        self.ring_in = inches
         self.dirty = True
-        p_mm = self.win.to_mm(x, y)
-        if p_mm is None or s.pick(p_mm) is None:
-            s.selected = None
-            return
-        if not s.menu():
-            self.notice.error(f"no operative with a {s.diameters_mm[s.selected]:g} mm base in the gallery: battlesight enroll")
-            s.selected = None
 
     def _choose(self, label: str, index: int | None = None) -> None:
         """Set the name of base `index` (default: the selected base). A front
         end can give the index, so the order of a close and a choice of its
         popup does not matter."""
         s = self.session
-        index = None if s is None else s.selected if index is None else index
-        if index is None:
+        index = self.selected if index is None else index
+        if s is None or index is None:
             return
         path = s.choose(label, index)
+        self._set_selected(None)
         print(f"named {label}: added {path}")
         self.notice.ok(f"named {idt.split_label(label)[1]}, photo added to the gallery")
         self.dirty = True

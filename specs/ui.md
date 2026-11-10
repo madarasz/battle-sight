@@ -38,12 +38,14 @@ Not in scope: `enroll`, `gallery`, `calibrate`, `image-pipeline` and the tools. 
 | Grid | `g` | live, snapshot | on or off |
 | Take empty-board reference | `e` | live, snapshot | reference is set or not set |
 | Clear reference | `c` | live, snapshot | reference is set or not set |
-| Fix a name | click a base, click a name | snapshot with names | selected base, candidates, scores |
+| Select a base, measure to a second base | click a base, click another base | snapshot | selected base, target, distance |
+| Ring around the selected base | `1` to `9`, `0` removes | snapshot, base selected | ring size |
+| Fix a name | right click a base, click a name | snapshot with names | selected base, candidates, scores |
 | Accept all names | `a` | snapshot with names | number not confirmed |
 | Undo last gallery photo | `u` | snapshot with names | undo is possible or not |
 | Save camera frame | `s` | live, snapshot | message |
 | Key list | `h` | live, snapshot | replaced by tooltips, keep a help dialog |
-| Close menu, close snapshot | `Esc` | snapshot | back to live |
+| Clear selection, close snapshot | `Esc` | snapshot | back to live |
 | Quit | `q` | always | |
 
 Read-only status: drift status (the five `DriftStatus` values, and "board position updated", which is `OK` with `relocked`), lost tags or moved card, lens source, teams in use, messages of keys and clicks.
@@ -255,7 +257,10 @@ The state dict is JSON-safe. The worker sends it with each frame.
 | `snapshot_ok` | All stages of the snapshot passed. `null` in the live view. |
 | `naming` | The snapshot has names that the user can fix. |
 | `bases` | One entry per base: `index`, `diameter_mm`, `label`, `score` (`null` when not finite), `sure`, `confirmed`, `position_px` (pixels of the returned image). |
-| `selected` | Index of the selected base, or `null`. |
+| `selected` | Index of the selected base, or `null`. Also without names (after `b`). |
+| `target` | Index of the second base of a distance, or `null`. |
+| `ring_in` | Ring on the selected base, in inches (1 to 9), or `null`. |
+| `distance` | Rim to rim from `selected` to `target`: `{mm, in}`, or `null`. Layouts show only the inches, for example `5.93"`. |
 | `candidates` | Names for the selected base: list of `{label, score}`. |
 | `can_undo`, `unconfirmed` | Values for the undo and accept controls. |
 | `notice` | Last message for 6 s: `{text, level}`, level is `error`, `hint` or `done`. `null` when there is none. |
@@ -276,7 +281,7 @@ class Layout(Protocol):
     def on_state(self, state: dict) -> None: ...                  # show the new state
 ```
 
-A layout also has `name_popup: ClassVar[bool]`: `True` means that the shell opens its name popup at a clicked base. `shell` gives a layout `dispatch(id, **args)`, `new_video()` and `selected_crop()` (the crop of the `LiveFrame` that `on_state` shows). `build` calls `new_video()` one time: the shell connects the widget and keeps it as `self.video`. `build` raises `ValueError` for a bad value in `options`. The shell then shows a notice and builds the layout again with no options.
+A layout also has `name_popup: ClassVar[bool]`: `True` means that the shell opens its name popup at a right-clicked base. `shell` gives a layout `dispatch(id, **args)`, `new_video()` and `selected_crop()` (the crop of the `LiveFrame` that `on_state` shows). `build` calls `new_video()` one time: the shell connects the widget and keeps it as `self.video`. `build` raises `ValueError` for a bad value in `options`. The shell then shows a notice and builds the layout again with no options.
 
 `ui/layouts/__init__.py` holds a plain dict from name to class. There is no plugin discovery.
 
@@ -284,7 +289,7 @@ The shell gives all layouts these items:
 
 - A key for each action.
 - A menu bar made from the action list. A new action is available in all layouts with no layout work.
-- A default name choice: a `QMenu` popup at the clicked base (`popup`, not `exec`), from `selected` and `candidates`. A layout can replace it with its own list.
+- A default name choice: a `QMenu` popup at a right-clicked base (`popup`, not `exec`), from `selected` and `candidates`. A layout can replace it with its own list.
 
 Selection stays in the core, so it stays after a layout change. A layout can keep its own small UI state, for example an open drawer. That state goes away at a layout change.
 
@@ -392,21 +397,21 @@ Status on 2026-11-08: all steps of section 12 are in the work tree. They are not
 | `VideoWidget` | `ui/parts.py` | `set_image`, `clicked(x, y, global_pos)`, `width_changed(px)`. |
 | `ImageSource` | `camera.py` | One image file as a camera (`--image-source`). |
 
-Actions that section 3 does not list: `view.tags` (no key), `base.deselect` (no key), `board.click(x, y)`, `base.choose(label, index=None)`.
+Actions that section 3 does not list: `view.tags` (no key), `base.deselect` (no key), `board.click(x, y)` (left click), `board.select(x, y)` (right click: replaces the selection), `base.choose(label, index=None)`, `ring.1` to `ring.9`, `ring.clear`.
 
-The live view (`LiveSession.top_down`) and the snapshot (`BoardWindow.top_down`) have separate views. A snapshot always opens top-down. `v` clears the selected base, because the base positions change. The old `_Live`, `_Notice`, `_BoardWindow`, `overlay.Menu` and `HELP_KEYS` no longer exist.
+The live view (`LiveSession.top_down`) and the snapshot (`BoardWindow.top_down`) have separate views. A snapshot always opens top-down. `v` keeps the selected base, the ring and the distance, because they are in board mm. The old `_Live`, `_Notice`, `_BoardWindow`, `overlay.Menu` and `HELP_KEYS` no longer exist.
 
 ### Rules that the layouts need
 
-- `set_layout` closes the shell popup and disconnects its `aboutToHide` first, so that the selected base stays. After a change to `panel`, the base stays selected with no popup. `Esc` clears it, and a click opens the popup.
+- `set_layout` closes the shell popup, and the selected base stays. After a change to `panel`, the base stays selected with no popup. `Esc` clears it, and a right click opens the popup.
 - An action that a layout selects from a list sends `index` with `base.choose`.
 - A row of `OperativeList` sends `board.click` at `position_px`. There is no separate selection action.
 
 ### Traps that were found
 
 - **Keep the frame flow alive.** The worker sends a frame only after `gui_free()`, which is the last line of `_on_frame`. An exception before that line stops the video and leaves no error on the screen. `on_state` of a layout runs there, so `gui_free()` is in a `finally` block. Keep it there.
-- **Popup order.** `QMenu.aboutToHide` comes before `triggered`, so `base.deselect` comes before `base.choose` (seen in a command trace). This is why the popup sends `index` with `base.choose`. Keep this for each list that selects a name.
-- **Click and popup.** A `LiveFrame` can be older than a click. `_on_click` keeps the command number, and the popup opens only when `done` has reached it. Use the same check for each result of a click.
+- **Popup order.** A popup sends `index` with `base.choose`, so that the result does not depend on the selection when the command runs. Keep this for each list that selects a name.
+- **Click and popup.** A `LiveFrame` can be older than a click. `_on_right_click` keeps the command number, and the popup opens only when `done` has reached it. Use the same check for each result of a click.
 - **Stale click positions.** A click uses the image on the screen. If the view changed in the last frame, the core can miss the base. It happened with a scripted click about 0.5 s after `v` on a 12 MP photo. It is not fixed. A user can click again.
 - **Width.** `fit_to_width` only makes an image smaller, and it knows only the width. `VideoWidget` scales the rest, for example a portrait photo in a wide window.
 - **Saved reference.** With `--image-source`, the app does not load `empty_board.png`, because it is from another camera view. Without `--reference`, `e` does not write a file (`reference_path = None`).
