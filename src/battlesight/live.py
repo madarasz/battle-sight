@@ -345,6 +345,8 @@ class LiveSession:
         self.notice = Notice(clock=clock)
         self.teams = list(teams) if teams else None
         self.gallery_root = gallery_root
+        # Base sizes of the teams, from the team files: also for the b key, before the gallery loads.
+        self.pipe.set_roster(idt.roster_sizes(gallery_root, self.teams or idt.list_teams(gallery_root)))
         self.gallery: idt.Gallery | None = None
         self.gallery_tried = False
 
@@ -753,8 +755,13 @@ class LiveSession:
             return
         path = s.choose(label, index)
         self._set_selected(None)
-        print(f"named {label}: added {path}")
-        self.notice.ok(f"named {idt.split_label(label)[1]}, photo added to the gallery")
+        name = idt.split_label(label)[1]
+        if path is None:
+            print(f"named {label}: the gallery has this photo already, no photo added")
+            self.notice.ok(f"named {name}, the gallery has this photo already")
+        else:
+            print(f"named {label}: added {path}")
+            self.notice.ok(f"named {name}, photo added to the gallery")
         self.dirty = True
 
     def _accept_all(self) -> None:
@@ -762,18 +769,20 @@ class LiveSession:
             self.notice.error("push space first")
             return
         added = self.session.accept_all()
-        self.notice.ok(f"accepted {len(added)} names, added to the gallery")
+        new = sum(p is not None for p in added)
+        same = len(added) - new
+        self.notice.ok(f"accepted {len(added)} names, {new} photos added to the gallery" + (f", {same} already in the gallery" if same else ""))
         self.dirty = True
 
     def _undo(self) -> None:
         if self.session is None:
             self.notice.error("push space first")
             return
-        path = self.session.undo()
-        if path is None:
+        done, path = self.session.undo()
+        if not done:
             self.notice.error("nothing to undo")
         else:
-            self.notice.say(f"removed {path.name}")
+            self.notice.say("name removed" if path is None else f"removed {path.name}")
         self.dirty = True
 
     def _save_frame(self) -> None:

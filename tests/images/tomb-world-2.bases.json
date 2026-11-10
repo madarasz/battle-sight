@@ -1,6 +1,7 @@
 {
   "schema": 2,
   "comment": "Ground truth for the bases stage. See tomb-world-1.bases.json for the fields.",
+  "roster_mm": [32, 40],
   "bases": [
     {"center_mm": [239.8, 249.1], "diameter_mm": 40, "rim": "clear", "source": "detector", "note": ""},
     {"center_mm": [636.4, 165.3], "diameter_mm": 40, "rim": "clear", "source": "detector", "note": ""},

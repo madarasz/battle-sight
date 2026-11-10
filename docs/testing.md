@@ -21,9 +21,9 @@ default.
 
 | File | Tests |
 |---|---|
-| `tests/test_bases.py` | Circle fit on synthetic boards: each base size (centre within 0.5 mm, right class), neighbour sizes 25, 28, 32, a model over 40 % of the rim, a rim hidden too much (no result), touching bases, a base against a wall, light tokens and other sizes rejected, printed grid gives no bases, region limit. Reference mode: a static dark print is removed, noise is not foreground. Pipeline stage in single-frame and reference mode, no bases, bad reference, `image-pipeline --reference`, the `[bases]` config table. |
+| `tests/test_bases.py` | Circle fit on synthetic boards: each base size (centre within 0.5 mm, right class), neighbour sizes 25, 28, 32, a model over 40 % of the rim, a rim hidden too much (no result), touching bases, a base against a wall, light tokens and other sizes rejected, printed grid gives no bases, region limit. Reference mode: a static dark print is removed, noise is not foreground. Pipeline stage in single-frame and reference mode, no bases, bad reference, `image-pipeline --reference`, the `[bases]` config table. Known sizes (roster): other sizes dropped, 32 and 40 mm told apart, a rim visible on 45 % found only with a reference and a roster, `set_roster(None)`. |
 | `tests/test_bench.py` | Bases benchmark: one-to-one global greedy match (with the case where a per-truth match differs), tolerance, unknown size, decoy and `inside_base` categories. Metrics for a hand-made case, a negative photo, no detections, `done_ok`. Each baseline rule, a new photo, a better run. Ground truth schema 1 and 2, bad `rim` and `kind`. `tools/bench_bases.py` end to end on two synthetic photos (one with a reference): `bench.json`, `--mode`, `--set`, `--sweep`, `--write-baseline` and `--baseline`, exit codes, debug images. Click tool logic: fit of a known circle, class keys, hidden rim, estimate, save and load, undo, delete. |
-| `tests/test_ident_bench.py` | Identification benchmark with the colour-histogram embedder: losses split by cause, same result as the done test, metrics, each baseline rule, a gain on one photo that must not hide a loss on another, gallery fingerprint (content counts, cache does not). `tools/bench_ident.py` end to end: report, `--write-baseline` and `--baseline`, a baseline of another gallery, bad input. |
+| `tests/test_ident_bench.py` | Identification benchmark with the colour-histogram embedder: losses split by cause, same result as the done test, metrics, each baseline rule, a gain on one photo that must not hide a loss on another, gallery fingerprint (content counts, cache does not), copies of a test photo (found, also 1 mm off; hidden photos give no score; the run counts them and leaves them out). `tools/bench_ident.py` end to end: report, `--write-baseline` and `--baseline`, a baseline of another gallery, bad input. |
 | `tests/test_camera.py` | Camera source parsing: device index, stream URL, file path. The stream reader keeps only the newest frame, waits for a new frame, and stops at the end of the stream. Camera settings file: defaults without a file, save and load for a device and a stream, `--source` overrides the saved source, `list_cameras.py` keeps the lens when it saves a new source. No camera or network needed. |
 | `tests/test_config.py` | Load of `data/board.toml`. Rejection of bad tag ids and bad grid sections. Grid lines for Tomb World sections and for a Volkus 1 in pitch. |
 | `tests/test_ident.py` | Operative identity with the colour-histogram embedder (no model download): crop size, grey mask, rotation. One-to-one assignment (second choice, size limit, unknown). Gallery: `team.toml`, add, embedding cache reused, remove, two teams, leave-one-out. `ident` stage on synthetic boards with painted models, moved and turned between enrollment and game; no gallery, empty gallery. Fix logic (`LabelSession`: pick, menu order, a name moves, accept all, undo), done-test scoring, `[ident]` config, `enroll --images`, enroll `e` key (reference saved and used, no board writes nothing), enroll `Esc` (leaves the base choice, then quits), background crops (`bg/` folder not a photo, removed with the photo, cut only with a reference, banner without a reference), mask (keeps base and body, greys board and tokens, cuts a touching neighbour, refuses a wrong background, off by default, masked views and cache, `can_mask`, board colour ignored, stage report), `image-pipeline --team`, `gallery`. |
@@ -98,6 +98,7 @@ hidden base as `source: "estimate"`, with no `not_bases`.
 {
   "schema": 2,
   "comment": "free text",
+  "roster_mm": [32, 40],
   "bases": [
     {"center_mm": [329.8, 186.5], "diameter_mm": 40, "rim": "clear", "source": "clicked", "note": "tyranid, top centre", "points_mm": [[349.8, 186.5], "..."]},
     {"center_mm": [527.0, 268.0], "diameter_mm": 40, "rim": "hidden", "tol_mm": 8, "source": "estimate", "note": "tyranid against wall"},
@@ -111,6 +112,7 @@ hidden base as `source: "estimate"`, with no `not_bases`.
 
 | Field | Meaning |
 |---|---|
+| `roster_mm` | Base sizes of the teams in the game. Optional. The benchmark and the photo tests give them to the bases stage, as the app does from the gallery teams ([cli.md](cli.md), "Base detection", known sizes). They do not come from the gallery, so the bases baseline is the same on each machine. Without the field the stage searches all `bases.diameters_mm`. Write it by hand: the click tool keeps it. |
 | `bases[].center_mm` | Centre of the base bottom in board mm. |
 | `bases[].diameter_mm` | Base bottom diameter. `null` when not known: any size class matches, no size check. |
 | `bases[].rim` | `clear`: at least half of the bottom rim is visible. `hidden`: less (a model, a wall or a token hides it). |
@@ -161,17 +163,19 @@ changes the pixel distance to mm with the size of the tag at that corner
 (tag edge in pixels divided by `tags.size_mm`). Thus the same tolerance
 applies to photos with different resolutions and camera heights.
 
-In single-frame mode the two Tomb World photos give these results (the
-ground truth was checked on 4 px per mm crops):
+Results on the four test photos, with `roster_mm` 32 and 40 mm (baseline of
+2026-11-10):
 
-| Photo | Clear bases found | Hidden bases found | False bases |
-|---|---|---|---|
-| `tomb-world-1` | 5 of 5 | 1 of 3 (the model on the pink token, size unknown) | 2: a round barricade, a 50 mm spinner token |
-| `tomb-world-2` | 4 of 4 | 1 of 4 (a tyranid, as 32 mm) | 5: two circles on the large model, a hole in a wall grating, a wall part, the spinner token |
+| Photo | Mode | Bases found | False bases | Not found |
+|---|---|---|---|---|
+| `tomb-world-1` | single frame | 6 of 7 | 1 (a round barricade) | 1 hidden rim |
+| `tomb-world-2` | single frame | 5 of 8 | 0 | 2 hidden rims, 1 clear rim (a model on a teleporter) |
+| `tomb-world-4k-1` | reference | 10 of 10 | 0 | |
+| `tomb-world-4k-2` | reference | 9 of 9 | 0 | |
 
-The hidden tyranids next to walls show less than half of their rim. Their
-`tol_mm` is large because their true centre is not known to 2 mm. The done
-test needs photos with an empty-board reference.
+The two 4k photos pass the done test of priority 3. The bases that are not
+found are all on the photos without an empty-board reference: there the
+coverage limit must stay at `min_coverage`.
 
 The tests ignore the `ms` run times and the `message` texts.
 
@@ -428,7 +432,24 @@ ratios).
 | `naming_accuracy` | `right / (right + wrong + unknown)`: only the bases with a correct detection and size (1.0 when there are none). |
 | `score_right_mean` | Mean score of the right names. Only for information: no rule uses it. |
 | `done_ok`, `done`, `photos` | Done test: `accuracy` at least 0.9. For the total: all photos pass, the number that pass, the number of photos. |
+| `hidden` | Gallery photos that the run did not use for the photo: copies of a base of the photo (see below). |
 | `ms` | Time of all stages. |
+
+### Copies of a test photo in the gallery
+
+A name fix or the `a` key in the live app adds the crop of the base to the
+gallery. If you do this on a test photo (`battlesight --image-source
+tests/images/<name>.png`), the gallery then holds crops of the test photo. The
+benchmark would find the same image again and show a score of 1.00, which
+tells nothing about a moved operative.
+
+The benchmark thus does not use a gallery photo that shows the same frame as a
+found base of the photo (`ident_bench.copies_of`). It names the bases of that
+photo again without these photos. The table has a line with their number. The
+files stay in the gallery: they are correct photos for a game.
+
+The app does not save the same crop two times for one operative
+(`ident.DuplicatePhoto`), so a second fix on the same image adds no file.
 
 `uv run pytest -m photos` prints the table after the tests. It prints nothing
 when the photo tests did not run.

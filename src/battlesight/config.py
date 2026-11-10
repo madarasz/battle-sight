@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import dataclasses
 import tomllib
 from dataclasses import dataclass
 from pathlib import Path
@@ -50,6 +51,7 @@ class BoardConfig:
     bases_rim_ratio: float = 0.75
     bases_diff_threshold: float = 25.0
     bases_min_foreground: float = 0.25
+    bases_reference_min_coverage: float = 0.4  # min_coverage with a reference and known team sizes
     # Second search of the enroll mode, when the normal search finds no base.
     bases_relaxed_min_coverage: float = 0.3
     bases_relaxed_min_contrast: float = 6.0
@@ -78,15 +80,26 @@ class BoardConfig:
         ident = raw.get("ident", {})
         if "camera" in raw:
             raise ValueError("[camera] moved from the board config to data/camera.toml (focal_35mm, lens calibration)")
+        d = {f.name: f.default for f in dataclasses.fields(cls)}  # a key that the file leaves out gets the default above
         sections = grid.get("sections")
         if sections is not None and (len(sections) != 2 or min(sections) < 1):
             raise ValueError("grid.sections must hold two positive counts [nx, ny]")
-        diameters = tuple(float(d) for d in bases.get("diameters_mm", (25, 28, 32, 40, 50)))
+        diameters = tuple(float(v) for v in bases.get("diameters_mm", d["bases_diameters_mm"]))
         if not diameters or min(diameters) <= 0:
             raise ValueError("bases.diameters_mm must hold positive diameters")
         ids = tuple(int(i) for i in tags["ids"])
         if len(ids) != 4 or len(set(ids)) != 4:
             raise ValueError("tags.ids must hold four distinct tag ids")
+
+        def table(prefix: str, raw_table: dict, skip: tuple[str, ...] = ()) -> dict:
+            """Fields `<prefix>_<key>` from the TOML table, with the type of the default."""
+            out = {}
+            for name, default in d.items():
+                key = name[len(prefix) + 1 :]
+                if name.startswith(prefix + "_") and name not in skip:
+                    out[name] = type(default)(raw_table.get(key, default))
+            return out
+
         return cls(
             name=str(board.get("name", "board")),
             width_mm=float(board["width_mm"]),
@@ -97,37 +110,16 @@ class BoardConfig:
             drift_tolerance_mm=float(drift.get("tolerance_mm", 2.0)),
             lost_after_frames=int(drift.get("lost_after_frames", 3)),
             settle_frames=int(drift.get("settle_frames", 10)),
-            thickness_mm=float(board.get("thickness_mm", 0.0)),
-            grid_margin_mm=float(grid.get("margin_mm", 0.0)),
+            thickness_mm=float(board.get("thickness_mm", d["thickness_mm"])),
+            grid_margin_mm=float(grid.get("margin_mm", d["grid_margin_mm"])),
             grid_sections=None if sections is None else (int(sections[0]), int(sections[1])),
-            grid_pitch_mm=float(grid.get("pitch_mm", 25.4)),
-            grid_printed=bool(grid.get("printed", False)),
-            rectify_px_per_mm=float(rect.get("px_per_mm", 2.0)),
-            rectify_margin_mm=float(rect.get("margin_mm", 50.0)),
-            max_reproj_mm=float(rect.get("max_reproj_mm", 2.5)),
+            grid_pitch_mm=float(grid.get("pitch_mm", d["grid_pitch_mm"])),
+            grid_printed=bool(grid.get("printed", d["grid_printed"])),
+            max_reproj_mm=float(rect.get("max_reproj_mm", d["max_reproj_mm"])),
             bases_diameters_mm=tuple(sorted(diameters)),
-            bases_px_per_mm=float(bases.get("px_per_mm", 4.0)),
-            bases_diameter_tol_mm=float(bases.get("diameter_tol_mm", 3.0)),
-            bases_min_coverage=float(bases.get("min_coverage", 0.5)),
-            bases_min_contrast=float(bases.get("min_contrast", 12.0)),
-            bases_rim_ratio=float(bases.get("rim_ratio", 0.75)),
-            bases_diff_threshold=float(bases.get("diff_threshold", 25.0)),
-            bases_min_foreground=float(bases.get("min_foreground", 0.25)),
-            bases_relaxed_min_coverage=float(bases.get("relaxed_min_coverage", 0.3)),
-            bases_relaxed_min_contrast=float(bases.get("relaxed_min_contrast", 6.0)),
-            bases_relaxed_rim_ratio=float(bases.get("relaxed_rim_ratio", 0.9)),
-            bases_relaxed_max_found=int(bases.get("relaxed_max_found", 5)),
-            ident_model=str(ident.get("model", "facebook/dinov2-small")),
-            ident_crop_pad_mm=float(ident.get("crop_pad_mm", 25.0)),
-            ident_input_px=int(ident.get("input_px", 224)),
-            ident_rotations=int(ident.get("rotations", 8)),
-            ident_top_k=int(ident.get("top_k", 3)),
-            ident_min_score=float(ident.get("min_score", 0.5)),
-            ident_min_margin=float(ident.get("min_margin", 0.03)),
-            ident_mask=bool(ident.get("mask", False)),
-            ident_mask_threshold=float(ident.get("mask_threshold", 25.0)),
-            ident_mask_min_base=float(ident.get("mask_min_base", 0.25)),
-            ident_mask_max_fraction=float(ident.get("mask_max_fraction", 0.6)),
+            **table("rectify", rect),
+            **table("bases", bases, skip=("bases_diameters_mm",)),
+            **table("ident", ident),
         )
 
     def corner_index(self, tag_id: int) -> int | None:

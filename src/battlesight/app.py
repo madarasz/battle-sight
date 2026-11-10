@@ -192,10 +192,33 @@ def leave_one_out_text(right: int, total: int, misses: list[tuple[str, str]], sh
     return f"{text}: {', '.join(parts)}"
 
 
-def _print_leave_one_out(right: int, total: int, misses: list[tuple[str, str]]) -> None:
+WEAK_MIN_WRONG = 2  # an operative is weak with this many wrong photos or more,
+WEAK_MIN_RATE = 0.1  # and this part of its photos or more
+
+
+def weak_operatives(misses: list[tuple[str, str]], counts: dict[str, int]) -> list[tuple[str, int, int]]:
+    """(label, wrong photos, photos) of the operatives that the leave-one-out
+    test names wrong too often, worst first. These need more photos."""
+    wrong = Counter(true for true, _ in misses)
+    out = [(label, n, counts.get(label, 0)) for label, n in wrong.items() if n >= WEAK_MIN_WRONG and n >= WEAK_MIN_RATE * counts.get(label, 0)]
+    return sorted(out, key=lambda w: (-w[1] / max(w[2], 1), w[0]))
+
+
+def weak_text(weak: list[tuple[str, int, int]], shown: int = 3) -> str:
+    """Short advice for the info bar, "" when no operative is weak."""
+    if not weak:
+        return ""
+    names = [idt.split_label(label)[1] for label, _, _ in weak[:shown]]
+    return "add photos of " + ", ".join(names) + (f", +{len(weak) - shown} more" if len(weak) > shown else "")
+
+
+def _print_leave_one_out(right: int, total: int, misses: list[tuple[str, str]], counts: dict[str, int] | None = None) -> None:
     print(leave_one_out_text(right, total, []))
     for true, guess in misses:
         print(f"  {true} looked like {guess}")
+    for label, n, photos in weak_operatives(misses, counts or {}):
+        looks = ", ".join(idt.split_label(g)[1] for g, _ in Counter(guess for true, guess in misses if true == label).most_common(2))
+        print(f"  weak: {label}, {n} of {photos} photos wrong (looks like {looks}). Add photos of it: other places on the board, other directions.")
 
 
 def _enroll_background(result, i: int) -> np.ndarray | None:
@@ -243,7 +266,11 @@ def cmd_enroll(args: argparse.Namespace) -> int:
                 print(f"skip {path}: {len(cand)} bases{'' if base_mm is None else f' of {base_mm:g} mm'}, need exactly one")
                 continue
             c = result.scratch["bases"][cand[0]]
-            out = gallery.add(label, result.scratch["base_crops"][cand[0]], c.diameter_mm, _enroll_background(result, cand[0]))
+            try:
+                out = gallery.add(label, result.scratch["base_crops"][cand[0]], c.diameter_mm, _enroll_background(result, cand[0]))
+            except idt.DuplicatePhoto as exc:
+                print(f"skip {path}: {exc}")
+                continue
             op = gallery.operatives[gallery.index(label)]
             added += 1
             print(f"added {out} ({c.diameter_mm:g} mm at {np.round(c.center_mm, 1).tolist()} mm)")
@@ -290,7 +317,12 @@ def cmd_enroll(args: argparse.Namespace) -> int:
         nonlocal op
         r = state["result"]
         c = r.scratch["bases"][i]
-        path = gallery.add(label, r.scratch["base_crops"][i], c.diameter_mm, _enroll_background(r, i))
+        try:
+            path = gallery.add(label, r.scratch["base_crops"][i], c.diameter_mm, _enroll_background(r, i))
+        except idt.DuplicatePhoto:
+            state["result"] = None
+            notice.error(f"the gallery has this photo already: turn and move {op.name}, then push space")
+            return
         op = gallery.operatives[gallery.index(label)]
         state["added"].append(path)
         state["result"] = None
@@ -346,8 +378,9 @@ def cmd_enroll(args: argparse.Namespace) -> int:
                 notice.error(f"no reference: {exc}")
         if key == ord("t"):
             right, total, misses = gallery.leave_one_out()
-            _print_leave_one_out(right, total, misses)
-            state["test"] = (leave_one_out_text(right, total, misses), GREEN if total and not misses else YELLOW)
+            _print_leave_one_out(right, total, misses, gallery.counts())
+            advice = weak_text(weak_operatives(misses, gallery.counts()))
+            state["test"] = (leave_one_out_text(right, total, misses) + (f". {advice[0].upper()}{advice[1:]}" if advice else ""), GREEN if total and not misses else YELLOW)
         if key == ord(" "):
             snap = frame.copy()
             result = find(snap, False)
@@ -415,7 +448,7 @@ def cmd_gallery(args: argparse.Namespace) -> int:
     for op in gallery.operatives:
         base = "?" if op.base_mm is None else f"{op.base_mm:g} mm"
         print(f"  {op.label:32s} base {base:7s} {counts[op.label]:3d} photos")
-    _print_leave_one_out(*gallery.leave_one_out())
+    _print_leave_one_out(*gallery.leave_one_out(), counts)
     return 0
 
 

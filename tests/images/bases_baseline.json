@@ -14,6 +14,7 @@
     "min_coverage": 0.5,
     "min_foreground": 0.25,
     "px_per_mm": 4.0,
+    "reference_min_coverage": 0.4,
     "relaxed_max_found": 5,
     "relaxed_min_contrast": 6.0,
     "relaxed_min_coverage": 0.3,
@@ -21,7 +22,7 @@
     "rim_ratio": 0.75
   },
   "overrides": {},
-  "git": "9035073+dirty",
+  "git": "aaecf3f+dirty",
   "photos": [
     {
       "name": "tomb-world-1",
@@ -29,28 +30,28 @@
       "changed_fraction": null,
       "metrics": {
         "truth": 7,
-        "found": 8,
+        "found": 7,
         "matched": 6,
         "size_ok": 6,
         "wrong_size": 0,
         "missed": 1,
-        "false": 2,
+        "false": 1,
         "false_by_kind": {
-          "other": 2
+          "other": 1
         },
         "recall": 0.8571,
-        "precision": 0.75,
-        "f1": 0.8,
+        "precision": 0.8571,
+        "f1": 0.8571,
         "size_accuracy": 1.0,
         "center_err_mm": {
-          "median": 0.037,
-          "p90": 0.073,
-          "max": 0.073
+          "median": 0.06,
+          "p90": 0.301,
+          "max": 0.53
         },
         "done_ok": false,
         "done": 0,
         "photos": 1,
-        "ms": 2004.8
+        "ms": 846.6
       },
       "by_rim": {
         "clear": {
@@ -62,9 +63,9 @@
           "recall": 1.0,
           "size_accuracy": 1.0,
           "center_err_mm": {
-            "median": 0.037,
-            "p90": 0.073,
-            "max": 0.073
+            "median": 0.06,
+            "p90": 0.301,
+            "max": 0.53
           }
         },
         "hidden": {
@@ -85,44 +86,40 @@
       "changed_fraction": null,
       "metrics": {
         "truth": 8,
-        "found": 10,
-        "matched": 4,
-        "size_ok": 4,
+        "found": 5,
+        "matched": 5,
+        "size_ok": 5,
         "wrong_size": 0,
-        "missed": 4,
-        "false": 6,
-        "false_by_kind": {
-          "inside_base": 3,
-          "other": 2,
-          "print": 1
-        },
-        "recall": 0.5,
-        "precision": 0.4,
-        "f1": 0.4444,
+        "missed": 3,
+        "false": 0,
+        "false_by_kind": {},
+        "recall": 0.625,
+        "precision": 1.0,
+        "f1": 0.7692,
         "size_accuracy": 1.0,
         "center_err_mm": {
-          "median": 0.062,
-          "p90": 0.086,
-          "max": 0.092
+          "median": 0.081,
+          "p90": 0.552,
+          "max": 0.866
         },
         "done_ok": false,
         "done": 0,
         "photos": 1,
-        "ms": 1903.9
+        "ms": 828.2
       },
       "by_rim": {
         "clear": {
           "truth": 6,
-          "matched": 4,
-          "size_ok": 4,
+          "matched": 5,
+          "size_ok": 5,
           "wrong_size": 0,
-          "missed": 2,
-          "recall": 0.6667,
+          "missed": 1,
+          "recall": 0.8333,
           "size_accuracy": 1.0,
           "center_err_mm": {
-            "median": 0.062,
-            "p90": 0.086,
-            "max": 0.092
+            "median": 0.081,
+            "p90": 0.552,
+            "max": 0.866
           }
         },
         "hidden": {
@@ -144,41 +141,39 @@
       "metrics": {
         "truth": 10,
         "found": 10,
-        "matched": 9,
-        "size_ok": 9,
+        "matched": 10,
+        "size_ok": 10,
         "wrong_size": 0,
-        "missed": 1,
-        "false": 1,
-        "false_by_kind": {
-          "inside_base": 1
-        },
-        "recall": 0.9,
-        "precision": 0.9,
-        "f1": 0.9,
+        "missed": 0,
+        "false": 0,
+        "false_by_kind": {},
+        "recall": 1.0,
+        "precision": 1.0,
+        "f1": 1.0,
         "size_accuracy": 1.0,
         "center_err_mm": {
-          "median": 0.0,
-          "p90": 0.102,
-          "max": 0.51
+          "median": 0.034,
+          "p90": 0.54,
+          "max": 0.623
         },
-        "done_ok": false,
-        "done": 0,
+        "done_ok": true,
+        "done": 1,
         "photos": 1,
-        "ms": 1460.3
+        "ms": 786.6
       },
       "by_rim": {
         "clear": {
           "truth": 10,
-          "matched": 9,
-          "size_ok": 9,
+          "matched": 10,
+          "size_ok": 10,
           "wrong_size": 0,
-          "missed": 1,
-          "recall": 0.9,
+          "missed": 0,
+          "recall": 1.0,
           "size_accuracy": 1.0,
           "center_err_mm": {
-            "median": 0.0,
-            "p90": 0.102,
-            "max": 0.51
+            "median": 0.034,
+            "p90": 0.54,
+            "max": 0.623
           }
         },
         "hidden": {
@@ -199,51 +194,49 @@
       "changed_fraction": 0.035,
       "metrics": {
         "truth": 9,
-        "found": 7,
-        "matched": 6,
-        "size_ok": 6,
+        "found": 9,
+        "matched": 9,
+        "size_ok": 9,
         "wrong_size": 0,
-        "missed": 3,
-        "false": 1,
-        "false_by_kind": {
-          "other": 1
-        },
-        "recall": 0.6667,
-        "precision": 0.8571,
-        "f1": 0.75,
+        "missed": 0,
+        "false": 0,
+        "false_by_kind": {},
+        "recall": 1.0,
+        "precision": 1.0,
+        "f1": 1.0,
         "size_accuracy": 1.0,
         "center_err_mm": {
-          "median": 0.0,
-          "p90": 0.0,
-          "max": 0.0
+          "median": 0.032,
+          "p90": 0.395,
+          "max": 0.926
         },
-        "done_ok": false,
-        "done": 0,
+        "done_ok": true,
+        "done": 1,
         "photos": 1,
-        "ms": 1593.9
+        "ms": 761.1
       },
       "by_rim": {
         "clear": {
           "truth": 7,
-          "matched": 6,
-          "size_ok": 6,
+          "matched": 7,
+          "size_ok": 7,
           "wrong_size": 0,
-          "missed": 1,
-          "recall": 0.8571,
+          "missed": 0,
+          "recall": 1.0,
           "size_accuracy": 1.0,
           "center_err_mm": {
-            "median": 0.0,
-            "p90": 0.0,
-            "max": 0.0
+            "median": 0.032,
+            "p90": 0.395,
+            "max": 0.926
           }
         },
         "hidden": {
           "truth": 2,
-          "matched": 0,
-          "size_ok": 0,
+          "matched": 2,
+          "size_ok": 2,
           "wrong_size": 0,
-          "missed": 2,
-          "recall": 0.0,
+          "missed": 0,
+          "recall": 1.0,
           "size_accuracy": 1.0,
           "center_err_mm": null
         }
@@ -253,53 +246,51 @@
   "total": {
     "metrics": {
       "truth": 34,
-      "found": 35,
-      "matched": 25,
-      "size_ok": 25,
+      "found": 31,
+      "matched": 30,
+      "size_ok": 30,
       "wrong_size": 0,
-      "missed": 9,
-      "false": 10,
+      "missed": 4,
+      "false": 1,
       "false_by_kind": {
-        "inside_base": 4,
-        "other": 5,
-        "print": 1
+        "other": 1
       },
-      "recall": 0.7353,
-      "precision": 0.7143,
-      "f1": 0.7246,
+      "recall": 0.8824,
+      "precision": 0.9677,
+      "f1": 0.9231,
       "size_accuracy": 1.0,
       "center_err_mm": {
-        "median": 0.0,
-        "p90": 0.073,
-        "max": 0.51
+        "median": 0.054,
+        "p90": 0.558,
+        "max": 0.926
       },
       "done_ok": false,
-      "done": 0,
+      "done": 2,
       "photos": 4,
-      "ms": 6963.0
+      "ms": 3222.5
     },
     "by_rim": {
       "clear": {
         "truth": 29,
-        "matched": 25,
-        "size_ok": 25,
+        "matched": 28,
+        "size_ok": 28,
         "wrong_size": 0,
-        "missed": 4,
-        "recall": 0.8621,
+        "missed": 1,
+        "recall": 0.9655,
         "size_accuracy": 1.0,
         "center_err_mm": {
-          "median": 0.0,
-          "p90": 0.073,
-          "max": 0.51
+          "median": 0.054,
+          "p90": 0.558,
+          "max": 0.926
         }
       },
       "hidden": {
         "truth": 5,
-        "matched": 0,
-        "size_ok": 0,
+        "matched": 2,
+        "size_ok": 2,
         "wrong_size": 0,
-        "missed": 5,
-        "recall": 0.0,
+        "missed": 3,
+        "recall": 0.4,
         "size_accuracy": 1.0,
         "center_err_mm": null
       }
@@ -307,62 +298,55 @@
     "by_mode": {
       "reference": {
         "truth": 19,
-        "found": 17,
-        "matched": 15,
-        "size_ok": 15,
+        "found": 19,
+        "matched": 19,
+        "size_ok": 19,
         "wrong_size": 0,
-        "missed": 4,
-        "false": 2,
-        "false_by_kind": {
-          "inside_base": 1,
-          "other": 1
-        },
-        "recall": 0.7895,
-        "precision": 0.8824,
-        "f1": 0.8333,
+        "missed": 0,
+        "false": 0,
+        "false_by_kind": {},
+        "recall": 1.0,
+        "precision": 1.0,
+        "f1": 1.0,
         "size_accuracy": 1.0,
         "center_err_mm": {
-          "median": 0.0,
-          "p90": 0.0,
-          "max": 0.51
+          "median": 0.032,
+          "p90": 0.568,
+          "max": 0.926
         },
-        "done_ok": false,
-        "done": 0,
+        "done_ok": true,
+        "done": 2,
         "photos": 2,
-        "ms": 3054.2
+        "ms": 1547.8
       },
       "single_frame": {
         "truth": 15,
-        "found": 18,
-        "matched": 10,
-        "size_ok": 10,
+        "found": 12,
+        "matched": 11,
+        "size_ok": 11,
         "wrong_size": 0,
-        "missed": 5,
-        "false": 8,
+        "missed": 4,
+        "false": 1,
         "false_by_kind": {
-          "inside_base": 3,
-          "other": 4,
-          "print": 1
+          "other": 1
         },
-        "recall": 0.6667,
-        "precision": 0.5556,
-        "f1": 0.6061,
+        "recall": 0.7333,
+        "precision": 0.9167,
+        "f1": 0.8148,
         "size_accuracy": 1.0,
         "center_err_mm": {
-          "median": 0.049,
-          "p90": 0.075,
-          "max": 0.092
+          "median": 0.061,
+          "p90": 0.53,
+          "max": 0.866
         },
         "done_ok": false,
         "done": 0,
         "photos": 2,
-        "ms": 3908.8
+        "ms": 1674.8
       }
     },
     "false_by_kind": {
-      "inside_base": 4,
-      "other": 5,
-      "print": 1
+      "other": 1
     }
   }
 }

@@ -1,5 +1,6 @@
 {
   "schema": 2,
+  "roster_mm": [32, 40],
   "bases": [
     {"center_mm": [190.74, 179.13], "diameter_mm": 40, "rim": "clear", "source": "detector", "note": ""},
     {"center_mm": [150.97, 445.57], "diameter_mm": 40, "rim": "clear", "source": "detector", "note": ""},

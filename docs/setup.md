@@ -203,7 +203,8 @@ editor. All lengths are in millimetres.
 - `[bases]`, `diameters_mm`: the base sizes in mm that the app looks for.
   Measure a base at its bottom, where it touches the board. The default list
   is `[25, 28, 32, 40, 50]`. Remove the sizes that your teams do not use:
-  fewer sizes give fewer mistakes.
+  fewer sizes give fewer mistakes. After step 8 the app uses the base sizes
+  of your gallery teams, not this list.
 
 ## 6. Calibrate the lens (optional)
 
@@ -300,12 +301,17 @@ game camera. Read [Good gallery photos](#good-gallery-photos) first.
 5. If the app finds more than one base, click the base of the operative.
    If no yellow circle is on the base, push `Esc` to go back. The app adds no
    photo. Then push `space` again. If you took a bad photo, push `u` to remove
-   it.
+   it. The app does not keep the same photo two times. If the info bar shows
+   "the gallery has this photo already", turn and move the model, and push
+   `space` again.
 6. Push `q`. Do steps 2 to 6 for each operative of the team.
 
 To test the gallery during the enroll mode, push `t`. The app compares each
 gallery photo of the team with the other photos. The info bar shows the
-number of correct names and the operatives that the app mixes up. The result
+number of correct names and the operatives that the app mixes up. If an
+operative has too many wrong photos, the info bar also shows "Add photos of"
+and its name. Take more photos of this operative, at other places on the
+board and in other directions. The result
 stays until you add or remove a photo. The right side of the info bar shows
 the video resolution and the frame rate (FPS).
 
@@ -379,7 +385,9 @@ correction and each `a` adds photos from real games to the gallery.
 The app keeps the photos in `data/teams/kommandos/`, one folder for each
 operative. It also keeps the base size of each operative in
 `data/teams/kommandos/team.toml`. An operative gets a name only on a base
-of this size.
+of this size. In a game, the app looks only for the base sizes of the teams
+that you start it with. Thus a token or a terrain part of another size does
+not show as a base.
 
 To check the photos, run:
 
@@ -389,7 +397,8 @@ uv run battlesight gallery --team kommandos
 
 The app compares each photo with the other photos and shows how many it
 names correctly. If it mixes up two operatives, add more photos of these
-two operatives.
+two operatives. A line that starts with `weak:` names an operative with too
+many wrong photos. Add photos of this operative first.
 
 The first start downloads the recognition model (about 90 MB). This needs
 the internet one time only.

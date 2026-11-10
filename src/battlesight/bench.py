@@ -131,11 +131,14 @@ class GroundTruth:
     bases: list[Truth] = field(default_factory=list)
     not_bases: list[Decoy] = field(default_factory=list)
     comment: str = ""
+    roster_mm: tuple[float, ...] | None = None  # base sizes of the teams in the game, None = not known
 
     def to_dict(self) -> dict[str, Any]:
         out: dict[str, Any] = {"schema": TRUTH_SCHEMA}
         if self.comment:
             out["comment"] = self.comment
+        if self.roster_mm:
+            out["roster_mm"] = [_num(v) for v in self.roster_mm]
         out["bases"] = [t.to_dict() for t in self.bases]
         out["not_bases"] = [d.to_dict() for d in self.not_bases]
         return out
@@ -194,7 +197,10 @@ def parse_truth(raw: dict[str, Any]) -> GroundTruth:
         if n.get("diameter_mm") is None:
             raise ValueError(f"{what}: diameter_mm is required")
         decoys.append(Decoy(_pair(n.get("center_mm"), what), float(n["diameter_mm"]), kind, str(n.get("note", ""))))
-    return GroundTruth(bases, decoys, str(raw.get("comment", "")))
+    roster = raw.get("roster_mm")
+    if roster is not None and (not isinstance(roster, list) or not roster or any(not isinstance(v, (int, float)) or v <= 0 for v in roster)):
+        raise ValueError("roster_mm must be a list of base diameters in mm")
+    return GroundTruth(bases, decoys, str(raw.get("comment", "")), None if roster is None else tuple(sorted(float(v) for v in roster)))
 
 
 def load_truth(path: str | Path) -> GroundTruth:
@@ -211,6 +217,8 @@ def dump_truth(gt: GroundTruth) -> str:
     lines = ["{", f'  "schema": {d["schema"]},']
     if "comment" in d:
         lines.append(f'  "comment": {json.dumps(d["comment"])},')
+    if "roster_mm" in d:
+        lines.append(f'  "roster_mm": {json.dumps(d["roster_mm"])},')
     for key in ("bases", "not_bases"):
         items = d[key]
         end = "," if key == "bases" else ""

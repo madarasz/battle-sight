@@ -65,7 +65,9 @@ def results(cfg) -> dict[Path, FrameResult]:
             frame = cv2.imread(str(photo), cv2.IMREAD_COLOR)
             assert frame is not None, f"cannot read {photo}"
             ref = reference_path(photo)
-            pipe = Pipeline(cfg, reference=None if ref is None else cv2.imread(str(ref), cv2.IMREAD_COLOR))
+            truth = bench.truth_path(photo)
+            roster = bench.load_truth(truth).roster_mm if truth.is_file() else None  # as the bases benchmark tool
+            pipe = Pipeline(cfg, reference=None if ref is None else cv2.imread(str(ref), cv2.IMREAD_COLOR), roster=roster)
             self[photo] = pipe.analyze(frame, source=str(photo))
             return self[photo]
 

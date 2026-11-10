@@ -257,3 +257,74 @@ def test_tool_bad_input(setup, tmp_path, capsys):
     code = tool.main([str(setup / "photos"), "--config", str(setup / "board.toml"), "--gallery-root", str(empty), "-q"])
     assert code == 2 and "no gallery" in capsys.readouterr().err
     assert run_tool(setup, "--baseline", str(tmp_path / "missing.json")) == 2
+
+
+# --- gallery photos cut from a test photo ----------------------------------------
+
+
+def _crop(colour, at=(224, 224)) -> np.ndarray:
+    """A model on a board with a texture, as a photo has: a flat image gives no shift to measure."""
+    board = np.random.default_rng(7).integers(60, 120, (56, 56, 1), np.uint8)
+    img = np.ascontiguousarray(np.repeat(cv2.resize(board, (448, 448), interpolation=cv2.INTER_CUBIC)[..., None], 3, axis=2))
+    cv2.circle(img, at, 70, colour, -1)
+    cv2.rectangle(img, (at[0] - 20, at[1] - 90), (at[0] + 20, at[1] - 40), (255, 255, 255), -1)
+    return img
+
+
+def test_copies_of_finds_the_same_pixels_only(tmp_path):
+    cfg = BoardConfig.load(DEFAULT_CONFIG)
+    cfg = BoardConfig(**{**cfg.__dict__, "ident_model": "color-hist", "ident_mask": False})
+    g = make_gallery(tmp_path, cfg)
+    red = _crop((0, 0, 200))
+    g.add("orks/Nob", red, 32)
+    g.add("orks/Nob", _crop((0, 0, 200), at=(250, 200)), 32)  # the same model at another place
+    g.add("orks/Grot", _crop((0, 200, 0)), 32)
+    thumbs = ib.gallery_thumbs(g)
+    assert ib.copies_of([red], thumbs) == {0}
+    moved = np.roll(red, 4, axis=1)  # another fit of the same rim: the centre is 1 mm off
+    assert ib.copies_of([moved], thumbs) == {0}
+    assert ib.copies_of([_crop((200, 0, 0))], thumbs) == set()
+    assert ib.copies_of([cv2.resize(red, (400, 400))], thumbs) == set()  # crop of another base size
+
+
+def test_hidden_gallery_photos_give_no_score(tmp_path):
+    cfg = BoardConfig.load(DEFAULT_CONFIG)
+    cfg = BoardConfig(**{**cfg.__dict__, "ident_model": "color-hist", "ident_mask": False, "ident_top_k": 1})
+    g = make_gallery(tmp_path, cfg)
+    red = _crop((0, 0, 200))
+    g.add("orks/Nob", red, 32)
+    g.add("orks/Nob", _crop((0, 40, 160), at=(250, 200)), 32)
+    emb = g.embedder.embed([idt.prepare(red, 32, g.params)])
+    j = g.index("orks/Nob")
+    full = g.scores(emb)[0, j]
+    assert full > 0.999  # the copy itself
+    g.hidden = {0}
+    assert g.scores(emb)[0, j] < full
+    g.hidden = {0, 1}
+    assert not np.isfinite(g.scores(emb)[0, j])
+
+
+def test_run_does_not_use_a_copy_of_the_test_photo(setup, tmp_path):
+    """A name fix on the test photo puts its crops in the gallery. The run
+    must count them and leave them out."""
+    import shutil
+
+    from battlesight.pipeline import Pipeline
+
+    root = tmp_path / "gallery"
+    shutil.copytree(setup / "gallery", root)
+    cfg = BoardConfig.load(setup / "board.toml")
+    photo = setup / "photos" / "game.png"
+    g = idt.Gallery.for_teams(("orks",), cfg, root)
+    r = Pipeline(cfg, gallery=g).analyze(cv2.imread(str(photo)))
+    found = r.scratch["bases"]
+    truth_file = idt.IdentTruth.load(setup / "photos" / "game.ident.json")
+    for c, label in truth_file.bases:
+        i = int(np.argmin([np.linalg.norm(b.center_mm - c) for b in found]))
+        g.add(label, r.scratch["base_crops"][i], found[i].diameter_mm)
+    scores, _state = ib.run([photo], cfg, root)
+    assert scores[0].hidden == 3 and ib.metrics(scores)["hidden"] == 3
+    assert "3 gallery photos not used" in ib.format_table(scores)
+    plain, _ = ib.run([photo], cfg, setup / "gallery")
+    assert plain[0].hidden == 0 and "not used" not in ib.format_table(plain)
+    assert [round(v, 4) for v in scores[0].right] == [round(v, 4) for v in plain[0].right]  # same scores as without the copies

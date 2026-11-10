@@ -79,7 +79,7 @@ class Annotator:
     """Ground truth edit state. No window calls, so tests can drive it."""
 
     def __init__(self, gt: GroundTruth, classes: tuple[float, ...], proposals: list[dict] | None = None, operatives: list[idt.Operative] | None = None, suggest=None):
-        self.gt = GroundTruth(list(gt.bases), list(gt.not_bases), gt.comment)
+        self.gt = GroundTruth(list(gt.bases), list(gt.not_bases), gt.comment, gt.roster_mm)
         self.classes = tuple(classes)
         self.proposals = list(proposals or [])
         self.operatives = list(operatives or [])
@@ -537,7 +537,7 @@ def run_window(photo: Path, cfg, prefill: bool, display: tuple[int, int], teams:
             rr = Pipeline(cfg, "rectify", cam).analyze(ref_frame, source=str(ref_path))
             if rr.ok:
                 ref = bases_image(ref_frame, rr.scratch["view"], cfg)
-        found, _ = detect_bases(img, cfg, ref)
+        found, _ = detect_bases(img, cfg, ref, sizes=gt.roster_mm)
         proposals = [c.to_dict() for c in found]
         print(f"{len(proposals)} detector proposals" + (f" (reference {ref_path.name})" if ref is not None else ""))
     suggest = None

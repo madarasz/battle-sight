@@ -21,7 +21,7 @@ from __future__ import annotations
 import dataclasses
 import time
 from collections import Counter
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -163,7 +163,11 @@ class Pipeline:
     stage looks only where the frame changed.
 
     `gallery` (ident.Gallery) holds the enrolled operatives. Without it the
-    ident stage passes and names nothing."""
+    ident stage passes and names nothing.
+
+    `roster` is the list of base sizes on the board (mm). Without it the
+    bases stage uses the sizes of the gallery operatives, and without a
+    gallery all sizes of the config (`detect_bases`)."""
 
     def __init__(
         self,
@@ -172,6 +176,7 @@ class Pipeline:
         camera: CameraSettings | None = None,
         reference: np.ndarray | None = None,
         gallery: idt.Gallery | None = None,
+        roster: Sequence[float] | None = None,
     ):
         self.cfg = cfg
         self.camera = camera or CameraSettings()
@@ -181,6 +186,14 @@ class Pipeline:
             self.set_reference(reference)
         if gallery is not None:
             self.cache["gallery"] = gallery
+        self.set_roster(roster)
+
+    def set_roster(self, sizes: Sequence[float] | None) -> None:
+        """Base sizes on the board, or None (the gallery sizes, else the config)."""
+        if sizes:
+            self.cache["roster"] = tuple(sorted(float(s) for s in sizes))
+        else:
+            self.cache.pop("roster", None)
 
     @property
     def gallery(self) -> idt.Gallery | None:
@@ -437,11 +450,21 @@ def detect_bases(
     reference: np.ndarray | None,
     search: BasesSearch | None = None,
     area: np.ndarray | None = None,
+    sizes: Sequence[float] | None = None,
 ) -> tuple[list[circles.Circle], np.ndarray | None]:
     """Bases in the bases image `img` (`bases_image`). `reference` is the
     bases image of the empty board, or None. `search` and `area` (bool mask of
-    `search.area_px`) limit the search. Returns (circles, foreground mask or
-    None). Raises ValueError when the reference has another size."""
+    `search.area_px`) limit the search. `sizes` are the base sizes of the
+    teams on the board (the roster), None = not known. Returns (circles,
+    foreground mask or None). Raises ValueError when the reference has another
+    size.
+
+    With known sizes (`sizes` or `search.diameters_mm`) the fit keeps the
+    radius of each size: a free fit goes to the model or its shadow when part
+    of the rim is hidden. With a reference too, `reference_min_coverage`
+    replaces `min_coverage`, because the changed area stops false circles.
+    Without known sizes the fit is free over all `diameters_mm`: sizes that
+    are 3 mm apart cannot be told apart with a fixed radius."""
     region = _board_region(cfg, img.shape)
     if area is not None:
         region &= area
@@ -451,8 +474,11 @@ def detect_bases(
             raise ValueError("empty-board reference has another size: set it again")
         fg = circles.foreground_mask(img, reference, cfg.bases_diff_threshold)
     params = circles.CircleParams.from_config(cfg, BASES_MARGIN_MM)
-    if search is not None and search.diameters_mm is not None:
-        params = dataclasses.replace(params, diameters_mm=search.diameters_mm)
+    known = search.diameters_mm if search is not None and search.diameters_mm is not None else sizes
+    if known:
+        params = dataclasses.replace(params, diameters_mm=tuple(known), fixed_radius=True)
+        if fg is not None:
+            params = dataclasses.replace(params, min_coverage=min(cfg.bases_min_coverage, cfg.bases_reference_min_coverage))
     relaxed = search is not None and search.relaxed
     if relaxed:
         params = dataclasses.replace(
@@ -483,7 +509,9 @@ def _bases(ctx: Context) -> StageResult:
     try:
         search: BasesSearch | None = ctx.scratch.get("bases_search")
         area = None if search is None or search.area_px is None else _search_area(search.area_px, view, cfg, img.shape)
-        found, fg = detect_bases(img, cfg, ref, search, area)
+        gallery: idt.Gallery | None = ctx.cache.get("gallery")
+        roster = ctx.cache.get("roster") or (None if gallery is None else gallery.base_sizes())
+        found, fg = detect_bases(img, cfg, ref, search, area, roster)
     except ValueError as exc:
         return StageResult(ok=False, message=str(exc))
     ctx.scratch["bases"] = found
@@ -493,7 +521,7 @@ def _bases(ctx: Context) -> StageResult:
     data = {
         "mode": mode,
         "px_per_mm": cfg.bases_px_per_mm,
-        "diameters_mm": list(cfg.bases_diameters_mm),
+        "diameters_mm": list(search.diameters_mm if search is not None and search.diameters_mm is not None else roster or cfg.bases_diameters_mm),
         "changed_fraction": changed_fraction(fg, cfg),
         "bases": [{**c.to_dict(), "center_px": _round(p)} for c, p in zip(found, centers_px)],
     }

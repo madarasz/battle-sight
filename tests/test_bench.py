@@ -709,3 +709,15 @@ def test_annotate_expected_not_written_on_a_failed_stage(tmp_path):
     path, message = tool.write_expected(tmp_path / "blank.png", blank, make_config(), CameraSettings())
     assert path is None and "not written" in message
     assert not (tmp_path / "blank.expected.json").exists()
+
+
+def test_truth_roster_round_trip(tmp_path):
+    raw = {"schema": 2, "roster_mm": [40, 32], "bases": [], "not_bases": []}
+    gt = bench.parse_truth(raw)
+    assert gt.roster_mm == (32.0, 40.0)
+    path = tmp_path / "x.bases.json"
+    bench.save_truth(path, gt)
+    assert bench.load_truth(path).roster_mm == (32.0, 40.0)
+    assert bench.parse_truth({"schema": 2, "bases": []}).roster_mm is None
+    with pytest.raises(ValueError):
+        bench.parse_truth({"schema": 2, "roster_mm": [], "bases": []})

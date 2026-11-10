@@ -58,6 +58,7 @@ rim_ratio = 0.75         # the rim is at most this part of the board brightness 
 # With an empty-board reference only:
 diff_threshold = 25.0    # colour change (Lab distance) that counts as "changed"
 min_foreground = 0.25    # part of the base disc that must be changed
+reference_min_coverage = 0.4   # min_coverage when the app also knows the base sizes of the teams
 # Second search of the enroll mode, when the normal search finds no base. It
 # keeps the base size and shows the results for a click, because it can be wrong.
 relaxed_min_coverage = 0.3

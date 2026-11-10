@@ -177,12 +177,15 @@ def prepare(paths: list[Path], cfg: BoardConfig, mode: str, log) -> list[Prepare
     return out
 
 
-def run(prepared: list[Prepared], cfg: BoardConfig) -> list[bench.PhotoScore]:
+def run(prepared: list[Prepared], cfg: BoardConfig, roster: bool = True) -> list[bench.PhotoScore]:
+    """Scores of the photos. With `roster` each photo uses the `roster_mm` of
+    its ground truth (the base sizes of the teams), as the app does with a
+    gallery. Without it all `diameters_mm` of the config are possible."""
     scores = []
     for p in prepared:
         img, ref = p.bases_images(cfg)
         t0 = time.perf_counter()
-        found, fg = detect_bases(img, cfg, ref)
+        found, fg = detect_bases(img, cfg, ref, sizes=p.truth.roster_mm if roster else None)
         ms = (time.perf_counter() - t0) * 1000.0
         mode = "single_frame" if ref is None else "reference"
         scores.append(bench.score(p.name, p.truth, [c.to_dict() for c in found], mode, changed_fraction(fg, cfg), ms))
@@ -346,7 +349,7 @@ def main(argv: list[str] | None = None) -> int:
         run_cfg = apply(cfg, ov)
         if len(combos) > 1:
             log(f"run {json_overrides(ov)}")
-        scores = run(prepared, run_cfg)
+        scores = run(prepared, run_cfg, roster="diameters_mm" not in ov)  # a diameters_mm value replaces the roster
         tuned = [s for s in scores if s.name not in holdout]
         held = [s for s in scores if s.name in holdout]
         rows.append(

@@ -270,3 +270,51 @@ def test_default_search_does_not_use_relaxed_values():
     img, _ = render_board(cfg, px_per_mm=2.0, bases=(Base((300.0, 300.0), 40.0),))
     plain = Pipeline(cfg, "bases").analyze(img)
     assert len(plain.scratch["bases"]) == 1 and plain.scratch["bases_search"] is None
+
+
+# --- known base sizes (roster) ------------------------------------------------
+
+
+def test_roster_drops_sizes_that_no_team_has():
+    cfg = make_config()
+    a, b = Base((200.0, 200.0), 40.0), Base((450.0, 400.0), 50.0)
+    img, _ = render_board(cfg, px_per_mm=2.0, bases=(a, b))
+    assert len(Pipeline(cfg, "bases").analyze(img).scratch["bases"]) == 2
+    r = Pipeline(cfg, "bases", roster=(32.0, 40.0)).analyze(img)
+    found = r.scratch["bases"]
+    assert [c.diameter_mm for c in found] == [40.0] and match(found, a, 1.0) is not None
+    assert r.stages["bases"].data["diameters_mm"] == [32.0, 40.0]
+
+
+def test_roster_tells_its_sizes_apart():
+    cfg = make_config()
+    bases = (Base((200.0, 200.0), 32.0), Base((450.0, 400.0), 40.0))
+    img, _ = render_board(cfg, px_per_mm=2.0, bases=bases)
+    found = Pipeline(cfg, "bases", roster=(32.0, 40.0)).analyze(img).scratch["bases"]
+    assert len(found) == 2
+    for b in bases:
+        c = match(found, b, 1.0)
+        assert c is not None and c.diameter_mm == b.diameter_mm
+
+
+def test_roster_with_reference_finds_a_half_hidden_rim():
+    """Rim visible on 45 % of the circle: under min_coverage (0.5), over
+    reference_min_coverage (0.4). Only the known sizes plus the reference
+    may use the lower limit."""
+    cfg = make_config()
+    base = Base((300.0, 300.0), 40.0, model_deg=0.0, model_span_deg=198.0)
+    img, _ = render_board(cfg, px_per_mm=2.0, bases=(base,))
+    empty, _ = render_board(cfg, px_per_mm=2.0)
+    assert not Pipeline(cfg, "bases", reference=empty).analyze(img).scratch["bases"]  # sizes not known
+    assert not Pipeline(cfg, "bases", roster=(32.0, 40.0)).analyze(img).scratch["bases"]  # no reference
+    found = Pipeline(cfg, "bases", reference=empty, roster=(32.0, 40.0)).analyze(img).scratch["bases"]
+    assert len(found) == 1 and match(found, base, 2.0) is not None and found[0].diameter_mm == 40.0
+
+
+def test_set_roster_none_gives_all_sizes_again():
+    cfg = make_config()
+    img, _ = render_board(cfg, px_per_mm=2.0, bases=(Base((300.0, 300.0), 50.0),))
+    pipe = Pipeline(cfg, "bases", roster=(32.0,))
+    assert not pipe.analyze(img).scratch["bases"]
+    pipe.set_roster(None)
+    assert len(pipe.analyze(img).scratch["bases"]) == 1

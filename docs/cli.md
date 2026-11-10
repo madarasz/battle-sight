@@ -238,7 +238,11 @@ size to `data/teams/<team>/team.toml` (created when new). Live: push
 the crop goes in at once; with more, click the base, or push `Esc` to leave the
 choice without a crop (`Esc` outside the choice quits). Turn and move the model
 between grabs: 10 to 20 crops from different places on the board (the
-parallax changes the look near the edges). `u` undoes the last crop, `v`
+parallax changes the look near the edges). A crop with the same pixels as a
+gallery photo of the operative is not saved (`ident.DuplicatePhoto`,
+`ident.same_photo`): the banner tells the user to turn and move the model. Two
+camera frames are never the same, so this stops only a second grab of one
+image (`--images`, or a name fix on `--image-source`). `u` undoes the last crop, `v`
 changes the view, `q` quits. `e` uses the current frame as the empty-board
 reference and writes it to `--reference` (default
 `data/snapshots/empty_board.png`, the file that the live app also uses). The
@@ -249,8 +253,9 @@ square of the empty board at `<operative>/bg/<crop name>`
 grab. Without a reference there is no background crop and the banner says so.
 `t` runs the leave-one-out check of `gallery` on
 the loaded team and keeps a strip under the banner until the gallery changes:
-the score and the two most frequent misses (`app.leave_one_out_text`). All
-misses go to the Terminal. The banner shows the camera frame size and the measured frame rate of the window.
+the score, the two most frequent misses (`app.leave_one_out_text`) and the
+operatives that need more photos (`app.weak_text`). All misses and one `weak:`
+line for each such operative go to the Terminal (see `gallery`). The banner shows the camera frame size and the measured frame rate of the window.
 
 Zoom: `+` (or `=`) and `-` change a digital zoom around the mouse pointer, `0`
 removes it (`live.ZoomView`). It does not add camera detail, because the crop
@@ -259,10 +264,10 @@ view (`v` has no effect) and `space` searches only base centres inside the
 shown rectangle (`pipeline.BasesSearch.area_px`).
 
 `space` first runs the normal search, with only the base size of the operative
-when `team.toml` has one. When that finds no base, a second search runs
-(`BasesSearch.relaxed`, `circles._verify_fixed`): the class radius is fixed from
-the start, the thresholds are `bases.relaxed_*`, and the empty-board reference
-is not used. It is a guess, so it never adds a crop by itself: the user clicks a
+when `team.toml` has one. The size is then known, so this search keeps the
+radius of that size ("Base detection", known sizes). When that finds no base, a
+second search runs (`BasesSearch.relaxed`): the same fixed-radius fit, the
+thresholds are `bases.relaxed_*`, and the empty-board reference is not used. It is a guess, so it never adds a crop by itself: the user clicks a
 yellow circle. Without zoom it searches the full board and the true base is
 less often in the shown circles. On the test photos, with a search area around
 each base: 15 of 16 bases found, 14 in the first 5 (normal search: 10).
@@ -271,7 +276,8 @@ When a corner card is not seen, a red strip
 names the missing cards (`app.corner_warning`, `app._CornerCheck`).
 
 `--images`: takes the crop from saved photos. A photo with no base or more
-than one base of the size is skipped with a message. Exit 0 when at least one
+than one base of the size is skipped with a message. So is a photo that the
+gallery has already. Exit 0 when at least one
 crop was added, 1 when none, 2 on a bad input or name. A name must not be
 empty, start with `.`, or hold `/`, `\` or `:`. A `--base-mm` that differs
 from `team.toml` is an error.
@@ -285,7 +291,9 @@ uv run battlesight gallery --team NAME [NAME2] [--gallery-root data/teams] [--co
 Lists each operative with its base size and photo count. Then it checks each
 photo against the rest of the gallery (leave-one-out, size limit on, no
 one-to-one assignment) and prints the score and the misses (`A looked like
-B`). A miss shows which operatives need more or better photos.
+B`). Then one `weak:` line for each operative with 2 wrong photos or more that
+are 10 % of its photos or more (`app.weak_operatives`), worst first: the wrong
+count, the operatives it looks like, and the advice to add photos of it.
 
 ## `calibrate`: lens calibration
 
@@ -526,7 +534,7 @@ Fields of the `bases` stage:
 |---|---|
 | `mode` | `reference` (an empty-board reference is set) or `single_frame`. |
 | `px_per_mm` | Scale of the top-down image for the circle fit (`bases.px_per_mm`). |
-| `diameters_mm` | The size classes from the config. |
+| `diameters_mm` | The size classes of the search: the base sizes of the teams when they are known ("Base detection", known sizes), else the config values. |
 | `changed_fraction` | Reference mode: part of the board that differs from the reference. A value near 1 means other light or a moved camera: take the reference again. `null` in single-frame mode. |
 | `bases` | Found bases, best rim coverage first. Each: `center_mm` (board mm), `center_px` (frame pixels), `diameter_mm` (size class), `fit_diameter_mm` (free circle fit before the class was chosen), `coverage` (0..1, part of the rim that supports the fit), `rms_mm` (fit residual), `contrast` (median Lab L step from the rim to the board). |
 
@@ -640,6 +648,28 @@ uses only the dark bevel next to the bottom edge. On the far side of a base
 at a board corner (about 35 deg view angle) the top edge can hide the
 bottom edge by about 0.5 mm.
 
+Known sizes. The stage knows the base sizes on the board when it has a
+roster: `Pipeline(roster=...)` or `set_roster`, else the sizes of the gallery
+operatives (`Gallery.base_sizes`, from `team.toml`), else the one size of an
+`enroll` search. The live app sets the roster from the team files at the start
+(`ident.roster_sizes`), so the `b` key has it before the gallery loads. An
+operative with no size in `team.toml` gives no roster. With known sizes
+(`pipeline.detect_bases`):
+
+- Only these sizes are searched. A base of another size is not found. On the
+  test photos this removes 8 of 10 false bases (no team there has 25, 28 or
+  50 mm bases).
+- Steps 3 and 4 keep the radius of each size from the start
+  (`circles._verify_fixed`). A free fit goes to the model or its shadow when
+  a part of the rim is hidden: 7 of the 9 missed bases of the test photos have
+  a fixed-radius fit with a coverage of 0.41 to 0.52, less than 1.1 mm off.
+- With a reference too, the coverage limit is `bases.reference_min_coverage`
+  (0.4). The changed area then stops the false circles. Without a reference
+  this value gives 20 to 30 false bases on a photo, so `min_coverage` stays.
+
+Without known sizes the fit is free, as in steps 3 and 4: sizes that are 3 mm
+apart cannot be told apart with a fixed radius.
+
 Single-frame mode (no reference) also finds round things with a dark rim:
 tokens with a dark ring, round barricades, holes in a wall grating. Bases
 with less than `min_coverage` of the rim visible (a model or a wall over
@@ -659,6 +689,7 @@ measures them.
 | `rim_ratio` | `0.75` | Rim band L at most this part of the board L outside. |
 | `diff_threshold` | `25.0` | Reference mode: Lab distance that counts as changed. |
 | `min_foreground` | `0.25` | Reference mode: changed part of the base disc. |
+| `reference_min_coverage` | `0.4` | `min_coverage` in reference mode with known base sizes. |
 | `relaxed_min_coverage` | `0.3` | `enroll` second search: `min_coverage`. |
 | `relaxed_min_contrast` | `6.0` | `enroll` second search: `min_contrast`. |
 | `relaxed_rim_ratio` | `0.9` | `enroll` second search: `rim_ratio`. |
@@ -756,7 +787,7 @@ uv run tools/bench_bases.py [PATH ...] [--config data/board.toml]
 | `PATH` | `tests/images` | Photos or folders. Only photos with a `<name>.bases.json` count. `<name>.empty.*` is a reference, not a photo. |
 | `--config` | `data/board.toml` | Board config. |
 | `--mode` | `auto` | `auto`: reference mode when `<name>.empty.*` exists. `single`: never use the reference. `reference`: only photos with a reference. |
-| `--set` | none | Override a `[bases]` key for this run: `--set min_coverage=0.4 --set diameters_mm=32,40`. Unknown key or bad value: exit 2. |
+| `--set` | none | Override a `[bases]` key for this run: `--set min_coverage=0.4 --set diameters_mm=32,40`. Unknown key or bad value: exit 2. A `diameters_mm` value (also in `--sweep`) turns off the roster of the photos: the search is then free over these sizes. |
 | `--sweep` | none | Run all combinations. Values split by `,`. For `diameters_mm` split the alternatives by `;`: `--sweep "diameters_mm=32,40;25,28,32,40,50"`. Prints one total row per combination, best `f1` first, then fewer `false`. The table, `bench.json` and the images are for the best one. A `px_per_mm` sweep makes a new bases image for each value (slow). |
 | `--out` | `out/bench` | Folder for `<name>.bench.jpg` and `bench.json`. |
 | `--json` | none | Also write `bench.json` to a file, or `-` for stdout (the table then goes to stderr). |
@@ -846,6 +877,15 @@ The tool runs all stages with the nominal lens and the empty-board reference
 when there is one, as the done test does. It does not read
 `data/camera.toml`. The code is in `src/battlesight/ident_bench.py`.
 
+Copies of a test photo. A name fix in the live app on a test photo
+(`--image-source`) puts crops of that photo in the gallery. With such a crop
+the benchmark only finds the same image again (score 1.00). For each photo the
+tool finds the gallery photos that show the same frame as a found base
+(`ident_bench.copies_of`: half-size crops, a small move from the phase
+correlation, under 0.3 % of the centre pixels more than 32 levels off) and
+names the bases again without them (`Gallery.hidden`). The files stay in the
+gallery. The table has one line with the count, the metrics have `hidden`.
+
 Exit codes: 0 done, 1 worse than `--baseline`, 2 bad input (no photo with
 names, unreadable file, a team with no gallery or no gallery photos, a failed
 stage, a baseline of another gallery).
@@ -864,7 +904,7 @@ The report:
   "git": "9035073+dirty",
   "photos": [
     {"name": "tomb-world-1", "mode": "single_frame",
-     "metrics": {"truth": 7, "right": 4, "...": "..."},
+     "metrics": {"truth": 7, "right": 4, "hidden": 0, "...": "..."},
      "wrong": [{"true": "Raveners/Felltalon", "got": "Raveners/Prime", "sure": false}],
      "unknown": [],
      "wrong_size": [{"true": "Deathwatch/Sergeant", "found_mm": 28.0, "true_mm": 32.0}],

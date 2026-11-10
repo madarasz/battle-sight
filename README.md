@@ -226,12 +226,17 @@ the image, and the grid sits on the printed lines.
 - **A base is not found.** The app must see at least half of the black
   edge of the base. A model that leans over the edge, a wall, or a shadow can
   hide too much of it. Move the camera nearer to the top of the board, or
-  turn the model.
+  turn the model. With the empty-board photo (`e`), the app finds a base
+  with less of its edge in view.
+- **A base of a new operative is not found.** The app looks only for the
+  base sizes of your gallery teams. Teach the app this operative (setup
+  step 8) with its base size.
 - **A token or a terrain part shows as a base.** Take the empty-board photo
   (`e`) after you set up the terrain and the tokens,
   before the operatives go on the board.
-- **The size of a base is wrong.** Make sure that `diameters_mm` in
-  `data/board.toml` lists only the base sizes of your teams.
+- **The size of a base is wrong.** Check `base_mm` of each operative in
+  `data/teams/<team>/team.toml`. Without a gallery, make sure that
+  `diameters_mm` in `data/board.toml` lists only the base sizes of your teams.
 - **An operative gets the wrong name.** Click the base and select the
   correct name. If it happens frequently, add more photos of the two
   operatives (setup step 8), and check with `battlesight gallery`.

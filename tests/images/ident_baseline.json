@@ -19,29 +19,30 @@
       "Deathwatch",
       "Raveners"
     ],
-    "files": 554,
-    "fingerprint": "9cbf949945da25ac"
+    "files": 586,
+    "fingerprint": "896a9f3ba0ea71d8"
   },
-  "git": "9035073+dirty",
+  "git": "aaecf3f+dirty",
   "photos": [
     {
       "name": "tomb-world-1",
       "mode": "single_frame",
       "metrics": {
         "truth": 7,
-        "right": 4,
-        "wrong": 2,
+        "right": 5,
+        "wrong": 1,
         "sure_wrong": 0,
         "unknown": 0,
         "wrong_size": 0,
         "missed": 1,
-        "accuracy": 0.5714,
-        "naming_accuracy": 0.6667,
-        "score_right_mean": 0.7603,
+        "accuracy": 0.7143,
+        "naming_accuracy": 0.8333,
+        "score_right_mean": 0.7669,
         "done_ok": false,
         "done": 0,
         "photos": 1,
-        "ms": 5190.4
+        "hidden": 0,
+        "ms": 3479.2
       }
     },
     {
@@ -49,19 +50,20 @@
       "mode": "single_frame",
       "metrics": {
         "truth": 8,
-        "right": 3,
+        "right": 4,
         "wrong": 1,
         "sure_wrong": 0,
         "unknown": 0,
-        "wrong_size": 2,
-        "missed": 2,
-        "accuracy": 0.375,
-        "naming_accuracy": 0.75,
-        "score_right_mean": 0.7702,
+        "wrong_size": 0,
+        "missed": 3,
+        "accuracy": 0.5,
+        "naming_accuracy": 0.8,
+        "score_right_mean": 0.7747,
         "done_ok": false,
         "done": 0,
         "photos": 1,
-        "ms": 1944.0
+        "hidden": 0,
+        "ms": 986.6
       }
     },
     {
@@ -69,19 +71,20 @@
       "mode": "reference",
       "metrics": {
         "truth": 10,
-        "right": 9,
+        "right": 10,
         "wrong": 0,
         "sure_wrong": 0,
         "unknown": 0,
-        "wrong_size": 1,
+        "wrong_size": 0,
         "missed": 0,
-        "accuracy": 0.9,
+        "accuracy": 1.0,
         "naming_accuracy": 1.0,
-        "score_right_mean": 0.8589,
+        "score_right_mean": 0.8657,
         "done_ok": true,
         "done": 1,
         "photos": 1,
-        "ms": 1842.1
+        "hidden": 9,
+        "ms": 1074.5
       }
     },
     {
@@ -89,38 +92,40 @@
       "mode": "reference",
       "metrics": {
         "truth": 9,
-        "right": 6,
+        "right": 9,
         "wrong": 0,
         "sure_wrong": 0,
         "unknown": 0,
         "wrong_size": 0,
-        "missed": 3,
-        "accuracy": 0.6667,
+        "missed": 0,
+        "accuracy": 1.0,
         "naming_accuracy": 1.0,
-        "score_right_mean": 0.8779,
-        "done_ok": false,
-        "done": 0,
+        "score_right_mean": 0.868,
+        "done_ok": true,
+        "done": 1,
         "photos": 1,
-        "ms": 1686.0
+        "hidden": 8,
+        "ms": 1055.8
       }
     }
   ],
   "total": {
     "metrics": {
       "truth": 34,
-      "right": 22,
-      "wrong": 3,
+      "right": 28,
+      "wrong": 2,
       "sure_wrong": 0,
       "unknown": 0,
-      "wrong_size": 3,
-      "missed": 6,
-      "accuracy": 0.6471,
-      "naming_accuracy": 0.88,
-      "score_right_mean": 0.8341,
+      "wrong_size": 0,
+      "missed": 4,
+      "accuracy": 0.8235,
+      "naming_accuracy": 0.9333,
+      "score_right_mean": 0.8358,
       "done_ok": false,
-      "done": 1,
+      "done": 2,
       "photos": 4,
-      "ms": 10662.6
+      "hidden": 17,
+      "ms": 6596.1
     }
   }
 }

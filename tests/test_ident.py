@@ -802,3 +802,75 @@ def test_cli_image_uses_all_gallery_teams_by_default(tmp_path, capsys):
     assert main(["image-pipeline", str(game), "--config", str(cfg_file), "--json", "-", "-q", "--gallery-root", str(empty)]) == 0
     report = json.loads(capsys.readouterr().out)
     assert report["teams"] is None and report["images"][0]["stages"]["ident"]["message"] == "no gallery"
+
+
+# --- base sizes of the teams (roster) ------------------------------------------
+
+
+def test_roster_sizes_from_team_files(tmp_path):
+    cfg = ident_cfg()
+    root = tmp_path / "gallery"
+    assert idt.roster_sizes(root, ["orks"]) is None  # no team file
+    g = make_gallery(tmp_path, cfg)
+    g.ensure_operative("orks", "Nob", 40)
+    g.ensure_operative("orks", "Grot", 25)
+    g.ensure_operative("orks", "Boy", 25)
+    assert idt.roster_sizes(root, ["orks"]) == (25.0, 40.0) == g.base_sizes()
+    g.ensure_operative("orks", "New", None)  # a size that is not known: all sizes stay possible
+    assert idt.roster_sizes(root, ["orks"]) is None and g.base_sizes() is None
+
+
+def test_bases_stage_uses_the_gallery_sizes(tmp_path):
+    cfg = ident_cfg()
+    img, _ = render_board(cfg, px_per_mm=2.0, bases=(Base((200.0, 200.0), 40.0), Base((450.0, 400.0), 50.0)))
+    g = make_gallery(tmp_path, cfg)
+    g.ensure_operative("orks", "Nob", 40)
+    found = Pipeline(cfg, "bases", gallery=g).analyze(img).scratch["bases"]
+    assert [c.diameter_mm for c in found] == [40.0]
+
+
+# --- the same photo twice -------------------------------------------------------
+
+
+def test_gallery_refuses_the_same_photo(tmp_path):
+    cfg = ident_cfg()
+    g = make_gallery(tmp_path, cfg)
+    crop = np.full((448, 448, 3), 90, np.uint8)
+    cv2.circle(crop, (224, 224), 60, (0, 0, 200), -1)
+    first = g.add("orks/Nob", crop, 32)
+    with pytest.raises(idt.DuplicatePhoto) as exc:
+        g.add("orks/Nob", crop.copy(), 32)
+    assert exc.value.path == first and g.counts()["orks/Nob"] == 1
+    assert len(list(first.parent.glob("*.png"))) == 1
+    other = crop.copy()
+    cv2.circle(other, (224, 224), 60, (0, 200, 0), -1)  # another photo
+    g.add("orks/Nob", other, 32)
+    g.add("orks/Grot", crop, 32)  # the same crop under another name is a new name for it, not a copy
+    assert g.counts() == {"orks/Grot": 1, "orks/Nob": 2}
+
+
+def test_fix_with_a_photo_the_gallery_has_sets_the_name_only(tmp_path):
+    cfg = ident_cfg()
+    g = make_gallery(tmp_path, cfg)
+    crop = np.full((448, 448, 3), 50, np.uint8)
+    kept = g.add("orks/Nob", crop, 32)
+    idents = [idt.Ident("orks/Nob", 0.9, 0.2, [("orks/Nob", 0.9)], sure=True)]
+    s = idt.LabelSession(np.array([[100.0, 100.0]]), [32.0], [crop], idents, g)
+    assert s.accept_all() == [None]
+    assert s.idents[0].confirmed and g.counts()["orks/Nob"] == 1
+    assert s.undo() == (True, None)  # the undo keeps the photo that was there before
+    assert kept.is_file() and not s.idents[0].confirmed
+    assert s.undo() == (False, None)
+
+
+def test_weak_operatives_and_advice():
+    from battlesight.app import weak_operatives, weak_text
+
+    counts = {"T/A": 20, "T/B": 30, "T/C": 10, "T/D": 10}
+    misses = [("T/A", "T/B")] * 5 + [("T/B", "T/A")] * 2 + [("T/C", "T/A")] + [("T/D", "T/C")] * 4
+    weak = weak_operatives(misses, counts)
+    # B: 2 of 30 is under the rate. C: one wrong photo is not enough. Worst rate first.
+    assert weak == [("T/D", 4, 10), ("T/A", 5, 20)]
+    assert weak_text(weak) == "add photos of D, A"
+    assert weak_text([]) == "" and weak_operatives([], counts) == []
+    assert weak_text([("T/A", 2, 5), ("T/B", 2, 5), ("T/C", 2, 5), ("T/D", 2, 5)]) == "add photos of A, B, C, +1 more"

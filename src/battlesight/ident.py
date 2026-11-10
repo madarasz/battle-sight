@@ -277,6 +277,21 @@ def make_embedder(model: str) -> Embedder:
 # --- gallery ------------------------------------------------------------------
 
 
+class DuplicatePhoto(ValueError):
+    """The crop is already a gallery photo of this operative (`path`)."""
+
+    def __init__(self, path: Path):
+        super().__init__(f"{path.name} is the same photo")
+        self.path = path
+
+
+def same_photo(a: np.ndarray, b: np.ndarray) -> bool:
+    """Two stored crops with the same pixels: the same frame, cut at the same
+    place (a name fix done twice on one image). Two frames of a camera are
+    never the same, because of the sensor noise."""
+    return a.shape == b.shape and bool(np.array_equal(a, b))
+
+
 def check_name(name: str, what: str = "name") -> str:
     name = name.strip()
     if _BAD_NAME.search(name):
@@ -343,6 +358,16 @@ def team_operatives(team: str, team_dir: Path) -> list[Operative]:
     return [Operative(team, name, listed.get(name)) for name in sorted(names)]
 
 
+def roster_sizes(root: str | Path, teams: Iterable[str]) -> tuple[float, ...] | None:
+    """Base sizes of the operatives of the teams, sorted, from the team files
+    (no photos, no model). None when there is no operative, or when an
+    operative has no known size: then all sizes are possible."""
+    sizes = [op.base_mm for t in teams for op in team_operatives(t, Path(root) / t)]
+    if not sizes or any(s is None for s in sizes):
+        return None
+    return tuple(sorted(set(sizes)))  # type: ignore[arg-type]
+
+
 def save_team_file(team_dir: Path, team: str, operatives: dict[str, float | None]) -> None:
     lines = [
         f"# Battle Sight gallery of team {team!r}. One table per operative.",
@@ -383,6 +408,7 @@ class Gallery:
         self.masked_emb = np.zeros((0, 0), np.float32)
         self.masked_op = np.zeros(0, int)
         self.masked_file = np.zeros(0, int)
+        self.hidden: set[int] = set()  # file indexes that `scores` must not use (the benchmark hides copies of a test photo)
         self.reload()
 
     @classmethod
@@ -540,9 +566,13 @@ class Gallery:
         """Save `crop` (`store_crop`) as a new gallery photo of `label` and add
         its embeddings. Creates the operative when new. `background` is the
         same square of the empty board, kept at `background_path`, not embedded.
-        Returns the file."""
+        Returns the file. DuplicatePhoto when the operative has this photo
+        already: nothing is saved."""
         team, name = split_label(label)
         op = self.ensure_operative(team, name, base_mm)
+        twin = self.find_duplicate(op.label, crop)
+        if twin is not None:
+            raise DuplicatePhoto(twin)
         folder = self.team_dirs[team] / op.name
         folder.mkdir(parents=True, exist_ok=True)
         stem = time.strftime("%Y%m%d_%H%M%S")
@@ -562,6 +592,17 @@ class Gallery:
         self._set_views(self._per_file + [emb])
         self._save_cache(team, self.params.cache_key(self.embedder.name), self._per_file)
         return path
+
+    def find_duplicate(self, label: str, crop: np.ndarray) -> Path | None:
+        """Gallery photo of `label` with the same pixels as `crop` (`same_photo`)."""
+        j = self.index(label)
+        for f, k in zip(self.files, self.file_op):
+            if k != j:
+                continue
+            old = cv2.imread(str(f), cv2.IMREAD_COLOR)
+            if old is not None and same_photo(old, crop):
+                return f
+        return None
 
     def remove(self, path: Path) -> None:
         """Delete a gallery photo (undo of `add`)."""
@@ -591,6 +632,8 @@ class Gallery:
             cols = view_op == j
             if exclude_file is not None:
                 cols &= view_file != exclude_file
+            if self.hidden:
+                cols &= ~np.isin(view_file, list(self.hidden))
             if cols.any():
                 out[:, j] = _top_photos(sim[:, cols], view_file[cols], self.params.top_k)
         return out
@@ -614,6 +657,14 @@ class Gallery:
             else:
                 misses.append((op.label, guess))
         return right, right + len(misses), misses
+
+    def base_sizes(self) -> tuple[float, ...] | None:
+        """Base sizes of the operatives, sorted. None when there is no
+        operative, or one without a known size (`roster_sizes`)."""
+        sizes = [op.base_mm for op in self.operatives]
+        if not sizes or any(s is None for s in sizes):
+            return None
+        return tuple(sorted(set(sizes)))  # type: ignore[arg-type]
 
     def allowed(self, diameter_mm: float | None) -> np.ndarray:
         """Operatives that can stand on a base of this diameter."""
@@ -786,14 +837,18 @@ class LabelSession:
         names += [op.label for k, op in enumerate(self.gallery.operatives) if allowed[k] and op.label not in names]
         return names
 
-    def choose(self, label: str, i: int | None = None) -> Path:
+    def choose(self, label: str, i: int | None = None) -> Path | None:
         """Set the name of base i (default: the selected base) and add its crop
         to the gallery. A label that another base holds moves to this base;
-        the other base becomes unknown."""
+        the other base becomes unknown. Returns the new gallery photo, or None
+        when the gallery has this photo already (the name is set, no file)."""
         i = self.selected if i is None else i
         if i is None:
             raise ValueError("no base selected")
-        path = self.gallery.add(label, self.crops[i], self.diameters_mm[i], self.backgrounds[i] if self.backgrounds else None)
+        try:
+            path = self.gallery.add(label, self.crops[i], self.diameters_mm[i], self.backgrounds[i] if self.backgrounds else None)
+        except DuplicatePhoto:
+            path = None
         self.added.append((i, path, self.idents[i]))
         for k, x in enumerate(self.idents):
             if k != i and x.label == label:
@@ -803,21 +858,26 @@ class LabelSession:
         self.selected = None
         return path
 
-    def accept_all(self) -> list[Path]:
-        """Add the crop of every named, not yet confirmed base to the gallery."""
+    def accept_all(self) -> list[Path | None]:
+        """Confirm every named, not yet confirmed base and add its crop to the
+        gallery. One entry per base: the new photo, or None when the gallery
+        has it already."""
         out = []
         for i, x in enumerate(self.idents):
             if x.label is not None and not x.confirmed:
                 out.append(self.choose(x.label, i))
         return out
 
-    def undo(self) -> Path | None:
+    def undo(self) -> tuple[bool, Path | None]:
+        """Take back the last `choose`: (done, removed gallery photo). The
+        photo is None when that choice added no file."""
         if not self.added:
-            return None
+            return False, None
         i, path, old = self.added.pop()
-        self.gallery.remove(path)
+        if path is not None:
+            self.gallery.remove(path)
         self.idents[i] = old
-        return path
+        return True, path
 
 
 # --- done test ----------------------------------------------------------------

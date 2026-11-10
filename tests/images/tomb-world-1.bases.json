@@ -1,6 +1,7 @@
 {
   "schema": 2,
   "comment": "Ground truth for the bases stage. Board mm, base bottom diameter. rim 'clear': at least half of the rim is visible, the single-frame test needs it within 2 mm and with the right size. rim 'hidden': a model, a wall or a token hides most of the rim; position approximate (tol_mm), checked only with an empty-board reference. diameter_mm null: size not known.",
+  "roster_mm": [32, 40],
   "bases": [
     {"center_mm": [329.8, 186.5], "diameter_mm": 40, "rim": "clear", "source": "detector", "note": ""},
     {"center_mm": [424.3, 175.7], "diameter_mm": 40, "rim": "clear", "source": "detector", "note": ""},

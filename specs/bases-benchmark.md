@@ -1,6 +1,6 @@
 # Bases benchmark: implementation plan
 
-Status: parts 1 to 4 (sections 5 to 10, 12) done 2026-11-03, first baseline written. Section 11 (tuning) not started. Date: 2026-11-03. Priority 3 of `specs/plan.md`.
+Status: parts 1 to 4 (sections 5 to 10, 12) done 2026-11-03, first baseline written. Section 11 (tuning): first two changes done 2026-11-10 (roster sizes, fixed-radius fit with known sizes; see 11.1). New photos and a holdout (11 step 2) are still open. Date: 2026-11-03. Priority 3 of `specs/plan.md`.
 
 Read first: `CLAUDE.md`, `specs/plan.md` (priority 3 row and section 9),
 `docs/cli.md` "Base detection", `docs/testing.md` "Photo tests".
@@ -482,12 +482,43 @@ In `tests/test_photos.py`:
    | Hidden bases | Reference mode: lower `min_coverage` (sweep 0.3 to 0.5), centre hint from the changed blob. |
    | Hand-held pairs | `changed_fraction` high near walls: ignore changed pixels in a band around strong edges that the reference also has, or align the two bases images with a small ECC warp before the diff. |
 
+   Done 2026-11-10 (section 11.1): the roster row, and the hidden bases row
+   in a stronger form.
+
 6. Later, with priority 4 (operative ID): a known operative gives a known
    base size and a last known position. Then fit one size with a lower
    coverage limit. Order: rough position from the changed blob, then the ID
    from a crop, then the exact fit. Add this as a new mode in the benchmark
    (`--sizes-from truth`: use the true size of each base as the only class
    near it) to measure the gain before priority 4 exists.
+
+### 11.1 Changes of 2026-11-10
+
+Measured on the 4 photos (34 true bases). No holdout exists yet, so these
+values are fitted on the test photos: check them again with new photos.
+
+| Change | Matched | False | Notes |
+|---|---|---|---|
+| Baseline before | 25 | 10 | f1 0.72, done 0 of 4 |
+| Roster: only the base sizes of the teams (32, 40 mm) | 25 | 2 | The app takes them from the gallery `team.toml`, the benchmark from `roster_mm` in `<name>.bases.json`. |
+| Fixed-radius fit with a roster, `reference_min_coverage` 0.4 with a reference | 30 | 1 | f1 0.92, done 2 of 4, max centre error 0.93 mm |
+
+Evidence for the fixed radius: at the true centre of the 9 missed bases, the
+fixed-radius fit has a coverage of 0.41 to 0.52 and is under 1.1 mm off for 7
+of them. The free fit fails, or gives 42 mm at 3 mm off (it goes to the model
+or its shadow).
+
+Tried and not kept:
+
+| Change | Result |
+|---|---|
+| Fixed radius with all 5 config sizes (no roster) | 27 matched, 10 false: no gain in false bases, and with coverage 0.4 in reference mode 2 false per photo. Thus the fixed radius needs a roster. |
+| Coverage 0.4 without a reference | 31 matched, 32 false (62 on single-frame runs of all photos). The changed area of a reference is what stops the false circles. |
+| Free search, then fixed search for the rest | 1 match less than the fixed search alone. |
+| Ray edge nearest to the known radius, not the strongest | More false bases (22 at coverage 0.5), fewer matches. |
+
+Left: 4 bases on the 2 photos without a reference (3 hidden rims, 1 model on
+a teleporter), 1 false base (a round barricade on `tomb-world-1`).
 
 ## 12. Documentation
 

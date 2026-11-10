@@ -262,6 +262,7 @@ def test_click_with_no_operative_of_that_size(tmp_path):
     frame = paint_board(cfg, GAME)
     session = make_session(tmp_path, cfg, frame, teams=("orks",))
     idt.Gallery.for_teams(("orks",), cfg, tmp_path / "gallery").ensure_operative("orks", "Big", 50)
+    session.pipe.set_roster(cfg.bases_diameters_mm)  # the team sizes alone (50 mm) would hide the other bases
     settled(session, frame)
     session.dispatch("snapshot.name")
     base = session.step(frame).state["bases"][0]

@@ -71,6 +71,7 @@ class PhotoScore:
     wrong_size: list[tuple[str, float, float]] = field(default_factory=list)  # (true, found mm, true mm)
     missed: list[str] = field(default_factory=list)  # no found base within tol_mm
     ms: float = 0.0
+    hidden: int = 0  # gallery photos not used: copies of a base of this photo (`copies_of`)
 
     @property
     def accuracy(self) -> float:
@@ -155,6 +156,7 @@ def metrics(scores: Sequence[PhotoScore]) -> dict[str, Any]:
         "done_ok": all(s.done_ok for s in scores),
         "done": sum(s.done_ok for s in scores),
         "photos": len(scores),
+        "hidden": sum(s.hidden for s in scores),
         "ms": round(sum(s.ms for s in scores), 1),
     }
 
@@ -218,6 +220,65 @@ def compare(run: dict[str, Any], baseline: dict[str, Any]) -> bench.Comparison:
     return c
 
 
+# --- gallery photos cut from a test photo -----------------------------------------
+
+COPY_SHIFT_PX = 6.0  # the base centre of the copy can be this far off, in half-size pixels (3 mm at 4 px per mm)
+COPY_STEP = 32  # a pixel differs when a channel is this far off (0..255)
+COPY_MAX_CHANGED = 0.003  # part of the centre pixels that differ. A copy gives under 0.001, another photo 0.2 or more.
+
+
+def _half(crop: np.ndarray) -> np.ndarray:
+    return cv2.resize(crop, (crop.shape[1] // 2, crop.shape[0] // 2), interpolation=cv2.INTER_AREA)
+
+
+def gallery_thumbs(gallery: idt.Gallery) -> list[np.ndarray | None]:
+    """Half-size image of each gallery photo, for `copies_of`."""
+    out: list[np.ndarray | None] = []
+    for f in gallery.files:
+        img = cv2.imread(str(f), cv2.IMREAD_COLOR)
+        out.append(None if img is None else _half(img))
+    return out
+
+
+def _changed(a: np.ndarray, b: np.ndarray) -> float:
+    """Part of the centre pixels of `a` and `b` that differ. The border is left out: it has no data after a move."""
+    m = a.shape[0] // 5
+    return float((cv2.absdiff(a, b)[m:-m, m:-m].max(axis=2) > COPY_STEP).mean())
+
+
+def _is_copy(a: np.ndarray, b: np.ndarray) -> bool:
+    """Half-size crops `a` and `b` show the same frame. The base centre of a
+    copy can be a little off (another fit of the same rim), so `b` is also
+    compared after a move by the phase correlation shift."""
+    if _changed(a, b) < COPY_MAX_CHANGED:
+        return True
+    ga, gb = (cv2.cvtColor(x, cv2.COLOR_BGR2GRAY).astype(np.float32) for x in (a, b))
+    (dx, dy), _ = cv2.phaseCorrelate(gb, ga, cv2.createHanningWindow((ga.shape[1], ga.shape[0]), cv2.CV_32F))
+    if max(abs(dx), abs(dy)) > COPY_SHIFT_PX:
+        return False
+    # The measured shift can be half a pixel off: also try the whole pixels around it.
+    shifts = {(dx, dy)} | {(float(x), float(y)) for x in (np.floor(dx), np.ceil(dx)) for y in (np.floor(dy), np.ceil(dy))}
+    for sx, sy in shifts:
+        moved = cv2.warpAffine(b, np.array([[1.0, 0.0, sx], [0.0, 1.0, sy]], np.float32), (b.shape[1], b.shape[0]), flags=cv2.INTER_LINEAR)
+        if _changed(a, moved) < COPY_MAX_CHANGED:
+            return True
+    return False
+
+
+def copies_of(crops: Sequence[np.ndarray], thumbs: Sequence[np.ndarray | None]) -> set[int]:
+    """Indexes of the gallery photos that show the same frame as one of the
+    `crops` (stored crops of the found bases of a test photo). A name fix in
+    the live app on a test photo (`--image-source`) puts such a copy in the
+    gallery. With it the test only finds the same image again."""
+    out: set[int] = set()
+    for crop in crops:
+        small = _half(crop)
+        for i, t in enumerate(thumbs):
+            if i not in out and t is not None and t.shape == small.shape and _is_copy(small, t):
+                out.add(i)
+    return out
+
+
 # --- run on photos ---------------------------------------------------------------
 
 
@@ -228,6 +289,8 @@ def find_photos(paths: Iterable[str | Path]) -> list[Path]:
 def run(photos: Sequence[Path], cfg: BoardConfig, root: str | Path | None = None, log: Callable[[str], None] = lambda _: None) -> tuple[list[PhotoScore], dict[str, Any]]:
     """Run all stages on the photos: (scores, `gallery_state`). Same pipeline
     as the done test: nominal lens, empty-board reference when there is one.
+    Gallery photos that are copies of a base of the photo (`copies_of`) are
+    not used for that photo; `PhotoScore.hidden` counts them.
     NoGallery when a team has no gallery, ValueError on a bad file or photo."""
     root = Path(idt.DEFAULT_GALLERY_ROOT if root is None else root)
     truths: dict[Path, idt.IdentTruth] = {}
@@ -241,12 +304,14 @@ def run(photos: Sequence[Path], cfg: BoardConfig, root: str | Path | None = None
     if missing:
         raise NoGallery(f"no gallery for {', '.join(missing)} in {root}")
     galleries: dict[tuple[str, ...], idt.Gallery] = {}
+    thumbs: dict[tuple[str, ...], list] = {}
     scores = []
     for p, truth in truths.items():
         key = tuple(sorted(truth.teams))
         if key not in galleries:
             log(f"gallery {', '.join(key)}")
             galleries[key] = idt.Gallery.for_teams(key, cfg, root)
+            thumbs[key] = gallery_thumbs(galleries[key])
         gallery = galleries[key]
         if len(gallery) == 0:
             raise NoGallery(f"gallery of {', '.join(key)} has no photos")
@@ -256,14 +321,25 @@ def run(photos: Sequence[Path], cfg: BoardConfig, root: str | Path | None = None
         ref_path = bench.reference_path(p)
         ref = None if ref_path is None else cv2.imread(str(ref_path), cv2.IMREAD_COLOR)
         log(f"run {p.name}" + (f" with {ref_path.name}" if ref_path else ""))
+        pipe = Pipeline(cfg, reference=ref, gallery=gallery)
         t0 = time.perf_counter()
-        r = Pipeline(cfg, reference=ref, gallery=gallery).analyze(frame, source=str(p))
+        r = pipe.analyze(frame, source=str(p))
         ms = (time.perf_counter() - t0) * 1000.0
         if not r.ok:
             raise ValueError(f"{p.name}: {r.summary()}")
+        hidden = copies_of(r.scratch.get("base_crops", []), thumbs[key])
+        if hidden:  # name the bases again, without the copies of this photo
+            log(f"  {len(hidden)} gallery photos are copies of this photo: not used")
+            gallery.hidden = hidden
+            try:
+                r = pipe.analyze(frame, source=str(p))
+            finally:
+                gallery.hidden = set()
         found = [(b.center_mm, b.diameter_mm) for b in r.scratch["bases"]]
         sizes = {op.label: op.base_mm for op in gallery.operatives}
-        scores.append(score(p.stem, truth, found, r.scratch.get("idents", []), sizes, r.stages["bases"].data["mode"], ms))
+        s = score(p.stem, truth, found, r.scratch.get("idents", []), sizes, r.stages["bases"].data["mode"], ms)
+        s.hidden = len(hidden)
+        scores.append(s)
     return scores, gallery_state(root, teams)
 
 
@@ -287,6 +363,8 @@ def format_table(scores: Sequence[PhotoScore]) -> str:
     t = metrics(scores)
     lines.append(_row("TOTAL", "", t, f"{t['done']}/{t['photos']}", ""))
     lines.append(f"target: accuracy {DONE_ACCURACY:.2f} on each photo. sure = wrong names with no unsure mark. naming = right / (right + wrong + unk).")
+    if t["hidden"]:
+        lines.append(f"{t['hidden']} gallery photos not used: copies of a base of a test photo (" + ", ".join(f"{s.name} {s.hidden}" for s in scores if s.hidden) + ").")
     return "\n".join(lines)
 
 

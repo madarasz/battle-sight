@@ -1,6 +1,6 @@
 # Identification benchmark: implementation plan
 
-Status: parts 1 to 4 (sections 5 to 10, 12) done 2026-11-09, first baseline written. Section 11 (tuning) not started. Date: 2026-11-10. Priority 4 of `specs/plan.md`.
+Status: parts 1 to 4 (sections 5 to 10, 12) done 2026-11-09, first baseline written. Section 11: steps 1 (first row) and 2 done 2026-11-10 (see 11.1). New photos and a holdout are still open. Date: 2026-11-10. Priority 4 of `specs/plan.md`.
 
 Read first: `CLAUDE.md`, `specs/plan.md` (priority 4 row and section 9),
 `specs/bases-benchmark.md`, `docs/cli.md` "Operative identity",
@@ -384,6 +384,27 @@ All use the colour-histogram embedder. No model download.
    | No mask on photos without a reference | Take a reference for each game. Compare `mask` true and false on the same photos. |
    | `min_score` and `min_margin` not tuned for masks | Sweep them. No base is unknown now, so `min_score` has no effect. |
    | Live fixes feed the gallery | Measure the effect with a fixed copy of the gallery, before and after a game of fixes. |
+
+### 11.1 Changes of 2026-11-10
+
+| Finding | Action |
+|---|---|
+| 9 of 12 lost names came from detection. | Bases changes of `specs/bases-benchmark.md` 11.1 (roster, fixed radius). |
+| The gallery held 29 crops of the two 4K test photos (name fixes in the live app with `--image-source`), 13 of them identical extra files. Right names on these photos scored 1.00. | The benchmark does not use a gallery photo that shows the same frame as a found base of the photo (`copies_of`, metric `hidden`, 17 now). `Gallery.add` refuses the same crop two times for one operative. The 13 extra files are out of the gallery. |
+| Naming alone, true base positions and sizes: 31 of 34 right, also without the copies. The 3 wrong names are Raveners on `tomb-world-2` (no reference, margins under 0.01). | No `[ident]` change. |
+| `[ident]` sweeps on the true bases are noise with 34 bases: `crop_pad_mm` 10, 15, 20, 25, 32 gives 34, 29, 28, 31, 32 right. `top_k` 3 and 5 are equal, 1 is worse. | No tuning before there are more photos. |
+
+Baseline (gallery 586 files, 17 hidden):
+
+| Photo | Right | Wrong | Wrong size | Missed | Accuracy | Naming accuracy |
+|---|---|---|---|---|---|---|
+| `tomb-world-1` | 5 of 7 | 1 | 0 | 1 | 0.71 | 0.83 |
+| `tomb-world-2` | 4 of 8 | 1 | 0 | 3 | 0.50 | 0.80 |
+| `tomb-world-4k-1` | 10 of 10 | 0 | 0 | 0 | 1.00 | 1.00 |
+| `tomb-world-4k-2` | 9 of 9 | 0 | 0 | 0 | 1.00 | 1.00 |
+| Total | 28 of 34 | 2 | 0 | 4 | 0.82 | 0.93 |
+
+Before, with the copies in use: 23 of 34 (0.68), 1 of 4 photos passed.
 
 ## 12. Documentation
 
