@@ -711,6 +711,16 @@ def test_inspector_page_follows_the_state(idle_inspector, recorded, name, page):
     assert page_for(frame.state) == page and layout.stack.currentWidget() is layout.pages[page]
 
 
+def test_inspector_shows_an_opening(idle_inspector, recorded):
+    layout = idle_inspector.current_layout
+    live = recorded[2]["live"]
+    state = dict(live.state, selected_opening={"index": 0, "kind": "breach", "open": True})
+    assert page_for(state) == "opening"
+    idle_inspector._on_frame(replace(live, state=state), 0)
+    assert layout.stack.currentWidget() is layout.pages["opening"] and layout.opening_title.text() == "Breach point"
+    assert layout.opening.state_label.text() == "Open" and layout.opening.button.text() == "Close"
+
+
 def test_inspector_summary_text():
     bases = [{"label": "a"}, {"label": None}]
     assert summary_text(dict(snapshot_ok=False, bases=[], naming=False, unconfirmed=0)) == "Snapshot failed"
@@ -1011,10 +1021,10 @@ def test_rosters_inspector_shows_the_operative(idle_rosters, recorded):
 def test_rosters_inspector_shows_an_opening(idle_rosters, recorded):
     layout = idle_rosters.current_layout
     live = recorded[2]["live"]
-    for kind, title in (("hatchway", "Hatchway"), ("breach", "Breach point")):
-        idle_rosters._on_frame(replace(live, state=dict(live.state, selected_opening={"index": 0, "kind": kind})), 0)
+    for kind, title, is_open, text in (("hatchway", "Hatchway", False, "Closed"), ("breach", "Breach point", True, "Open")):
+        idle_rosters._on_frame(replace(live, state=dict(live.state, selected_opening={"index": 0, "kind": kind, "open": is_open})), 0)
         assert layout.stack.currentWidget() is layout.pages["opening"] and layout.title.text() == title
-        assert not layout.open_close.isEnabled()
+        assert layout.opening.button.isEnabled() and layout.opening.state_label.text() == text
 
 
 def test_rosters_row_slider_and_name_fix_run_actions(rosters):
@@ -1071,3 +1081,78 @@ def test_rosters_debug_goes_to_the_status_bar(idle_rosters, recorded):
     win.show()
     assert win.debug_label.isVisible() and win.current_layout.debug_toggle.isChecked() and win.current_layout.debug_toggle.text() == "Hide"
     win.close()
+
+
+# --- game state: wounds and openings ----------------------------------------------
+
+
+def test_roster_row_shows_the_wounds():
+    from battlesight.ui.parts import roster_row, wounds_text
+
+    row = {"name": "Nob", "base_index": None, "score": None, "confirmed": False, "wounds": 7, "max_wounds": 12}
+    assert wounds_text(7, 12) == "7/12" and wounds_text(None, None) == ""
+    assert roster_row(row) == ("Nob", "7/12   ?", "none")
+    assert roster_row(dict(row, base_index=1, score=0.78)) == ("Nob", "7/12   78%", "warn")
+    assert roster_row(dict(row, wounds=None, max_wounds=None)) == ("Nob", "?", "none")
+
+
+@pytest.fixture
+def wounded_rosters(qapp, tmp_path, named_setup):
+    from battlesight import ident as idt
+
+    cfg, frame = named_setup
+    team = tmp_path / "gallery" / "orks"
+    idt.save_team_file(team, "orks", idt.load_team_file(team), {"Nob": 5, "Burna": 12})
+    win = started_window(tmp_path, cfg, frame, "rosters")
+    yield win
+    win.close()
+
+
+def test_rosters_wounds_control_and_team_list(wounded_rosters):
+    win = wounded_rosters
+    open_names(win)
+    layout = win.current_layout
+    left = layout.rosters[0]
+    rows = win.state["rosters"][0]["operatives"]
+    nob = next(k for k, r in enumerate(rows) if r["name"] == "Nob")
+    wait_until(lambda: left.operatives.mark(nob).startswith("5/5"))
+    row_click(left.operatives, nob)
+    wounds = layout.wounds
+    wait_until(lambda: wounds.isVisibleTo(win) and wounds.controls.isVisibleTo(win) and wounds.value.value() == 5)
+    assert not wounds.plus.isEnabled() and wounds.minus.isEnabled() and wounds.maximum.text() == "/ 5"
+    wounds.minus.click()
+    wait_until(lambda: win.state["selected_wounds"]["current"] == 4 and wounds.value.value() == 4)
+    wounds.value.setValue(2)
+    wounds.value.editingFinished.emit()
+    wait_until(lambda: win.state["selected_wounds"]["current"] == 2 and left.operatives.mark(nob).startswith("2/5"))
+    press(win, "wounds.plus")
+    wait_until(lambda: win.state["selected_wounds"]["current"] == 3)
+    grot = next(k for k, r in enumerate(rows) if r["name"] == "Grot")
+    row_click(left.operatives, grot)
+    wait_until(lambda: wounds.warning.isVisibleTo(win) and not wounds.controls.isVisibleTo(win))
+    assert "no maximum wounds" in wounds.warning.text()
+
+
+def test_rosters_opening_button_opens_and_closes(qapp, tmp_path, named_setup):
+    from .test_live import opening_px, write_map
+
+    cfg, frame = named_setup
+    write_map(tmp_path / "maps")
+    win = started_window(tmp_path, cfg, frame, "rosters")
+    try:
+        win.dispatch("map.terrain_type", name="Test World")
+        win.dispatch("map.layout", name="Small")
+        wait_until(lambda: win.state["map_layout"] == "Small")
+        x, y = opening_px(win.worker.session)
+        win.dispatch("board.click", x=x, y=y)
+        layout = win.current_layout
+        wait_until(lambda: layout.stack.currentWidget() is layout.pages["opening"])
+        control = layout.opening
+        assert control.state_label.text() == "Closed" and control.button.text() == "Open" and control.button.isEnabled()
+        control.button.click()
+        wait_until(lambda: win.state["selected_opening"]["open"] and control.state_label.text() == "Open")
+        assert control.button.text() == "Close"
+        press(win, "opening.toggle")
+        wait_until(lambda: not win.state["openings"][0]["open"])
+    finally:
+        win.close()

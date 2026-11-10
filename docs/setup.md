@@ -287,11 +287,16 @@ game camera. Read [Good gallery photos](#good-gallery-photos) first.
 
 1. Select a short name for the team, for example `kommandos`. Use the same
    name in each command.
-2. Put one operative on the board. Start the enroll mode with its name:
+2. Put one operative on the board. Start the enroll mode with its name and
+   its maximum wounds (W on its datacard):
 
    ```bash
-   uv run battlesight enroll --team kommandos --operative "Boss Nob"
+   uv run battlesight enroll --team kommandos --operative "Boss Nob" --wounds 12
    ```
+
+   The app writes the wounds to the team file when it starts. Without
+   `--wounds`, the value in the team file does not change. To change only
+   the wounds, start the command with the new value and push `q`.
 
 3. Push `space`. The app finds the base and keeps a photo of it. The banner
    shows the number of photos.
@@ -383,9 +388,17 @@ base and the correct name. When all names are correct, push `a`. Each
 correction and each `a` adds photos from real games to the gallery.
 
 The app keeps the photos in `data/teams/kommandos/`, one folder for each
-operative. It also keeps the base size of each operative in
-`data/teams/kommandos/team.toml`. An operative gets a name only on a base
-of this size. In a game, the app looks only for the base sizes of the teams
+operative. It also keeps the base size (`base_mm`) and the maximum wounds
+(`wounds`) of each operative in `data/teams/kommandos/team.toml`. You can
+also edit the wounds in this file:
+
+```toml
+[operatives."Boss Nob"]
+base_mm = 40
+wounds = 12
+```
+
+An operative gets a name only on a base of this size. In a game, the app looks only for the base sizes of the teams
 that you start it with. Thus a token or a terrain part of another size does
 not show as a base.
 

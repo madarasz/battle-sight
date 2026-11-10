@@ -874,3 +874,53 @@ def test_weak_operatives_and_advice():
     assert weak_text(weak) == "add photos of D, A"
     assert weak_text([]) == "" and weak_operatives([], counts) == []
     assert weak_text([("T/A", 2, 5), ("T/B", 2, 5), ("T/C", 2, 5), ("T/D", 2, 5)]) == "add photos of A, B, C, +1 more"
+
+
+# --- maximum wounds -------------------------------------------------------------
+
+
+def test_team_file_keeps_the_maximum_wounds(tmp_path):
+    team = tmp_path / "orks"
+    idt.save_team_file(team, "orks", {"Nob": 40.0, "Grot": 25.0}, {"Nob": 12})
+    assert idt.read_team_file(team) == {"Nob": (40.0, 12), "Grot": (25.0, None)}
+    assert idt.load_team_file(team) == {"Nob": 40.0, "Grot": 25.0}
+    assert [(op.name, op.wounds) for op in idt.team_operatives("orks", team)] == [("Grot", None), ("Nob", 12)]
+
+
+@pytest.mark.parametrize("value", ["0", "-2", '"ten"', "1.5", "true"])
+def test_team_file_with_a_bad_wounds_value_is_an_error(tmp_path, value):
+    (tmp_path / "orks").mkdir()
+    (tmp_path / "orks" / "team.toml").write_text(f'[operatives."Nob"]\nbase_mm = 40\nwounds = {value}\n')
+    with pytest.raises(ValueError, match="wounds"):
+        idt.read_team_file(tmp_path / "orks")
+
+
+def test_ensure_operative_sets_and_replaces_the_wounds(tmp_path):
+    cfg = ident_cfg()
+    g = make_gallery(tmp_path, cfg)
+    g.ensure_operative("orks", "Nob", 40, 12)
+    g.ensure_operative("orks", "Grot", 25)  # a new operative keeps the wounds of the others
+    assert idt.read_team_file(tmp_path / "gallery" / "orks")["Nob"] == (40.0, 12)
+    assert g.ensure_operative("orks", "Nob", None, 14).wounds == 14
+    assert g.ensure_operative("orks", "Nob", None).wounds == 14  # no value: no change
+    again = make_gallery(tmp_path, cfg)
+    assert again.operatives[again.index("orks/Nob")].wounds == 14
+    with pytest.raises(ValueError, match="wounds"):
+        g.ensure_operative("orks", "Nob", None, 0)
+
+
+def test_cli_enroll_wounds_is_saved_at_the_start(tmp_path, capsys):
+    cfg_file = cli_config(tmp_path)
+    cfg = BoardConfig.load(cfg_file)
+    root = tmp_path / "gallery"
+    shot = tmp_path / "nob.png"
+    cv2.imwrite(str(shot), paint_board(cfg, {"Nob": ((300.0, 300.0), 0.0)}))
+    args = ["enroll", "--team", "orks", "--operative", "Nob", "--gallery-root", str(root), "--config", str(cfg_file)]
+    assert main([*args, "--wounds", "12", "--images", str(shot)]) == 0
+    assert idt.read_team_file(root / "orks")["Nob"] == (40.0, 12)
+    # A new value replaces the old one, also when no photo is added.
+    assert main([*args, "--wounds", "13", "--images", str(tmp_path / "missing.png")]) == 2
+    assert idt.read_team_file(root / "orks")["Nob"] == (40.0, 13)
+    assert "maximum wounds 13" in capsys.readouterr().out
+    assert main([*args, "--wounds", "0", "--images", str(shot)]) == 2
+    assert idt.read_team_file(root / "orks")["Nob"] == (40.0, 13)

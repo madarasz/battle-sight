@@ -1,7 +1,7 @@
 """Layout `inspector`: the video and a panel that follows the state.
 
 The top part (map choice and view toggles) stays. Below it one page shows: live,
-snapshot, or selected base. The name fix is a list in the panel, with the crop
+snapshot, selected base (with its wounds), or selected hatchway or breach point. The name fix is a list in the panel, with the crop
 of the base and the scores, so the shell popup is off here.
 """
 
@@ -13,7 +13,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QAbstractButton, QHBoxLayout, QLabel, QStackedWidget, QToolButton, QVBoxLayout, QWidget
 
 from ...live import ACTIONS, Action
-from ..parts import CandidateList, DebugView, MapPicker, OperativeList, VideoWidget, action_control, distance_text, panel_side, ring_controls, show_action_state
+from ..parts import CandidateList, DebugView, MapPicker, OpeningControl, OperativeList, VideoWidget, WoundsControl, action_control, distance_text, panel_side, ring_controls, show_action_state
 
 if TYPE_CHECKING:
     from . import Shell
@@ -21,12 +21,15 @@ if TYPE_CHECKING:
 ACTION_BY_ID = {a.id: a for a in ACTIONS}
 PANEL_WIDTH = 300
 CROP_HEIGHT = 220
+OPENING_NAMES = {"hatchway": "Hatchway", "breach": "Breach point"}
 
 
 def page_for(state: dict[str, Any]) -> str:
     """The base page also in the live video: the bases of the last snapshot stay there."""
     if state["selected"] is not None:
         return "selected"
+    if state["selected_opening"] is not None:
+        return "opening"
     return "live" if state["mode"] == "live" else "snapshot"
 
 
@@ -69,7 +72,7 @@ class InspectorLayout:
         column.addWidget(self.map_picker)
         self._add_controls(column, "view.top_down", "view.grid", "view.terrain", "view.zones", "view.keys")
         self.stack = QStackedWidget()
-        for name, make in (("live", self._live_page), ("snapshot", self._snapshot_page), ("selected", self._selected_page)):
+        for name, make in (("live", self._live_page), ("snapshot", self._snapshot_page), ("selected", self._selected_page), ("opening", self._opening_page)):
             self.pages[name] = page = QWidget()
             make(QVBoxLayout(page))
             self.stack.addWidget(page)
@@ -114,6 +117,8 @@ class InspectorLayout:
         self.crop.setMinimumSize(100, 100)
         self.crop.setFixedHeight(CROP_HEIGHT)
         column.addWidget(self.crop)
+        self.wounds = WoundsControl(self.shell.dispatch)
+        column.addWidget(self.wounds)
         grid, rings = ring_controls(self.shell.dispatch)
         column.addWidget(grid)
         self.controls.extend(rings)
@@ -123,6 +128,14 @@ class InspectorLayout:
         self.candidates = CandidateList(self.shell.dispatch)
         column.addWidget(self.candidates, 1)
         self._add_controls(column, "snapshot.back")
+
+    def _opening_page(self, column: QVBoxLayout) -> None:
+        self.opening_title = QLabel()
+        column.addWidget(self.opening_title)
+        self.opening = OpeningControl(self.shell.dispatch)
+        column.addWidget(self.opening)
+        self._add_controls(column, "base.deselect")
+        column.addStretch(1)
 
     def on_state(self, state: dict[str, Any]) -> None:
         for action, control in self.controls:
@@ -136,12 +149,16 @@ class InspectorLayout:
         elif page == "snapshot":
             self.summary.setText(summary_text(state))
             self.operatives.show_state(state)
+        elif page == "opening":
+            self.opening_title.setText(OPENING_NAMES.get(state["selected_opening"]["kind"], state["selected_opening"]["kind"]))
+            self.opening.show_state(state)
         else:
             base = state["bases"][state["selected"]]
             self.base_title.setText(f"{base['diameter_mm']:g} mm base")
             crop = self.shell.selected_crop()
             self.crop.setVisible(crop is not None)
             self.crop.set_image(crop)
+            self.wounds.show_state(state)
             distance = state["distance"]
             self.distance.setText("Click a second base to measure." if distance is None else f"Rim to rim: {distance_text(distance)}")
             self.candidates.show_state(state)

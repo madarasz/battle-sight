@@ -13,7 +13,9 @@ bases, the range rings and the distances between operatives.
 4. ✅ Operative ID: name each base from a photo gallery
 5. ✅ Rings and distances: range rings, rim-to-rim distance
 6. ✅ Terrain layouts: walls, hatchways, objectives and drop zones of each layout card
-7. ⏳ Tokens: find tokens, list operatives in range
+7. ✅ Team layout: operative list inspector
+8. ✅ Game state: operative health, open/closed status of hatchways and breach points
+9. ⏳ Tokens: find tokens, list operatives in range
 
 ✅ done · ⏳ next · 🚧 not started
 
@@ -76,14 +78,17 @@ In the `rosters` layout, the control bar has these sections:
   some names are not confirmed), "Add operative" (not available yet), and "Go
   back to Live" (only when the result is on the screen).
 - **Inspector**: the operative or the hatchway that you clicked. Click `✕` to
-  clear it.
+  clear it. Here you change the wounds of an operative and open or close a
+  hatchway.
 - **Reference**: take or clear the empty-board photo, and "Save screenshot".
 - **Debug**: shows the debug values at the right end of the status line.
 
 At each side of the video, choose the team of that player in the list. You
 cannot choose the same team on the two sides. The names of its operatives
-show below it, with a mark at the right end of the line:
+show below it, with marks at the right end of the line:
 
+- Wounds, for example `12/15`: the operative has 12 of its 15 wounds. This
+  shows only when the team file has the wounds of the operative.
 - Eye: the name of this operative is confirmed.
 - Percentage, for example `78%`: the app found this operative, but nobody
   confirmed the name. The percentage tells how sure the app is.
@@ -178,6 +183,26 @@ video.
 
 The measurement is from base edge to base edge. It is on the board surface.
 
+### Wounds and hatchways
+
+The app keeps two values of the game for you:
+
+- **Wounds of each operative.** Each operative starts with all its wounds.
+  Click an operative that has a name. In the inspector, click `-` or `+`, or
+  type a number in the "Wounds" box and push Return. You can also push the
+  `-` and `+` keys. The number stays between 0 and the maximum wounds of the
+  operative. A health bar above the operative shows its wounds. The team
+  list shows them as `12/15`. The wounds stay when you push `space` again.
+- **Open or closed hatchways and breach points.** All hatchways and breach
+  points start closed. Click a hatchway or a breach point. In the inspector,
+  click "Open" or "Close", or push `o`. When you choose a layout again, all
+  hatchways and breach points are closed again.
+
+The app must know the maximum wounds of an operative. Put them in the team
+file, or give them when you teach the app the operative (`docs/setup.md`,
+step 8). When the maximum is not known, the inspector shows a warning and no
+wounds controls.
+
 ### Keys
 
 Push `h` to see this list in the window. The menus have the same actions.
@@ -194,6 +219,8 @@ Push `h` to see this list in the window. The menus have the same actions.
 | Click a hatchway or a breach point | Select it. |
 | `1` to `9` | Draw a ring around the selected base, this many inches from its edge. |
 | `0` | Remove the ring. |
+| `-` and `+` | Remove or add one wound of the selected operative. |
+| `o` | Open or close the selected hatchway or breach point. |
 | Right-click a base | Select this base and show the list of names for this base size. |
 | Click a name | Give this name to the base. The app keeps the photo. |
 | `a` | All names are correct: the app keeps the photos of all bases. |
@@ -236,11 +263,12 @@ tells the board status, in all layouts. It also tells the ring size and the dist
 In the `rosters` layout, the inspector shows:
 
 - For an operative: the team, the name and the base size, for example
-  `Raveners - Wrecker (40mm)`, a photo of the base, the "Distance" slider
-  (ring size, 0 to 9 in), the distance to a second base, and the "Change
-  identification" button. The list of names shows only after you click it.
-- For a hatchway or a breach point: its name, and an "Open/Close" button
-  (not available yet).
+  `Raveners - Wrecker (40mm)`, a photo of the base, the "Wounds" controls
+  (`-`, the number, the maximum, `+`), the "Distance" slider (ring size, 0 to
+  9 in), the distance to a second base, and the "Change identification"
+  button. The list of names shows only after you click it.
+- For a hatchway or a breach point: its name, "Closed" or "Open", and a
+  button that opens or closes it.
 
 In the `inspector` layout, the panel shows:
 
@@ -249,9 +277,12 @@ In the `inspector` layout, the panel shows:
   empty-board photo.
 - With a result: how many operatives have a name, and one row for each base.
   Green is sure, yellow is not sure, red `?` is unknown.
-- After a click on a base: the size of the base, a photo of it, the ring
-  buttons, the distance to a second base, and the names with their scores.
-  Click the base again, or an empty part of the board, to close this.
+- After a click on a base: the size of the base, a photo of it, the
+  "Wounds" controls, the ring buttons, the distance to a second base, and the
+  names with their scores. Click the base again, or an empty part of the
+  board, to close this.
+- After a click on a hatchway or a breach point: its name, "Closed" or
+  "Open", and a button that opens or closes it.
 - Debug (click it to open): tags found, fit error, frames per second, and the
   time for tag detection. The `panel` layout always shows these values.
 
@@ -262,7 +293,8 @@ On the camera image:
 - Thin green lines: the board outline between the four corners.
 - Yellow lines: the map grid.
 - Terrain (when you chose a layout): white walls, grey pillars, yellow
-  hatchways, orange breach points, white rings with a cross for objective
+  hatchways, orange breach points (filled when closed; when open, a gap in the
+  wall with a short yellow or orange line at each end), white rings with a cross for objective
   markers and a white dashed circle 1 in around them, blue rings for
   teleporter pads. With **Drop zones** on: a light grey and an orange area
   for the deployment zones.
@@ -274,6 +306,12 @@ On the camera image:
   `?` for an unknown operative. With no team chosen: green is sure, yellow
   is not sure, red `?` is unknown. The lists show how sure the app is as a
   percentage, for example `78%`.
+- Health bar above an operative (after `space`): its wounds. A longer bar
+  is an operative with more maximum wounds. Green: the operative is unharmed
+  (all its wounds are left). Orange: the operative is wounded (half of its
+  wounds or more are left). Red: the operative is
+  injured (fewer than half of its wounds are left). An empty bar with a red
+  edge: no wounds are left.
 - White outline: the hatchway or breach point that you selected.
 - White circle: the base that you selected.
 - Magenta circle around the base, with space between them: the range ring.
@@ -311,6 +349,11 @@ the image, and the grid sits on the printed lines.
 - **A token or a terrain part shows as a base.** Take the empty-board photo
   (`e`) after you set up the terrain and the tokens,
   before the operatives go on the board.
+- **The inspector shows "has no maximum wounds".** The team file does not
+  have the wounds of this operative. Start the enroll mode with the wounds,
+  for example `uv run battlesight enroll --team kommandos --operative "Boss Nob" --wounds 12`,
+  and push `q`. Or add `wounds = 12` to the operative in
+  `data/teams/<team>/team.toml`. Then start the app again.
 - **The size of a base is wrong.** Check `base_mm` of each operative in
   `data/teams/<team>/team.toml`. Without a gallery, make sure that
   `diameters_mm` in `data/board.toml` lists only the base sizes of your teams.

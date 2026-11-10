@@ -1,7 +1,7 @@
 """Battle Sight: augmented reality overlay for Kill Team.
 
     battlesight [--team A [B]] [--source S | --image-source FILE] [--reference FILE]   live app
-    battlesight enroll --team NAME --operative NAME [--base-mm 32] [--images PATH...]
+    battlesight enroll --team NAME --operative NAME [--base-mm 32] [--wounds 15] [--images PATH...]
     battlesight gallery --team A [B]
     battlesight calibrate [--source S | --images PATH...]
     battlesight image-pipeline PATH... [--reference FILE] [--team A [B]] [--out DIR] [--json FILE|-] [--show]
@@ -12,7 +12,8 @@ updates by itself when the board or the camera moves) and shows the camera or
 the board from above. Keys: space find the bases and name them, b find the
 bases only, v camera / top-down view, g grid, e take the empty-board
 reference, c clear it, click a base then a name to fix it, a accept all
-names, u undo the last gallery photo, s save the frame, h help, Esc close
+names, - and + wounds of the selected operative, o open or close the
+selected hatchway or breach point, u undo the last gallery photo, s save the frame, h help, Esc close
 the menu or the snapshot, q quit.
 
 Camera values (source, frame size, frame rate, lens) are in data/camera.toml
@@ -241,11 +242,13 @@ def cmd_enroll(args: argparse.Namespace) -> int:
         name = idt.check_name(args.operative, "operative")
         if args.base_mm is not None and args.base_mm not in cfg.bases_diameters_mm:
             raise ValueError(f"--base-mm {args.base_mm:g} is not in [bases] diameters_mm {list(cfg.bases_diameters_mm)}")
-        op = gallery.ensure_operative(team, name, args.base_mm)
+        op = gallery.ensure_operative(team, name, args.base_mm, args.wounds)
     except ValueError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
     label = op.label
+    if args.wounds is not None:
+        print(f"{label}: maximum wounds {op.wounds} saved in {idt.TEAM_FILE}")
     pipe = Pipeline(cfg, "ident", args.camera)
     if args.images:
         if args.reference:
@@ -693,6 +696,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--gallery-root", default=str(idt.DEFAULT_GALLERY_ROOT), help="folder with one folder per team")
     p.add_argument("--operative", required=True, help="operative name, for example \"Boss Nob\"")
     p.add_argument("--base-mm", type=float, default=None, help="base diameter; only bases of this size are taken (default: from team.toml, else the found base)")
+    p.add_argument("--wounds", type=int, default=None, metavar="W", help="maximum wounds of the operative; sets or replaces the value in team.toml at the start")
     p.add_argument("--images", nargs="+", default=None, help="take the crops from image files or folders (one base each) instead of the camera")
     p.add_argument("--reference", default=None, metavar="FILE", help="empty-board photo for the bases stage")
     p.set_defaults(func=cmd_enroll)

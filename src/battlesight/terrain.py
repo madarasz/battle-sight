@@ -80,6 +80,7 @@ class Shape:
     radius: float | None = None
     name: str = field(default="")
     vertical: bool = False  # wall_key: the label of a vertical wall goes to its right
+    open: bool = False  # hatchway or breach point: open in the game (the map files hold closed ones)
 
 
 # --- grid points ------------------------------------------------------------------

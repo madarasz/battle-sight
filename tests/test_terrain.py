@@ -188,3 +188,25 @@ def test_keys_come_last_with_a_t_on_each_teleporter():
     assert set(kinds[first_key:]) == {"wall_key", "teleporter_key"}
     pads = [s for s in ter.shapes(m, cfg) if s.kind == "teleporter_key"]
     assert [p.name for p in pads] == ["T", "T"] and pads[0].center == pytest.approx(m.teleporters[0])
+
+
+@pytest.mark.parametrize("key", ["B2", "A2"])  # B2: breach point (as thin as the wall), A2: hatchway
+def test_open_opening_is_a_gap_in_the_wall(key):
+    from dataclasses import replace
+
+    cfg = tomb_world_grid()
+    floor = np.full((800, 800, 3), 90, np.uint8)
+    end = (1, 1) if key == "B2" else (2, 1)
+    shapes = ter.shapes(parse(wall_map((0, 1), end, [(0, 1), end], opening=True, key=key), cfg), cfg)
+    opening = next(sh for sh in shapes if sh.kind in ("hatchway", "breach"))
+    assert opening.kind == ("breach" if key == "B2" else "hatchway")
+    to_px = lambda pts: np.asarray(pts, float).reshape(-1, 2) * 2.0  # noqa: E731
+    centre = np.rint(np.mean(opening.points, axis=0) * 2.0).astype(int)
+    closed = floor.copy()
+    draw_terrain(closed, shapes, to_px)
+    opened = floor.copy()
+    draw_terrain(opened, [replace(sh, open=True) if sh is opening else sh for sh in shapes], to_px)
+    x, y = centre
+    assert not np.array_equal(closed[y, x], floor[y, x])  # filled
+    assert np.array_equal(opened[y, x], floor[y, x])  # the floor shows through
+    assert not np.array_equal(opened, closed)

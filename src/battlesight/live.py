@@ -18,7 +18,7 @@ from __future__ import annotations
 import math
 import sys
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from functools import partial
 from pathlib import Path
 from typing import Any, Callable, Sequence
@@ -32,7 +32,7 @@ from . import terrain as ter
 from .calib import DriftMonitor, DriftReport, DriftStatus, TagDetector, board_corners_px, lens_for_frame
 from .camera import CameraSettings
 from .config import BoardConfig
-from .overlay import BLUE, GREEN, MAGENTA, RED, WHITE, YELLOW, draw_bases, draw_board_corners, draw_circle_mm, draw_grid, draw_idents, draw_outline_mm, draw_rim_line, draw_tags, draw_terrain, fit_to_width
+from .overlay import BLUE, GREEN, MAGENTA, RED, WHITE, YELLOW, draw_bases, draw_board_corners, draw_circle_mm, draw_grid, draw_health_bars, draw_idents, draw_outline_mm, draw_rim_line, draw_tags, draw_terrain, fit_to_width
 from .pipeline import Pipeline
 from .rectify import fit_view, mm_to_rect, warp_board
 
@@ -263,6 +263,12 @@ def _in_snapshot(state: dict) -> bool:
     return state["mode"] == "snapshot"
 
 
+def _has_wounds(state: dict) -> bool:
+    """The selected base has a name with maximum wounds."""
+    w = state["selected_wounds"]
+    return w is not None and w["max"] is not None
+
+
 @dataclass(frozen=True)
 class Action:
     """One thing that the user can do. `enabled` and `checked` only tell a
@@ -303,6 +309,10 @@ ACTIONS: tuple[Action, ...] = (
     Action("base.deselect", "Clear selection", enabled=_has_any_selection),
     *(Action(f"ring.{n}", f"Ring {n} in", str(n), enabled=_has_selection, checked=partial(lambda n, s: s["ring_in"] == n, n)) for n in range(1, 10)),
     Action("ring.clear", "Clear ring", "0", enabled=lambda s: s["ring_in"] is not None),
+    Action("wounds.minus", "Wound -1", "-", enabled=_has_wounds),
+    Action("wounds.plus", "Wound +1", "+", enabled=_has_wounds),
+    Action("wounds.set", "Set wounds", args=("value",), enabled=_has_wounds),
+    Action("opening.toggle", "Open / close", "o", enabled=lambda s: s["selected_opening"] is not None),
     Action("names.accept", "Accept all identification", "a", enabled=lambda s: s["unconfirmed"] > 0),
     Action("names.undo", "Undo last gallery photo", "u", enabled=lambda s: s["can_undo"]),
     Action("frame.save", "Save screenshot", "s"),
@@ -385,6 +395,7 @@ class LiveSession:
         self.terrain_shapes: list[ter.Shape] = []
         self.openings: list[ter.Shape] = []  # hatchways and breach points of the layout
         self.selected_opening: int | None = None  # index in `openings`
+        self.opened: set[int] = set()  # indexes of the open openings; a layout starts with all closed
         self._read_maps()
         self.busy = False
         self.camera_up = True
@@ -408,6 +419,9 @@ class LiveSession:
         self.ring_in: int | None = None  # ring on the selected base, in inches
         self.shown: np.ndarray | None = None  # rendered snapshot
         self.dirty = True
+        # Game state. Current wounds of each operative label that is not at its
+        # maximum; the names of a new snapshot keep them.
+        self.wounds: dict[str, int] = {}
 
         self._handlers: dict[str, Callable[..., None]] = {
             "snapshot.name": lambda: self._snapshot(name=True),
@@ -430,6 +444,10 @@ class LiveSession:
             "base.deselect": self._deselect,
             **{f"ring.{n}": partial(self._set_ring, n) for n in range(1, 10)},
             "ring.clear": partial(self._set_ring, None),
+            "wounds.minus": partial(self._add_wounds, -1),
+            "wounds.plus": partial(self._add_wounds, 1),
+            "wounds.set": self._set_wounds,
+            "opening.toggle": self._toggle_opening,
             "names.accept": self._accept_all,
             "names.undo": self._undo,
             "frame.save": self._save_frame,
@@ -530,6 +548,12 @@ class LiveSession:
         if self.session is not None:
             colors = {team: color for team, color in zip(self.team_slots, TEAM_COLORS) if team is not None}
             draw_idents(img, found, self.session.idents, to_px, scores=False, team_colors=colors)
+            bars = []
+            for c, x in zip(found, self.session.idents):
+                current, maximum = self._wounds_of(x.label)
+                if maximum is not None:
+                    bars.append((c.center_mm, c.diameter_mm, current, maximum))
+            draw_health_bars(img, bars, to_px)
         elif found:
             draw_bases(img, found, to_px)
         self._draw_measure(img, found)
@@ -612,7 +636,9 @@ class LiveSession:
             "naming": s is not None,
             "bases": self._bases_state(),
             "selected": self.selected,
-            "selected_opening": None if self.selected_opening is None else {"index": self.selected_opening, "kind": self.openings[self.selected_opening].kind},
+            "selected_opening": None if self.selected_opening is None else {"index": self.selected_opening, "kind": self.openings[self.selected_opening].kind, "open": self.selected_opening in self.opened},
+            "openings": [{"index": i, "kind": sh.kind, "open": i in self.opened} for i, sh in enumerate(self.openings)],
+            "selected_wounds": self._selected_wounds_state(),
             "target": self.target,
             "ring_in": self.ring_in,
             "distance": self._distance_state(),
@@ -672,6 +698,8 @@ class LiveSession:
                 "score": None if x is None else _num(x.score),
                 "sure": x is not None and bool(x.sure),
                 "confirmed": x is not None and bool(x.confirmed),
+                "wounds": self._wounds_of(None if x is None else x.label)[0],
+                "max_wounds": self._wounds_of(None if x is None else x.label)[1],
                 "position_px": p,
             }
             for i, (c, x, p) in enumerate(zip(found, idents, positions))
@@ -715,10 +743,79 @@ class LiveSession:
                         "base_index": i,
                         "score": None if x is None else _num(x.score),
                         "confirmed": x is not None and bool(x.confirmed),
+                        "wounds": self._wounds_of(op.label)[0],
+                        "max_wounds": op.wounds,
                     }
                 )
             out.append({"team": team, "operatives": rows})
         return out
+
+    # --- game state -------------------------------------------------------------
+
+    def _max_wounds(self, label: str | None) -> int | None:
+        """Maximum wounds of an operative label, from its team file."""
+        if label is None:
+            return None
+        team, name = idt.split_label(label)
+        op = next((o for o in self._operatives_of(team) if o.name == name), None) if team in self.team_choices else None
+        return None if op is None else op.wounds
+
+    def _wounds_of(self, label: str | None) -> tuple[int | None, int | None]:
+        """(current, maximum) wounds of an operative label. Both None when
+        the team file has no maximum. An operative starts with all its wounds."""
+        maximum = self._max_wounds(label)
+        if maximum is None:
+            return None, None
+        return min(self.wounds.get(label, maximum), maximum), maximum
+
+    def _selected_label(self) -> str | None:
+        s, i = self.session, self.selected
+        if s is None or i is None or i >= len(s.idents):
+            return None
+        return s.idents[i].label
+
+    def _selected_wounds_state(self) -> dict[str, Any] | None:
+        """Wounds of the selected base: None without a named base, `max`
+        None when the team file has no maximum wounds."""
+        label = self._selected_label()
+        if label is None:
+            return None
+        current, maximum = self._wounds_of(label)
+        return {"label": label, "current": current, "max": maximum}
+
+    def _set_wounds(self, value: int, label: str | None = None) -> None:
+        """Set the current wounds of an operative (default: the selected
+        base), limited to 0 .. maximum."""
+        label = self._selected_label() if label is None else label
+        if label is None:
+            self.notice.say("select a named operative first")
+            return
+        name = idt.split_label(label)[1]
+        maximum = self._max_wounds(label)
+        if maximum is None:
+            self.notice.error(f"{name} has no maximum wounds: add wounds to team.toml (battlesight enroll --wounds)")
+            return
+        try:
+            value = int(value)
+        except (TypeError, ValueError):
+            self.notice.error(f"wounds must be a whole number, not {value!r}")
+            return
+        self.wounds[label] = max(0, min(value, maximum))
+        self.dirty = True
+
+    def _add_wounds(self, delta: int) -> None:
+        label = self._selected_label()
+        current = self._wounds_of(label)[0]
+        self._set_wounds(delta if current is None else current + delta)
+
+    def _toggle_opening(self) -> None:
+        """Open a closed hatchway or breach point, or close an open one."""
+        i = self.selected_opening
+        if i is None:
+            self.notice.say("click a hatchway or a breach point first")
+            return
+        self.opened ^= {i}
+        self.dirty = True
 
     # --- actions ----------------------------------------------------------------
 
@@ -847,7 +944,8 @@ class LiveSession:
 
     def _draw_terrain(self, img: np.ndarray, to_px) -> None:
         switch = {"zone": self.zones, "wall_key": self.keys, "teleporter_key": self.keys}
-        shown = [s for s in self.terrain_shapes if switch.get(s.kind, self.terrain)]
+        opened = {id(self.openings[i]) for i in self.opened}
+        shown = [replace(s, open=True) if id(s) in opened else s for s in self.terrain_shapes if switch.get(s.kind, self.terrain)]
         if shown:
             draw_terrain(img, shown, to_px)
 
@@ -877,6 +975,7 @@ class LiveSession:
         A bad file gives a notice and leaves no layout."""
         self.dirty = True
         self.map_layout, self.terrain_shapes, self.openings, self.selected_opening = None, [], [], None
+        self.opened = set()  # a new layout starts with all hatchways and breach points closed
         if name is None:
             return
         entry = next((e for e in self.maps if e.terrain == self.terrain_type and e.name == name), None)

@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import dataclasses
 import hashlib
+import json
 import time
 from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass, field
@@ -38,9 +39,19 @@ def truth_path(photo: Path) -> Path:
     return photo.with_name(f"{photo.stem}.ident.json")
 
 
+def _identity_bytes(path: Path, team_dir: Path) -> bytes:
+    """Names and base sizes of a team file, or its bytes when it cannot be read."""
+    try:
+        return json.dumps(idt.load_team_file(team_dir), sort_keys=True).encode()
+    except (ValueError, OSError):  # tomllib.TOMLDecodeError is a ValueError
+        return path.read_bytes()
+
+
 def gallery_state(root: str | Path, teams: Iterable[str]) -> dict[str, Any]:
     """Teams, file count and a content hash of the gallery folders. The
-    embedding cache and hidden files do not count."""
+    embedding cache and hidden files do not count. Of `team.toml` only the
+    names and base sizes count: the game values (wounds) do not change the
+    identification."""
     root = Path(root)
     teams = sorted(set(teams))
     h = hashlib.sha256()
@@ -52,7 +63,7 @@ def gallery_state(root: str | Path, teams: Iterable[str]) -> dict[str, Any]:
             if f.suffix == ".npz" or any(part.startswith(".") for part in rel.parts):
                 continue
             h.update(f"{team}/{rel.as_posix()}\n".encode())
-            h.update(f.read_bytes())
+            h.update(_identity_bytes(f, d) if rel.as_posix() == idt.TEAM_FILE else f.read_bytes())
             n += 1
     return {"teams": teams, "files": n, "fingerprint": h.hexdigest()[:16]}
 

@@ -754,7 +754,7 @@ def test_click_selects_a_hatchway_in_live_and_snapshot(tmp_path):
     x, y = opening_px(session)
     session.dispatch("board.click", x=x, y=y)
     s = session.step(frame)
-    assert s.state["selected_opening"] == {"index": 0, "kind": session.openings[0].kind}
+    assert s.state["selected_opening"] == {"index": 0, "kind": session.openings[0].kind, "open": False}
     assert s.state["selected_opening"]["kind"] in ("hatchway", "breach")
     assert not np.array_equal(s.image, plain.image)  # outline drawn
     assert ACTIONS_BY_ID["base.deselect"].enabled(s.state)
@@ -812,3 +812,109 @@ def test_team_colors_paint_the_circles():
         name = img[60:120, x - 30 : x + 31].reshape(-1, 3)
         name = name[name.sum(axis=1) > 150].sum(axis=0).astype(float)  # the text, not its dark box
         assert np.allclose(name / name.max(), np.array(color) / max(color), atol=0.1)
+
+
+# --- game state: wounds and openings ----------------------------------------------
+
+
+def set_wounds(tmp_path, wounds: dict[str, int]) -> None:
+    team = tmp_path / "gallery" / "orks"
+    idt.save_team_file(team, "orks", idt.load_team_file(team), wounds)
+
+
+def named_session(tmp_path, named):
+    cfg, frame = named
+    session = make_session(tmp_path, cfg, frame, teams=("orks",))
+    settled(session, frame)
+    session.dispatch("snapshot.name")
+    return session, frame, session.step(frame).state
+
+
+def base_of(state, name: str) -> int:
+    return next(b["index"] for b in state["bases"] if b["label"] == f"orks/{name}")
+
+
+def test_wounds_start_at_the_maximum_and_stay_in_range(tmp_path, named):
+    set_wounds(tmp_path, {"Nob": 5, "Burna": 12})
+    session, frame, state = named_session(tmp_path, named)
+    nob = base_of(state, "Nob")
+    assert state["bases"][nob]["wounds"] == 5 and state["bases"][nob]["max_wounds"] == 5
+    assert state["selected_wounds"] is None and not ACTIONS_BY_ID["wounds.minus"].enabled(state)
+    full = session.step(frame).image
+    session.dispatch("base.select", index=nob)
+    s = session.state()
+    assert s["selected_wounds"] == {"label": "orks/Nob", "current": 5, "max": 5}
+    assert ACTIONS_BY_ID["wounds.plus"].enabled(s) and ACTIONS_BY_ID["wounds.set"].enabled(s)
+    session.dispatch("wounds.minus")
+    session.dispatch("wounds.minus")
+    assert session.state()["selected_wounds"]["current"] == 3
+    session.dispatch("wounds.set", value=99)
+    assert session.state()["selected_wounds"]["current"] == 5
+    session.dispatch("wounds.set", value=-4)
+    assert session.state()["selected_wounds"]["current"] == 0
+    session.dispatch("wounds.plus")
+    s = session.state()
+    assert s["selected_wounds"]["current"] == 1 and s["bases"][nob]["wounds"] == 1
+    session.dispatch("base.deselect")
+    assert not np.array_equal(session.step(frame).image, full)  # the health bar is shorter
+    rows = {r["name"]: r for r in s["rosters"][0]["operatives"]}
+    assert (rows["Nob"]["wounds"], rows["Nob"]["max_wounds"]) == (1, 5)
+    assert (rows["Burna"]["wounds"], rows["Burna"]["max_wounds"]) == (12, 12)
+    assert (rows["Grot"]["wounds"], rows["Grot"]["max_wounds"]) == (None, None)
+    session.dispatch("snapshot.name")  # a new snapshot keeps the wounds
+    assert session.step(frame).state["bases"][nob]["wounds"] == 1
+    assert_json_safe(session.state())
+
+
+def test_wounds_of_an_operative_with_no_maximum_give_a_warning(tmp_path, named):
+    set_wounds(tmp_path, {"Nob": 5})
+    session, frame, state = named_session(tmp_path, named)
+    session.dispatch("base.select", index=base_of(state, "Grot"))
+    s = session.state()
+    assert s["selected_wounds"] == {"label": "orks/Grot", "current": None, "max": None}
+    assert not ACTIONS_BY_ID["wounds.minus"].enabled(s)
+    session.dispatch("wounds.minus")
+    s = session.state()
+    assert s["notice"]["level"] == "error" and "no maximum wounds" in s["notice"]["text"]
+    assert s["selected_wounds"]["current"] is None
+
+
+def test_wounds_need_a_named_base(tmp_path):
+    cfg = ident_cfg()
+    frame = paint_board(cfg, GAME)
+    session, state = bases_snapshot(tmp_path, cfg, frame)
+    click_base(session, state, 0)
+    s = session.state()
+    assert s["selected_wounds"] is None and s["bases"][0]["wounds"] is None
+    session.dispatch("wounds.plus")
+    assert "named operative" in session.state()["notice"]["text"]
+
+
+def test_hatchway_opens_and_closes_and_a_new_layout_closes_it(tmp_path):
+    cfg = ident_cfg()
+    frame = paint_board(cfg, GAME)
+    write_map(tmp_path / "maps")
+    session = make_session(tmp_path, cfg, frame)
+    session.dispatch("map.layout", name="Small")
+    closed = settled(session, frame)
+    assert closed.state["openings"] == [{"index": 0, "kind": session.openings[0].kind, "open": False}]
+    assert not ACTIONS_BY_ID["opening.toggle"].enabled(closed.state)
+    session.dispatch("opening.toggle")  # nothing selected: a hint, no change
+    assert session.state()["openings"][0]["open"] is False
+    x, y = opening_px(session)
+    session.dispatch("board.click", x=x, y=y)
+    assert ACTIONS_BY_ID["opening.toggle"].enabled(session.state())
+    session.dispatch("opening.toggle")
+    s = session.state()
+    assert s["selected_opening"]["open"] is True and s["openings"][0]["open"] is True
+    session.dispatch("base.deselect")
+    opened = session.step(frame)
+    assert not np.array_equal(opened.image, closed.image)  # the floor shows through
+    session.dispatch("board.click", x=x, y=y)
+    session.dispatch("opening.toggle")
+    session.dispatch("base.deselect")
+    assert np.array_equal(session.step(frame).image, closed.image)
+    session.dispatch("board.click", x=x, y=y)
+    session.dispatch("opening.toggle")
+    session.dispatch("map.layout", name="Small")  # the game starts again with all closed
+    assert session.state()["openings"][0]["open"] is False

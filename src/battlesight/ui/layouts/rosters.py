@@ -1,9 +1,10 @@
 """Layout `rosters`: a control bar on top, the video, and a team list each side.
 
 The control bar has separate sections: View, Commands, Inspector, Reference
-and Debug. The inspector shows the selected operative (name, crop, ring
-slider, name fix) or the selected hatchway or breach point. Each team list
-shows the operatives of one team and how they are identified. The name fix
+and Debug. The inspector shows the selected operative (name, crop, wounds,
+ring slider, name fix) or the selected hatchway or breach point (open or
+closed). Each team list shows the operatives of one team, their wounds and
+how they are identified. The name fix
 is a list in the inspector, so the shell popup is off here.
 """
 
@@ -15,7 +16,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QAbstractButton, QComboBox, QGridLayout, QGroupBox, QHBoxLayout, QLabel, QPushButton, QStackedWidget, QToolButton, QVBoxLayout, QWidget
 
 from ...live import ACTIONS, Action
-from ..parts import COLORS, CandidateList, MapPicker, RingSlider, TeamRoster, VideoWidget, action_control, distance_text, show_action_state
+from ..parts import COLORS, CandidateList, MapPicker, OpeningControl, RingSlider, TeamRoster, VideoWidget, WoundsControl, action_control, distance_text, show_action_state
 
 if TYPE_CHECKING:
     from . import Shell
@@ -212,6 +213,8 @@ class RostersLayout:
         row.addWidget(self.crop, 0, Qt.AlignmentFlag.AlignTop)
         column = QVBoxLayout()
         column.setSpacing(2)
+        self.wounds = WoundsControl(self.shell.dispatch)
+        column.addWidget(self.wounds)
         self.ring = RingSlider(self.shell.dispatch)
         column.addWidget(self.ring)
         self.distance = QLabel()
@@ -227,10 +230,8 @@ class RostersLayout:
 
     def _opening_page(self, page: QWidget) -> None:
         column = QVBoxLayout(page)
-        self.open_close = _no_focus(QPushButton("Open/Close"))
-        self.open_close.setEnabled(False)
-        self.open_close.setToolTip("Later: open or close this hatchway")
-        column.addWidget(self.open_close, 0, Qt.AlignmentFlag.AlignLeft)
+        self.opening = OpeningControl(self.shell.dispatch)
+        column.addWidget(self.opening)
         column.addStretch(1)
 
     # --- state ---------------------------------------------------------------------
@@ -259,11 +260,13 @@ class RostersLayout:
             self.title.setText("Nothing selected")
         elif page == "opening":
             self.title.setText(OPENING_NAMES.get(state["selected_opening"]["kind"], state["selected_opening"]["kind"]))
+            self.opening.show_state(state)
         else:
             self.title.setText(operative_title(state))
             crop = self.shell.selected_crop()
             self.crop.setVisible(crop is not None)
             self.crop.set_image(crop)
+            self.wounds.show_state(state)
             self.ring.show_state(state)
             distance = state["distance"]
             self.distance.setText("Click a second base to measure." if distance is None else f"Rim to rim: {distance_text(distance)}")

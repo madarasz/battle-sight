@@ -267,6 +267,7 @@ TERRAIN_FILL = {
     "hatchway": YELLOW,
     "breach": ORANGE,
 }
+OPENING_KINDS = ("hatchway", "breach")
 ZONE_FILL = {"orange": (40, 110, 220), "grey": (220, 220, 220)}
 ZONE_ALPHA = 0.3
 
@@ -281,9 +282,26 @@ def _dense(poly: np.ndarray, step_mm: float = 10.0) -> np.ndarray:
     return np.concatenate(pts)
 
 
+def _draw_open(frame: np.ndarray, floor: np.ndarray, sh, px, thick: int) -> None:
+    """An open hatchway or breach point: a gap in its wall (the floor of
+    `floor` shows through) with a jamb in the opening colour at each end."""
+    mask = np.zeros(frame.shape[:2], np.uint8)
+    cv2.fillPoly(mask, [px(_dense(sh.points, 5.0))], 255)
+    cv2.dilate(mask, np.ones((3, 3), np.uint8), dst=mask)  # also the anti-aliased wall edge
+    frame[mask > 0] = floor[mask > 0]
+    pts = np.asarray(sh.points, float)
+    edges = [(pts[k], pts[(k + 1) % len(pts)]) for k in range(len(pts))]
+    edges.sort(key=lambda e: float(np.linalg.norm(e[1] - e[0])))
+    for a, b in edges[:2]:  # the two short sides: across the wall
+        seg = px(np.linspace(a, b, 8))
+        cv2.polylines(frame, [seg], False, BLACK, thick + 3, cv2.LINE_AA)
+        cv2.polylines(frame, [seg], False, TERRAIN_FILL[sh.kind], thick + 1, cv2.LINE_AA)
+
+
 def draw_terrain(frame: np.ndarray, shapes, to_px) -> None:
     """Draw terrain footprints (terrain.Shape, board mm) with `to_px`: zones
-    as a light fill, walls, pillars and openings filled, objectives and
+    as a light fill, walls, pillars and closed openings filled, an open
+    opening as a gap in its wall with a jamb at each end, objectives and
     teleporter pads as rings, a dashed circle 1 in around each objective,
     wall keys above horizontal walls and right of vertical walls."""
     s = _scale(frame)
@@ -300,8 +318,11 @@ def draw_terrain(frame: np.ndarray, shapes, to_px) -> None:
         cv2.addWeighted(layer, ZONE_ALPHA, frame, 1 - ZONE_ALPHA, 0, dst=frame)
         for sh in zones:
             cv2.polylines(frame, [px(_dense(sh.points))], True, ZONE_FILL.get(sh.name, ZONE_FILL["grey"]), thick, cv2.LINE_AA)
+    floor = frame.copy() if any(sh.open and sh.kind in OPENING_KINDS for sh in shapes) else None
     for sh in shapes:
-        if sh.kind in TERRAIN_FILL:
+        if sh.open and sh.kind in OPENING_KINDS:
+            _draw_open(frame, floor, sh, px, thick)
+        elif sh.kind in TERRAIN_FILL:
             pts = px(_dense(sh.points, 5.0))
             cv2.fillPoly(frame, [pts], TERRAIN_FILL[sh.kind], cv2.LINE_AA)
             cv2.polylines(frame, [pts], True, BLACK, 1, cv2.LINE_AA)
@@ -329,3 +350,43 @@ def draw_terrain(frame: np.ndarray, shapes, to_px) -> None:
             for k in range(0, len(pts), 2):  # dashes: every other segment of the sampled circle
                 seg = np.rint(pts[[k, (k + 1) % len(pts)]]).astype(np.int32).reshape(-1, 1, 2)
                 cv2.polylines(frame, [seg], False, WHITE, thick, cv2.LINE_AA)
+
+
+HEALTH_MM_PER_WOUND = 2.0  # bar length per maximum wound: 15 W = 30 mm
+HEALTH_BAR_MM = 4.0  # bar height
+HEALTH_GAP_MM = 3.0  # from the base rim to the bar
+HEALTH_EMPTY = (60, 60, 60)
+HEALTH_UNHARMED = (80, 220, 80)  # all wounds left (green)
+HEALTH_WOUNDED = (60, 170, 255)  # half of the wounds or more left (orange)
+HEALTH_INJURED = (60, 60, 230)  # fewer than half of the wounds left (red)
+
+
+def health_color(current: int, maximum: int) -> tuple[int, int, int]:
+    """Unharmed: all wounds. Wounded: half of the wounds or more. Injured:
+    fewer than half of the wounds."""
+    if current >= maximum:
+        return HEALTH_UNHARMED
+    return HEALTH_WOUNDED if current >= maximum / 2 else HEALTH_INJURED
+
+
+def draw_health_bars(frame: np.ndarray, bars, to_px) -> None:
+    """A health bar above each base. `bars`: (centre mm, base diameter mm,
+    current wounds, maximum wounds). The bar length is in proportion to the
+    maximum wounds, the filled part to the current wounds."""
+    s = _scale(frame)
+    thick = max(1, round(s))
+    for center, diameter, current, maximum in bars:
+        cx, cy = float(center[0]), float(center[1])
+        length = HEALTH_MM_PER_WOUND * maximum
+        x0, y1 = cx - length / 2, cy - diameter / 2 - HEALTH_GAP_MM
+        y0 = y1 - HEALTH_BAR_MM
+
+        def poly(xa: float, xb: float) -> np.ndarray:
+            pts = np.array([[xa, y0], [xb, y0], [xb, y1], [xa, y1]], float)
+            return np.rint(to_px(pts)).astype(np.int32).reshape(-1, 1, 2)
+
+        cv2.fillPoly(frame, [poly(x0, x0 + length)], HEALTH_EMPTY, cv2.LINE_AA)
+        part = max(0, min(current, maximum)) / maximum
+        if part > 0:
+            cv2.fillPoly(frame, [poly(x0, x0 + length * part)], health_color(current, maximum), cv2.LINE_AA)
+        cv2.polylines(frame, [poly(x0, x0 + length)], True, HEALTH_INJURED if current <= 0 else BLACK, thick, cv2.LINE_AA)

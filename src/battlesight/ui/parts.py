@@ -8,11 +8,11 @@ from typing import Any
 import numpy as np
 from PySide6.QtCore import QPoint, QPointF, QRectF, Qt, Signal
 from PySide6.QtGui import QColor, QFont, QImage, QMouseEvent, QPainter
-from PySide6.QtWidgets import QAbstractButton, QCheckBox, QStyledItemDelegate, QStyleOptionViewItem, QComboBox, QFormLayout, QGridLayout, QHBoxLayout, QLabel, QListWidget, QListWidgetItem, QPushButton, QSlider, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QAbstractButton, QCheckBox, QStyledItemDelegate, QStyleOptionViewItem, QComboBox, QFormLayout, QGridLayout, QHBoxLayout, QLabel, QListWidget, QListWidgetItem, QPushButton, QSlider, QSpinBox, QVBoxLayout, QWidget
 
 from ..live import ACTIONS, Action
 
-ACTION_GROUPS = {"team": "View", "map": "View", "snapshot": "Snapshot", "base": "Snapshot", "names": "Snapshot", "frame": "Snapshot", "ring": "Measure", "view": "View", "reference": "Reference", "app": "Help"}
+ACTION_GROUPS = {"wounds": "Game", "opening": "Game", "team": "View", "map": "View", "snapshot": "Snapshot", "base": "Snapshot", "names": "Snapshot", "frame": "Snapshot", "ring": "Measure", "view": "View", "reference": "Reference", "app": "Help"}
 RING_COLUMNS = 5
 COLORS = {"none": "#8a8a8a", "ok": "#2e9e4f", "done": "#2e9e4f", "warn": "#c98a00", "hint": "#c98a00", "error": "#d03a3a"}
 DRIFT_LEVEL = {"OK": "ok", "NO_REFERENCE": "warn", "MOVED": "warn", "CARD_MOVED": "error", "LOST": "error"}
@@ -347,14 +347,22 @@ EYE = "\U0001F441"  # identified and confirmed
 MARK_ROLE = Qt.ItemDataRole.UserRole + 1  # text at the right edge of a team list row
 
 
+def wounds_text(current: int | None, maximum: int | None) -> str:
+    """`current/maximum` wounds, "" without a maximum."""
+    return "" if maximum is None else f"{current}/{maximum}"
+
+
 def roster_row(operative: dict[str, Any]) -> tuple[str, str, str]:
-    """Name, mark (eye, percentage or `?`) and level of one operative of a team list."""
+    """Name, mark (wounds, then eye, percentage or `?`) and level of one operative of a team list."""
+    wounds = wounds_text(operative.get("wounds"), operative.get("max_wounds"))
     if operative["base_index"] is None:
-        return operative["name"], "?", "none"
-    if operative["confirmed"]:
-        return operative["name"], EYE, "ok"
-    score = operative["score"]
-    return operative["name"], "" if score is None else percent(score), "warn"
+        mark, level = "?", "none"
+    elif operative["confirmed"]:
+        mark, level = EYE, "ok"
+    else:
+        score = operative["score"]
+        mark, level = "" if score is None else percent(score), "warn"
+    return operative["name"], f"{wounds}   {mark}" if wounds and mark else wounds or mark, level
 
 
 class _MarkDelegate(QStyledItemDelegate):
@@ -432,3 +440,98 @@ class TeamRoster(QWidget):
         roster = state["rosters"][self.slot]
         rows = [] if roster is None else roster["operatives"]
         self.operatives.fill_rows(rows, [roster_row(r) for r in rows])
+
+
+class WoundsControl(QWidget):
+    """Current wounds of the selected operative: a - and a + button and a
+    box to type a number from 0 to the maximum. A warning when the operative
+    has no maximum wounds. Hidden when no named operative is selected.
+
+    The box takes the focus only for a click, so the keys work again after
+    Return or a click elsewhere."""
+
+    def __init__(self, dispatch: Callable[..., Any], parent: QWidget | None = None):
+        super().__init__(parent)
+        self.dispatch = dispatch
+        column = QVBoxLayout(self)
+        column.setContentsMargins(0, 0, 0, 0)
+        column.setSpacing(2)
+        self.controls = QWidget()
+        row = QHBoxLayout(self.controls)
+        row.setContentsMargins(0, 0, 0, 0)
+        row.addWidget(QLabel("Wounds"))
+        actions = {a.id: a for a in ACTIONS}
+        self.minus = action_control(actions["wounds.minus"], dispatch)
+        self.minus.setText("-")
+        self.plus = action_control(actions["wounds.plus"], dispatch)
+        self.plus.setText("+")
+        self.value = QSpinBox()
+        self.value.setButtonSymbols(QSpinBox.ButtonSymbols.NoButtons)
+        self.value.setFocusPolicy(Qt.FocusPolicy.ClickFocus)
+        self.value.setAlignment(Qt.AlignmentFlag.AlignRight)
+        self.value.setKeyboardTracking(False)
+        self.value.setToolTip("Type the current wounds, then push Return")
+        self.value.editingFinished.connect(self._typed)
+        self.maximum = QLabel()
+        for widget in (self.minus, self.value, self.maximum, self.plus):
+            row.addWidget(widget)
+        row.addStretch(1)
+        column.addWidget(self.controls)
+        self.warning = QLabel()
+        self.warning.setWordWrap(True)
+        self.warning.setStyleSheet(f"color: {COLORS['warn']}")
+        column.addWidget(self.warning)
+        self.shown: dict[str, Any] | None = None
+
+    def _typed(self) -> None:
+        self.value.clearFocus()
+        w = self.shown
+        if w is not None and w["max"] is not None and self.value.value() != w["current"]:
+            self.dispatch("wounds.set", value=self.value.value())
+
+    def show_state(self, state: dict[str, Any]) -> None:
+        w = state["selected_wounds"]
+        self.shown = w
+        self.setVisible(w is not None)
+        if w is None:
+            return
+        has_max = w["max"] is not None
+        self.controls.setVisible(has_max)
+        self.warning.setVisible(not has_max)
+        if not has_max:
+            name = w["label"].rsplit("/", 1)[-1]
+            self.warning.setText(f"{name} has no maximum wounds set.")
+            return
+        self.minus.setEnabled(w["current"] > 0)
+        self.plus.setEnabled(w["current"] < w["max"])
+        self.maximum.setText(f"/ {w['max']}")
+        if not self.value.hasFocus():  # the user types a number
+            self.value.blockSignals(True)
+            self.value.setRange(0, w["max"])
+            self.value.setValue(w["current"])
+            self.value.blockSignals(False)
+
+
+OPEN_STATE = {False: "Closed", True: "Open"}
+
+
+class OpeningControl(QWidget):
+    """State of the selected hatchway or breach point and a button that
+    opens or closes it."""
+
+    def __init__(self, dispatch: Callable[..., Any], parent: QWidget | None = None):
+        super().__init__(parent)
+        row = QHBoxLayout(self)
+        row.setContentsMargins(0, 0, 0, 0)
+        self.state_label = QLabel()
+        row.addWidget(self.state_label)
+        self.button = action_control(next(a for a in ACTIONS if a.id == "opening.toggle"), dispatch)
+        row.addWidget(self.button)
+        row.addStretch(1)
+
+    def show_state(self, state: dict[str, Any]) -> None:
+        opening = state["selected_opening"]
+        self.setEnabled(opening is not None)
+        is_open = opening is not None and opening["open"]
+        self.state_label.setText(OPEN_STATE[is_open])
+        self.button.setText("Close" if is_open else "Open")

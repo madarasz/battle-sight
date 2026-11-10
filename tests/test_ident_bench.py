@@ -180,6 +180,16 @@ def test_gallery_state_changes_with_content_only(tmp_path):
     assert ib.gallery_state(tmp_path, ["T"])["files"] == 3
 
 
+def test_gallery_state_ignores_the_wounds_in_the_team_file(tmp_path):
+    (tmp_path / "T").mkdir()
+    idt.save_team_file(tmp_path / "T", "T", {"A": 32.0})
+    first = ib.gallery_state(tmp_path, ["T"])
+    idt.save_team_file(tmp_path / "T", "T", {"A": 32.0}, {"A": 12})
+    assert ib.gallery_state(tmp_path, ["T"]) == first
+    idt.save_team_file(tmp_path / "T", "T", {"A": 40.0}, {"A": 12})
+    assert ib.gallery_state(tmp_path, ["T"])["fingerprint"] != first["fingerprint"]
+
+
 def test_same_gallery():
     a = {"gallery": {"fingerprint": "a"}}
     assert ib.same_gallery(a, a) and not ib.same_gallery(a, {"gallery": {"fingerprint": "b"}})

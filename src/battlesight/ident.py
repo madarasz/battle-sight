@@ -328,34 +328,50 @@ class Operative:
     team: str
     name: str
     base_mm: float | None = None
+    wounds: int | None = None  # maximum wounds (W), None when team.toml has no value
 
     @property
     def label(self) -> str:
         return label_of(self.team, self.name)
 
 
-def load_team_file(team_dir: Path) -> dict[str, float | None]:
-    """{operative name: base diameter in mm or None} from `team.toml`."""
+def check_wounds(value, where: str) -> int:
+    """A maximum wounds value: a whole number of 1 or more. Else a ValueError."""
+    if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+        raise ValueError(f"{where}: wounds must be a whole number of 1 or more, not {value!r}")
+    return value
+
+
+def read_team_file(team_dir: Path) -> dict[str, tuple[float | None, int | None]]:
+    """{operative name: (base diameter in mm, maximum wounds)} from
+    `team.toml`, None for a value that is not there. A bad wounds value is a
+    ValueError."""
     path = team_dir / TEAM_FILE
     if not path.exists():
         return {}
     with path.open("rb") as fh:
         raw = tomllib.load(fh)
-    out: dict[str, float | None] = {}
+    out: dict[str, tuple[float | None, int | None]] = {}
     for name, v in raw.get("operatives", {}).items():
-        base = v.get("base_mm") if isinstance(v, dict) else None
-        out[str(name)] = None if base is None else float(base)
+        v = v if isinstance(v, dict) else {}
+        base, wounds = v.get("base_mm"), v.get("wounds")
+        out[str(name)] = (None if base is None else float(base), None if wounds is None else check_wounds(wounds, f"{path} {name}"))
     return out
+
+
+def load_team_file(team_dir: Path) -> dict[str, float | None]:
+    """{operative name: base diameter in mm or None} from `team.toml`."""
+    return {name: base for name, (base, _wounds) in read_team_file(team_dir).items()}
 
 
 def team_operatives(team: str, team_dir: Path) -> list[Operative]:
     """Operatives of a team, sorted: `team.toml` entries and operative
     folders. Needs no photos and no model."""
-    listed = load_team_file(team_dir)
+    listed = read_team_file(team_dir)
     names = set(listed)
     if team_dir.is_dir():
         names |= {q.name for q in team_dir.iterdir() if q.is_dir() and not q.name.startswith(".")}
-    return [Operative(team, name, listed.get(name)) for name in sorted(names)]
+    return [Operative(team, name, *listed.get(name, (None, None))) for name in sorted(names)]
 
 
 def roster_sizes(root: str | Path, teams: Iterable[str]) -> tuple[float, ...] | None:
@@ -368,10 +384,13 @@ def roster_sizes(root: str | Path, teams: Iterable[str]) -> tuple[float, ...] | 
     return tuple(sorted(set(sizes)))  # type: ignore[arg-type]
 
 
-def save_team_file(team_dir: Path, team: str, operatives: dict[str, float | None]) -> None:
+def save_team_file(team_dir: Path, team: str, operatives: dict[str, float | None], wounds: dict[str, int | None] | None = None) -> None:
+    """Write `team.toml`: base size and maximum wounds of each operative."""
+    wounds = wounds or {}
     lines = [
         f"# Battle Sight gallery of team {team!r}. One table per operative.",
         "# base_mm: base diameter (one of [bases] diameters_mm). Only bases of this size can get this name.",
+        "# wounds: maximum wounds (W) of the operative, for the health bar of the live app.",
         "# Photos: one folder per operative next to this file, written by `battlesight enroll` and by fixes.",
         "",
     ]
@@ -379,6 +398,8 @@ def save_team_file(team_dir: Path, team: str, operatives: dict[str, float | None
         lines.append(f"[operatives.{json.dumps(name)}]")
         if operatives[name] is not None:
             lines.append(f"base_mm = {operatives[name]:g}")
+        if wounds.get(name) is not None:
+            lines.append(f"wounds = {wounds[name]:d}")
         lines.append("")
     team_dir.mkdir(parents=True, exist_ok=True)
     (team_dir / TEAM_FILE).write_text("\n".join(lines))
@@ -436,28 +457,36 @@ class Gallery:
     def __len__(self) -> int:
         return len(self.files)
 
-    def ensure_operative(self, team: str, name: str, base_mm: float | None) -> Operative:
+    def ensure_operative(self, team: str, name: str, base_mm: float | None, wounds: int | None = None) -> Operative:
         """The operative, created (and written to team.toml) when new. Raises
-        ValueError when it exists with another base size."""
+        ValueError when it exists with another base size. `wounds` (maximum
+        wounds) sets or replaces the value in team.toml."""
         if team not in self.team_dirs:
             raise ValueError(f"team {team!r} is not loaded, loaded: {sorted(self.team_dirs)}")
         name = check_name(name, "operative")
+        if wounds is not None:
+            check_wounds(wounds, label_of(team, name))
         i = self.index(label_of(team, name))
         if i is not None:
             op = self.operatives[i]
             if base_mm is not None and op.base_mm is not None and op.base_mm != base_mm:
                 raise ValueError(f"{op.label} has a {op.base_mm:g} mm base, not {base_mm:g} mm")
+            changed = False
             if op.base_mm is None and base_mm is not None:
-                op.base_mm = base_mm
+                op.base_mm, changed = base_mm, True
+            if wounds is not None and op.wounds != wounds:
+                op.wounds, changed = wounds, True
+            if changed:
                 self._save_team(team)
             return op
-        op = Operative(team, name, base_mm)
+        op = Operative(team, name, base_mm, wounds)
         self.operatives.append(op)
         self._save_team(team)
         return op
 
     def _save_team(self, team: str) -> None:
-        save_team_file(self.team_dirs[team], team, {op.name: op.base_mm for op in self.operatives if op.team == team})
+        ops = [op for op in self.operatives if op.team == team]
+        save_team_file(self.team_dirs[team], team, {op.name: op.base_mm for op in ops}, {op.name: op.wounds for op in ops})
 
     # loading and the embedding cache
 

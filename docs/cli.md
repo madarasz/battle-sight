@@ -169,7 +169,31 @@ overlapping bases have a distance of 0.
 Openings: a left or right click with no base under it selects the hatchway or
 breach point of the map layout within 8 mm (`OPENING_HIT_MM`), live and
 snapshot. One thing is selected at a time: a base or an opening. State
-`selected_opening` = `{index, kind}`. `base.deselect` clears both.
+`selected_opening` = `{index, kind, open}`. `base.deselect` clears both.
+
+Game state (`LiveSession`, no window): wounds and openings.
+
+- Wounds: `LiveSession.wounds` = `{label: current}` for operatives that are
+  not at their maximum; the maximum is `wounds` of the operative in
+  `team.toml` (`ident.Operative.wounds`). The values are by label, so a new
+  snapshot and a name fix keep them. `wounds.minus` (`-`), `wounds.plus`
+  (`+`) and `wounds.set(value)` change the selected named base, limited to
+  0 .. maximum. Without a named base, a hint; without a maximum, an error
+  notice (no change). State: `selected_wounds` = `None` (no named base) or
+  `{label, current, max}` (`current` and `max` `None` without a maximum);
+  each `bases` entry and `rosters` row has `wounds` and `max_wounds`.
+  `overlay.draw_health_bars` draws a bar above each named base with a
+  maximum: length `HEALTH_MM_PER_WOUND` (2 mm) per maximum wound, fill =
+  current / maximum, colour by state: `HEALTH_UNHARMED` (green) at the
+  maximum, `HEALTH_WOUNDED` (orange) for maximum / 2 <= current < maximum,
+  `HEALTH_INJURED` (red) for current < maximum / 2; red edge at 0.
+- Openings: `LiveSession.opened` = indexes in `openings` that are open. A
+  layout load (`map.layout`, also the same layout again) closes all.
+  `opening.toggle` (`o`) opens or closes the selected opening. State:
+  `openings` = `[{index, kind, open}]`. `draw_terrain` draws an open opening
+  (`terrain.Shape.open`) as a gap in its wall (the image under the terrain
+  shows through) with a jamb in the opening colour across each end. An
+  outline alone is not enough: a breach point is as thin as the wall.
 
 Teams: `team.set(slot, name)` sets the team of side 0 or 1 (`None` = none).
 The same team on both sides is refused (the team list of the other side
@@ -178,7 +202,7 @@ again at the next `space`) and the known base sizes; the names of the last
 snapshot stay until then. Without a team on either side, `space` uses all
 gallery teams. State: `team_choices` (gallery teams), `team_slots`, and
 `rosters` (per side `null` or `{team, operatives: [{label, name, base_mm,
-base_index, score, confirmed}]}`, from `team.toml` and the operative folders,
+base_index, score, confirmed, wounds, max_wounds}]}`, from `team.toml` and the operative folders,
 with the base that has the name in the last snapshot). `base.select(index)`
 selects a base by index (team list rows).
 
@@ -206,6 +230,8 @@ selected. `Esc` clears the selected base.
 | left click on a hatchway or breach point | Select it (no base under the click). |
 | `1` to `9` | Ring on the selected base: base radius + N in. |
 | `0` | Remove the ring. |
+| `-`, `+` | One wound less or more on the selected named base (`wounds.minus`, `wounds.plus`). |
+| `o` | Open or close the selected hatchway or breach point (`opening.toggle`). |
 | right click on a base | Select it and show its names (after `space`). |
 | left click on a name | Set the name, add the crop to the gallery. |
 | `a` | "Accept all identification": accept all names that are not confirmed, add their crops to the gallery. |
@@ -239,9 +265,16 @@ of the status bar; off at each layout change). It must not import `pipeline`,
 (`MapPicker`, view toggles), Commands (`snapshot.name`, `names.accept` shown
 only with `unconfirmed > 0`, a disabled "Add operative", `snapshot.back` shown
 only in a snapshot), Inspector (operative: title `Team - Name (40mm)`, crop,
-`RingSlider`, distance, "Change identification" that shows a `CandidateList`;
-opening: "Hatchway" / "Breach point" and a disabled "Open/Close"; `✕` =
-`base.deselect`), Reference and Debug. A `TeamRoster` each side of the video.
+`WoundsControl`, `RingSlider`, distance, "Change identification" that shows a
+`CandidateList`; opening: "Hatchway" / "Breach point" and `OpeningControl`
+(state and Open / Close button); `✕` = `base.deselect`), Reference and Debug.
+A `TeamRoster` each side of the video; the mark of a row starts with
+`current/max` wounds when the operative has a maximum. `WoundsControl`
+(`parts.py`, also in `inspector`): `-` and `+` buttons and a `QSpinBox` with
+`ClickFocus` (it needs the focus to type; Return or a focus loss sends
+`wounds.set` and gives the focus back, so the keys work again); a warning
+instead of the controls without a maximum. `inspector` has an `opening` page
+too.
 `VideoWidget.set_badge` paints the mode ("Live" red, "Snapshot" green) at the
 top right of the image. Scores in all lists are percentages (`parts.percent`).
 
@@ -270,14 +303,17 @@ frame).
 ## `enroll`: gallery photos of one operative
 
 ```
-uv run battlesight enroll --team NAME --operative NAME [--base-mm 32]
+uv run battlesight enroll --team NAME --operative NAME [--base-mm 32] [--wounds W]
                           [--images PATH ...] [--reference FILE]
                           [--gallery-root data/teams]
                           [--source S] [--camera-file FILE] [--config FILE]
 ```
 
 Adds crops of one operative to `data/teams/<team>/<operative>/` and its base
-size to `data/teams/<team>/team.toml` (created when new). Live: push
+size to `data/teams/<team>/team.toml` (created when new). `--wounds W` (a
+whole number, 1 or more) sets or replaces the maximum wounds of the operative
+in `team.toml` at the start, before the first crop; a bad value gives exit
+code 2 and no change. Live: push
 `space`. With exactly one base (of `--base-mm` or the size in `team.toml`)
 the crop goes in at once; with more, click the base, or push `Esc` to leave the
 choice without a crop (`Esc` outside the choice quits). Turn and move the model
@@ -607,7 +643,8 @@ identity stay separate: the stage only reads the bases of the `bases` stage.
    for 10 bases on an M4 Pro. `model = "color-hist"` is a colour histogram
    without ML, for the tests.
 3. Gallery: `data/teams/<team>/team.toml` (`[operatives."Name"]`,
-   `base_mm`), `data/teams/<team>/<operative>/*.png` crops. Each crop is
+   `base_mm`, optional `wounds` = maximum wounds for the live game state, not
+   used by the identification), `data/teams/<team>/<operative>/*.png` crops. Each crop is
    embedded at `rotations` angles. `embeddings.npz` in the team folder caches
    the embeddings by file name and change time, with a key of the model and
    the crop values; a change of these values embeds all crops again. Git
