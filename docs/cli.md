@@ -156,11 +156,12 @@ and also show for 6 seconds at the right of the status bar: red for an error,
 yellow for a hint, green for done. `live.Notice` holds the last message.
 
 Rings and distances (plan priority 5, `measure.py`) work after `space` and
-after `b`. A left click on a base selects it. A left click on another base
-makes it the target: the app draws the shortest line between the two rims, and
-the status bar shows the distance in inches (`5.93"`). Another base moves the target, and a click
-on the target removes it. A click on the selected base or on the empty board
-clears the selection. Keys `1` to `9` draw a ring with radius = base radius +
+after `b`. A left click on a base selects it (on another base: selects that
+one). A right click on another base makes it the target: the app draws the
+shortest line between the two rims, and the status bar shows the distance in
+inches (`5.93"`). Another right-clicked base moves the target, and a right click
+on the target removes it. A left click on the selected base or on the empty
+board clears the selection. Keys `1` to `9` draw a ring with radius = base radius +
 N in on the selected base, and `0` removes it. A new selection starts with no
 ring and no target. The ring keeps to the selected base and is sampled in
 board mm, so it also bends with the lens in the camera view. Touching or
@@ -256,6 +257,26 @@ breach point of the map layout within 8 mm (`OPENING_HIT_MM`), live and
 snapshot. One thing is selected at a time: a base or an opening. State
 `selected_opening` = `{index, kind, open}`. `base.deselect` clears both.
 
+Missed bases: `base.add` ("Add operative", no key; `Esc` stops it, the action
+is off while `adding` or `busy`) sets `adding`. It needs a name session
+(`_prepare_adding`, busy while it runs; it loads the gallery): a named
+snapshot is used as it is; in the live video the snapshot of the last names
+comes back; with no names yet, a new snapshot of the frame runs until
+`rectify` and gets an empty bases list and its `bases_image` (the user adds
+each base); a bases-only snapshot (`b`) gets a session with all bases unknown. While
+`adding`, the shell sends `board.hover` and `LiveFrame.crop` is the snapshot
+bases image around the pointer (`_aim_crop`, the size of a selected
+`AIM_DIAMETER_MM` base crop, a cross at the pointer). The next `board.click` calls
+`pipeline.find_base_near`: the relaxed bases search (`BasesSearch.relaxed`,
+no reference, known sizes of the gallery) on the snapshot bases image, in a
+disc of `ADD_RADIUS_MM` (20 mm) around the click. The result nearest the click
+counts, unless its centre lies inside a known base. No result: a notice, and
+`adding` stays on for the next click. A result is added to the end of
+`result.scratch` lists and `LabelSession.add`, named with `ident.identify` for
+this one base (a name that another base holds is left out), selected, and
+`state["new_base"]` is its index, so a layout can open the name list. Choosing
+a name is the usual `base.choose`; `new_base` clears on any other selection.
+
 False bases: `base.remove` ("Remove ID", no key: `Backspace` and `Delete` edit
 the wounds box) removes the selected base from the snapshot (terrain or board
 print found as a base). It works with and without names. The later bases move
@@ -301,8 +322,10 @@ selects a base by index (team list rows).
 
 Fixes (plan priority 4, "user confirms or fixes with one click"): after
 `space`, right-click a base, then click a name in the list (a popup at the base
-in `panel`, the panel list in `inspector`). The right click replaces the
-selection. A name choice clears the selection. The list has the
+in `panel`, the panel list in `inspector`). A right click with no base
+selected, or on the selected base, replaces the selection (`state["right_click"]`
+= "name": the shell opens the popup); a right click on another base sets the
+target of the distance (`right_click` = "measure", no popup). A name choice clears the selection. The list has the
 operatives of this base size, best score first, then the operatives without
 gallery photos. The crop of the base goes into the gallery of that operative.
 A name that another base held moves to the clicked base; the other base
@@ -319,16 +342,17 @@ selected. `Esc` clears the selected base.
 | `g` | Grid on or off. |
 | `e` | Use the current frame as the empty-board reference and write it to `--reference`. The frame must pass `corners` and `rectify`, else the app keeps the old reference and says why. |
 | `c` | Clear the empty-board reference: single-frame detection. |
-| left click on a base | Select it. With a selected base: set or move the target (second base of a distance). |
 | left click on a hatchway or breach point | Select it (no base under the click). |
 | `1` to `9` | Ring on the selected base: base radius + N in. |
 | `0` | Remove the ring. |
 | `w` | Measure around walls on or off (`measure.walls`, only with a layout). |
 | `m` | Measure movement on or off (`measure.move`). |
-| mouse pointer on the board | With `measure.move` and a ring: the route to the pointer (`board.hover`). |
+| mouse pointer on the board | With `measure.move` and a ring: the route to the pointer; with "Add operative": the board under the pointer in the inspector (`board.hover`). |
 | `-`, `+` | One wound less or more on the selected named base (`wounds.minus`, `wounds.plus`). |
 | `o` | Open or close the selected hatchway or breach point (`opening.toggle`). |
-| right click on a base | Select it and show its names (after `space`). |
+| left click on a base | Select it (on the selected base: clear the selection). |
+| right click on another base | With a selected base: measure the distance to it (again: remove the line). |
+| right click on a base | No base selected, or the selected base: show its names (after `space`). |
 | left click on a name | Set the name, add the crop to the gallery. |
 | `a` | "Accept all identification": accept all names that are not confirmed, add their crops to the gallery. |
 | `u` | Undo the last gallery photo of this snapshot (deletes the file, gives the old name back). |
@@ -359,10 +383,11 @@ of the status bar; off at each layout change). It must not import `pipeline`,
 
 `rosters` (Option 3 of `specs/ui.md`): a top bar with the sections View
 (`MapPicker`, view toggles and `measure.walls`), Commands (`snapshot.name`, `names.accept` shown
-only with `unconfirmed > 0`, a disabled "Add operative", `snapshot.back` shown
+only with `unconfirmed > 0`, "Add operative" = `base.add` (the inspector shows the instruction while `adding`), `snapshot.back` shown
 only in a snapshot), Inspector (operative: title `Team - Name (40mm)`, crop,
 `WoundsControl`, `RingSlider`, `measure.move`, distance, "Change ID" that shows a
-`CandidateList`, "Remove ID" = `base.remove`; opening: "Hatchway" / "Breach point" and `OpeningControl`
+`CandidateList` (open at once for `new_base`; while open it hides the wounds,
+ring, movement and distance, and the button reads "Cancel": it closes the list), "Remove ID" = `base.remove`; opening: "Hatchway" / "Breach point" and `OpeningControl`
 (state and Open / Close button); `✕` = `base.deselect`), Reference and Debug.
 A `TeamRoster` each side of the video; the mark of a row starts with
 `current/max` wounds when the operative has a maximum. `WoundsControl`

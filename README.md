@@ -53,11 +53,11 @@ uv run battlesight --team kommandos veterans
 
 ## The window
 
-The keys and the menus always work. Hold the mouse pointer on a control to
-see its key. Push `h` to see all key bindings.
+Every control has a key. Hold the mouse pointer on a control to see its
+key. Push `h` to see all key bindings.
 
-The window has three layouts. Push `l` to change the layout. The app keeps
-your choice.
+The window has three layouts. Use the menu View > Layout to change the
+layout. The app keeps your choice.
 
 | Layout | Panel |
 |---|---|
@@ -68,7 +68,7 @@ your choice.
 The top-right corner of the video shows the mode:
 
 - Red circle, "Live": the live video.
-- Blue pause sign, "Snapshot": a result. Push `Esc` to go back to Live.
+- Blue pause sign, "Snapshot": a result. Click "Go back to Live" to leave it.
 - Green square, "Minimap": the minimap.
 
 ### Team lists
@@ -84,7 +84,7 @@ mark at the right end of each line:
 - `?`: the app did not find this operative.
 
 Click an operative to show it in the inspector. After you change a team,
-push `space` again.
+click "Identify operatives" again.
 
 ## Use the app
 
@@ -108,40 +108,47 @@ Code) and ask it to record the map.
 ### 2. Find the operatives
 
 1. Before the operatives go on the board, set up the terrain and the tokens,
-   and push `e`. The app keeps this photo of the empty board and finds the
-   bases more easily.
+   and click "Take empty-board reference" (Reference section). The app keeps this photo
+   of the empty board and finds the bases more easily.
 2. Put the operatives on the board.
-3. Push `space`. The app finds the bases and writes the name of the
+3. Click "Identify operatives". The app finds the bases and writes the name of the
    operative under each base. Green: sure. Yellow: not sure, check it. Red
    `?`: unknown.
 4. If a name is wrong, click the base and choose the correct name. In the
-   `rosters` layout, click "Change ID" first. The app learns from each
-   correction.
+   `rosters` layout, click "Change ID" first ("Cancel" closes the list). The
+   app learns from each correction.
 5. If the app found an operative where there is none, click it and click
    "Remove ID".
-6. Push `Esc` to go back to the live video. The circles and names stay until
-   the next `space`.
+6. If an operative has no base on the video, click "Add operative", then
+   click the centre of its base. The inspector shows the board under the
+   pointer. The app finds the base and shows a list of names. Choose the
+   correct name. Click "Cancel" to stop. You can also do this before
+   "Identify operatives", to add each operative yourself.
+7. Click "Go back to Live". The circles and names stay until the next
+   "Identify operatives".
 
-Push `b` to find the bases without names.
+To find the bases without names, use the menu item "Find bases only".
 
 ### 3. Measure
 
-You can measure after `space` or after `b`.
+You can measure after "Identify operatives" or "Find bases only".
 
 1. Click a base. A white circle shows the selected base.
-2. Push a key from `1` to `9`, or move the "Distance" slider. The app draws
-   a ring that many inches from the edge of the base. Push `0` to remove it.
-3. Click a second base. The app draws a line between the two base edges and
+2. Move the "Distance" slider in the inspector. The app draws a ring that
+   many inches from the edge of the base. Set the slider to `Off` to remove
+   it.
+3. Right click a second base. The app draws a line between the two base edges and
    shows the distance in inches in the status line.
-4. Click the second base again to remove the line. Click the selected base,
-   or an empty part of the board, to stop.
+4. Right click the second base again to remove the line. Click another
+   base to select it. Click the selected base, or an empty part of the
+   board, to stop.
 
-With a layout, the **Measure around walls** check box (key `w`) is on. The
+With a layout, the **Measure around walls** check box is on. The
 distance follows the shortest path around walls and closed hatchways, and
 the ring becomes an area. The status line shows `no path` when all paths are
 closed. Clear the check box to measure in a straight line.
 
-The **Measure movement** check box (key `m`) shows the area that the
+The **Measure movement** check box shows the area that the
 selected operative can move to with the distance that you set. Move the
 mouse pointer in the area to see the best move to that point, with the
 inches of each part.
@@ -149,11 +156,10 @@ inches of each part.
 ### 4. Track the game
 
 - **Wounds.** Click an operative that has a name. Click `-` or `+` in the
-  inspector, or push the `-` and `+` keys. You can also type a number in the
-  "Wounds" box and push Return. A health bar above the operative shows its
+  inspector, or type a number in the "Wounds" box and push Return. A health bar above the operative shows its
   wounds, and the team list shows them as `12/15`.
 - **Hatchways and breach points.** All start closed. Click one, then click
-  "Open" or "Close", or push `o`. The measurements follow.
+  "Open" or "Close" in the inspector. The measurements follow.
 - **Control marks** (View check box, on at the start). Yellow crossed swords
   show two operatives of different teams in melee. Yellow arrow heads show
   an operative in control range of an objective. Operatives without a name
@@ -164,10 +170,10 @@ inches of each part.
 - **Minimap.** Shows a drawing of the board in place of the camera image,
   with a disc for each operative. Clicks and measurements work as on the
   camera image. It needs a layout.
-- **Adjust perspective** (key `v`). On: the board from straight above. Off:
+- **Adjust perspective** check box. On: the board from straight above. Off:
   the camera image with the four corner cards. Use "off" to put the camera
   and the board in position before a game.
-- **Screenshot** (key `s`). Saves the camera image to `data/snapshots/`.
+- **Save screenshot** button. Saves the camera image to `data/snapshots/`.
 
 When you move the board or the camera, the app finds the new position by
 itself. Keep the board still for a moment after the move.
@@ -199,7 +205,7 @@ green: done).
 | Red "CARD MOVED" | One card is not on its board corner now. | Put the card back against the board corner. |
 | Red "TAG LOST" | The camera cannot see a card. | Remove what covers the card (a hand, a model, a dice tray). |
 | Red "camera down" | The app gets no image from the camera. It tries again by itself. | Check the camera and its cable or network. |
-| Red "CORNERS NOT SEEN" | `space` cannot find the board. The line names the cards. | Remove what covers the card, or move the camera. |
+| Red "CORNERS NOT SEEN" | "Identify operatives" cannot find the board. The line names the cards. | Remove what covers the card, or move the camera. |
 
 On the video:
 
@@ -240,11 +246,11 @@ or the selected hatchway or breach point (name, status, "Open"/"Close").
   [docs/setup.md](docs/setup.md), Troubleshooting.
 - **A base is not found.** The app must see at least half of the black edge
   of the base. Move the camera nearer to the top of the board, or turn the
-  model. Take the empty-board photo (`e`) to help the app.
+  model. Click "Take empty-board reference" to help the app.
 - **A base of a new operative is not found.** Teach the app this operative
   (setup step 8) with its base size.
-- **A token or a terrain part shows as a base.** Take the empty-board photo
-  (`e`) after you set up the terrain and the tokens, before the operatives
+- **A token or a terrain part shows as a base.** Click "Take empty-board reference"
+  after you set up the terrain and the tokens, before the operatives
   go on the board.
 - **An operative gets the wrong name.** Click the base and choose the
   correct name. If it happens frequently, add more photos of the operatives
@@ -253,10 +259,10 @@ or the selected hatchway or breach point (name, status, "Open"/"Close").
   size. Teach the app this operative (setup step 8).
 - **The inspector shows "has no maximum wounds".** Add the wounds of the
   operative: `uv run battlesight enroll --team kommandos --operative "Boss Nob" --wounds 12`,
-  push `q`, then start the app again.
+  close the window, then start the app again.
 - **The size of a base is wrong.** Check `base_mm` of each operative in
   `data/teams/<team>/team.toml`.
-- **The first `space` is slow.** The app downloads the recognition model one
+- **The first "Identify operatives" is slow.** The app downloads the recognition model one
   time.
 - **The grid does not sit on the printed lines.** Check the map settings
   ([docs/setup.md](docs/setup.md), step 5). Then calibrate the lens (step 6).

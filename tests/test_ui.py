@@ -283,8 +283,10 @@ def test_ring_key_and_second_base_show_in_the_status_area_of_each_layout(qapp, t
         wait_until(lambda: win.state["selected"] == 0)
         press(win, "ring.6")
         wait_until(lambda: win.state["ring_in"] == 6 and "ring 6 in" in win.status_label.text())
-        mouse_click(win.video, widget_pos(win, state["bases"][1]["position_px"]))
+        mouse_click(win.video, widget_pos(win, state["bases"][1]["position_px"]), Qt.MouseButton.RightButton)
         wait_until(lambda: win.state["target"] == 1 and "rim to rim" in win.status_label.text())
+        wait_until(lambda: win._pending_click is None)
+        assert win.popup is None  # a right click that measures opens no name popup
         press(win, "ring.clear")
         wait_until(lambda: win.state["ring_in"] is None and "ring" not in win.status_label.text().replace("rim to rim", ""))
     finally:
@@ -454,7 +456,7 @@ def recorded(tmp_path, named_setup):
     session.dispatch("ring.6")
     frames["ring"] = session.step(frame)
     x, y = snapshot.state["bases"][1]["position_px"]
-    session.dispatch("board.click", x=x, y=y)
+    session.dispatch("board.select", x=x, y=y)
     frames["target"] = session.step(frame)
     assert frames["target"].state["distance"] is not None and frames["ring"].state["ring_in"] == 6
     session.dispatch("snapshot.bases")
@@ -830,7 +832,7 @@ def test_inspector_buttons_run_actions(inspector):
 def test_inspector_shows_ring_buttons_and_the_distance(idle_inspector, recorded):
     layout = idle_inspector.current_layout
     idle_inspector._on_frame(recorded[2]["base selected"], 0)
-    assert layout.distance.text() == "Click a second base to measure."
+    assert layout.distance.text() == "Right click a second base to measure to."
     idle_inspector._on_frame(recorded[2]["target"], 0)
     text = layout.distance.text()
     assert text.startswith("Rim to rim: ") and text.endswith('"') and "mm" not in text
@@ -1037,7 +1039,7 @@ def test_rosters_shows_mode_badge_team_list_and_commands(idle_rosters, recorded)
     frames = recorded[2]
     idle_rosters._on_frame(frames["live"], 0)
     assert idle_rosters.video.badge[0] == "Live" and not layout.back.isVisibleTo(idle_rosters)
-    assert not layout.accept.isVisibleTo(idle_rosters) and not layout.add_operative.isEnabled()
+    assert not layout.accept.isVisibleTo(idle_rosters) and layout.add_operative.isEnabled()  # also before space
     left, right = layout.rosters
     assert left.team.currentText() == "orks" and right.team.currentText() == "-"
     assert [left.operatives.item(i).text() for i in range(3)] == ["Burna", "Grot", "Nob"]
@@ -1097,12 +1099,36 @@ def test_rosters_inspector_shows_the_operative(idle_rosters, recorded):
     assert layout.candidates.isVisibleTo(idle_rosters) and layout.candidates.item(0).text().endswith("%")
     idle_rosters._on_frame(recorded[2]["target"], 0)  # same base: the list stays open
     assert layout.candidates.isVisibleTo(idle_rosters) and layout.distance.text().startswith("Rim to rim: ")
+    assert layout.change.text() == "Cancel"
+    layout.change.click()  # back to the operative
+    assert not layout.candidates.isVisibleTo(idle_rosters) and layout.ring.isVisibleTo(idle_rosters)
     idle_rosters._on_frame(recorded[2]["base selected, no names"], 0)
     assert layout.title.text().startswith("Base (") and not layout.change.isEnabled()
     assert layout.change.text() == "Change ID" and layout.remove.text() == "Remove ID"
     assert layout.remove.isVisibleTo(idle_rosters) and layout.remove.isEnabled()  # also without names
     idle_rosters._on_frame(recorded[2]["live"], 0)
     assert not layout.remove.isVisibleTo(idle_rosters)
+
+
+def test_rosters_add_operative_shows_the_instruction_and_then_the_name_list(idle_rosters, recorded):
+    layout = idle_rosters.current_layout
+    frames = recorded[2]
+    snap = frames["snapshot"]
+    idle_rosters._on_frame(snap, 0)
+    assert layout.add_operative.isEnabled() and not layout.add_operative.isCheckable()
+    aim = np.full((80, 80, 3), 128, np.uint8)
+    idle_rosters._on_frame(replace(snap, state=dict(snap.state, adding=True), crop=aim), 0)
+    assert not layout.add_operative.isEnabled() and layout.stack.currentWidget() is layout.pages["adding"]
+    assert layout.title.text() == "Add operative" and layout.aim_crop._image is not None
+    # The found base is selected and its name list is open at once.
+    state = dict(frames["base selected"].state, new_base=frames["base selected"].state["selected"])
+    idle_rosters._on_frame(replace(frames["base selected"], state=state), 0)
+    assert layout.stack.currentWidget() is layout.pages["operative"] and layout.change.isChecked()
+    assert layout.candidates.isVisibleTo(idle_rosters) and not layout.game.isVisibleTo(idle_rosters)
+    assert layout.change.text() == "Cancel"
+    layout.change.click()  # Cancel: the name list closes, wounds, ring and distance come back
+    assert not layout.candidates.isVisibleTo(idle_rosters) and layout.game.isVisibleTo(idle_rosters)
+    assert layout.change.text() == "Change ID"
 
 
 def test_rosters_inspector_shows_an_opening(idle_rosters, recorded):

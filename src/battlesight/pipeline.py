@@ -495,6 +495,31 @@ def detect_bases(
     return (found[: cfg.bases_relaxed_max_found] if relaxed else found), fg
 
 
+ADD_RADIUS_MM = 20.0  # "Add operative": a base centre must lie this near to the click
+
+
+def find_base_near(
+    img: np.ndarray,
+    cfg: BoardConfig,
+    at_mm: Sequence[float],
+    sizes: Sequence[float] | None = None,
+    others: Sequence[tuple[Sequence[float], float]] = (),
+    radius_mm: float = ADD_RADIUS_MM,
+) -> circles.Circle | None:
+    """The base that a user clicked in the bases image `img`: the relaxed
+    search (`BasesSearch.relaxed`, it finds a part of a rim) within `radius_mm`
+    of `at_mm`, the result nearest to the click. A result with its centre
+    inside one of `others` ((centre mm, diameter mm), the bases known already)
+    is the same base and does not count. None when nothing fits."""
+    at = np.asarray(at_mm, float)
+    cx, cy = np.rint(rect.mm_to_rect(bases_config(cfg), at[None])[0]).astype(int)
+    mask = np.zeros(img.shape[:2], np.uint8)
+    cv2.circle(mask, (int(cx), int(cy)), int(round(radius_mm * cfg.bases_px_per_mm)), 1, -1)
+    found, _ = detect_bases(img, cfg, None, BasesSearch(diameters_mm=tuple(sizes) if sizes else None, relaxed=True), mask > 0)
+    fits = [c for c in found if float(np.hypot(*(c.center_mm - at))) <= radius_mm and not any(float(np.hypot(*(c.center_mm - np.asarray(o, float)))) < 0.5 * d for o, d in others)]
+    return min(fits, key=lambda c: float(np.hypot(*(c.center_mm - at)))) if fits else None
+
+
 def changed_fraction(fg: np.ndarray | None, cfg: BoardConfig) -> float | None:
     """Part of the board that differs from the empty-board reference."""
     return None if fg is None else round(float(fg[_board_region(cfg, fg.shape)].mean()), 3)

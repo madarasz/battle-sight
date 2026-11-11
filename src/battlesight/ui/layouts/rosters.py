@@ -3,7 +3,10 @@
 The control bar has separate sections: View, Commands, Inspector, Reference
 and Debug. The inspector shows the selected operative (name, crop, wounds,
 ring slider, name fix, remove a false base) or the selected hatchway or breach point (open or
-closed). Each team list shows the operatives of one team, their wounds and
+closed). While "Add operative" waits for a click, it shows what to click and
+the board under the pointer; the base that this finds opens with its name
+list. While the name list is open, it takes the place of the wounds, ring
+and distance. Each team list shows the operatives of one team, their wounds and
 how they are identified. The name fix
 is a list in the inspector, so the shell popup is off here.
 """
@@ -44,7 +47,13 @@ def operative_title(state: dict[str, Any]) -> str:
     return f"Unknown operative {size}" if state["naming"] else f"Base {size}"
 
 
+ADD_HINT = "Click the centre of the base of the operative that was not identified. Push Esc to cancel."
+MEASURE_HINT = "Right click a second base to measure to."
+
+
 def inspector_page(state: dict[str, Any]) -> str:
+    if state["adding"]:
+        return "adding"
     if state["selected"] is not None:
         return "operative"
     return "opening" if state["selected_opening"] is not None else "empty"
@@ -137,9 +146,8 @@ class RostersLayout:
         column.addWidget(self._control("snapshot.name"))
         self.accept = self._control("names.accept")
         column.addWidget(self.accept)
-        self.add_operative = _no_focus(QPushButton("Add operative"))
-        self.add_operative.setEnabled(False)
-        self.add_operative.setToolTip("Later: click where an operative is missing")
+        self.add_operative = self._control("base.add")
+        self.add_operative.setToolTip("An operative has no base on the video: click the centre of its base")
         column.addWidget(self.add_operative)
         column.addStretch(1)
         self.back = self._control("snapshot.back")
@@ -197,7 +205,7 @@ class RostersLayout:
         header.addWidget(self.close, 0, Qt.AlignmentFlag.AlignTop)
         column.addLayout(header)
         self.stack = QStackedWidget()
-        for name, make in (("empty", self._empty_page), ("operative", self._operative_page), ("opening", self._opening_page)):
+        for name, make in (("empty", self._empty_page), ("adding", self._adding_page), ("operative", self._operative_page), ("opening", self._opening_page)):
             self.pages[name] = page = QWidget()
             make(page)
             self.stack.addWidget(page)
@@ -212,6 +220,17 @@ class RostersLayout:
         column.addWidget(hint)
         column.addStretch(1)
 
+    def _adding_page(self, page: QWidget) -> None:
+        row = QHBoxLayout(page)
+        row.setContentsMargins(0, 0, 0, 0)
+        self.aim_crop = VideoWidget()
+        self.aim_crop.setMinimumSize(80, 80)
+        self.aim_crop.setFixedSize(CROP_SIZE, CROP_SIZE)
+        row.addWidget(self.aim_crop, 0, Qt.AlignmentFlag.AlignTop)
+        hint = QLabel(ADD_HINT)
+        hint.setWordWrap(True)
+        row.addWidget(hint, 1, Qt.AlignmentFlag.AlignTop)
+
     def _operative_page(self, page: QWidget) -> None:
         row = QHBoxLayout(page)
         row.setContentsMargins(0, 0, 0, 0)
@@ -221,13 +240,18 @@ class RostersLayout:
         row.addWidget(self.crop, 0, Qt.AlignmentFlag.AlignTop)
         column = QVBoxLayout()
         column.setSpacing(2)
+        self.game = QWidget()  # wounds, ring, movement and distance: hidden while the name list is open
+        game = QVBoxLayout(self.game)
+        game.setContentsMargins(0, 0, 0, 0)
+        game.setSpacing(2)
         self.wounds = WoundsControl(self.shell.dispatch)
-        column.addWidget(self.wounds)
+        game.addWidget(self.wounds)
         self.ring = RingSlider(self.shell.dispatch)
-        column.addWidget(self.ring)
-        column.addWidget(self._control("measure.move"))
+        game.addWidget(self.ring)
+        game.addWidget(self._control("measure.move"))
         self.distance = QLabel()
-        column.addWidget(self.distance)
+        game.addWidget(self.distance)
+        column.addWidget(self.game)
         self.candidates = CandidateList(self.shell.dispatch)
         self.candidates.setVisible(False)
         column.addWidget(self.candidates, 1)
@@ -235,7 +259,12 @@ class RostersLayout:
         row.addLayout(column, 1)
 
     def _show_fix(self, on: bool) -> None:
+        """The name list takes the place of the wounds, ring and distance.
+        While it is open, the button is "Cancel": it closes the list."""
+        self.change.setText("Cancel" if on else "Change ID")
+        self.change.setToolTip("Close the name list, keep the name" if on else "Choose another name for this operative")
         self.candidates.setVisible(on)
+        self.game.setVisible(not on)
 
     def _opening_page(self, page: QWidget) -> None:
         column = QVBoxLayout(page)
@@ -260,14 +289,17 @@ class RostersLayout:
     def _show_inspector(self, state: dict[str, Any]) -> None:
         page = inspector_page(state)
         self.stack.setCurrentWidget(self.pages[page])
-        self.close.setVisible(page != "empty")
+        self.close.setVisible(page in ("operative", "opening"))
         self.change.setVisible(page == "operative")
         self.remove.setVisible(page == "operative")
         if state["selected"] != self.fix_for:  # a new base starts with the name list closed
             self.fix_for = state["selected"]
-            self.change.setChecked(False)
+            self.change.setChecked(state["selected"] is not None and state["selected"] == state["new_base"])  # a found base opens the name list
         if page == "empty":
             self.title.setText("Nothing selected")
+        elif page == "adding":
+            self.title.setText("Add operative")
+            self.aim_crop.set_image(self.shell.selected_crop())
         elif page == "opening":
             self.title.setText(OPENING_NAMES.get(state["selected_opening"]["kind"], state["selected_opening"]["kind"]))
             self.opening.show_state(state)
@@ -279,6 +311,6 @@ class RostersLayout:
             self.wounds.show_state(state)
             self.ring.show_state(state)
             distance = state["distance"]
-            self.distance.setText("Click a second base to measure." if distance is None else distance_label(distance))
+            self.distance.setText(MEASURE_HINT if distance is None else distance_label(distance))
             self.change.setEnabled(bool(state["candidates"]))
             self.candidates.show_state(state)

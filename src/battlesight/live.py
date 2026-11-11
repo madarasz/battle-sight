@@ -35,13 +35,14 @@ from .calib import DriftMonitor, DriftReport, DriftStatus, TagDetector, board_co
 from .camera import CameraSettings
 from .config import BoardConfig
 from .overlay import BLUE, GREEN, GREY, MAGENTA, RED, WHITE, YELLOW, draw_base_discs, draw_bases, draw_board_corners, draw_circle_mm, draw_grid, draw_health_bars, draw_idents, draw_melee_sign, draw_objective_arrows, draw_move_mm, draw_outline_mm, draw_path_mm, draw_range_mm, draw_rim_line, draw_tags, draw_terrain, fit_to_width
-from .pipeline import Pipeline
+from .pipeline import Pipeline, base_crops, bases_config, bases_image, find_base_near
 from .rectify import fit_view, mm_to_rect, rect_transform, warp_board
 
 SNAPSHOT_DIR = Path(__file__).resolve().parents[2] / "data" / "snapshots"
 DEFAULT_REFERENCE = SNAPSHOT_DIR / "empty_board.png"
 DISPLAY_WIDTH = 1600  # image width in the windows; the windows can be resized
 PREVIEW_PAD_MM = 16.0  # board around the base in the crop of the selected base
+AIM_DIAMETER_MM = 40.0  # "Add operative": board under the pointer as if a base of this size was there
 OPENING_KINDS = ("hatchway", "breach")
 OPENING_HIT_MM = 8.0  # a click this near to a hatchway or a breach point selects it
 TEAM_SLOTS = 2  # one team list each side of the board
@@ -267,6 +268,12 @@ def _in_snapshot(state: dict) -> bool:
     return state["mode"] == "snapshot"
 
 
+def _can_add(state: dict) -> bool:
+    """A missed base can be added at any time: without a snapshot, the
+    action takes one with no bases."""
+    return not state["busy"] and not state["adding"]
+
+
 def _has_wounds(state: dict) -> bool:
     """The selected base has a name with maximum wounds."""
     w = state["selected_wounds"]
@@ -312,11 +319,12 @@ ACTIONS: tuple[Action, ...] = (
     Action("measure.move", "Measure movement", "m", checked=lambda s: s["movement"]),
     Action("board.click", "Click the board", args=("x", "y"), enabled=_in_snapshot),
     Action("board.hover", "Point at the board", args=("x", "y")),
-    Action("board.select", "Select for names", args=("x", "y"), enabled=_in_snapshot),
+    Action("board.select", "Right click the board", args=("x", "y"), enabled=_in_snapshot),
     Action("base.choose", "Set name", args=("label", "index"), enabled=_has_selection),
     Action("base.select", "Select operative", args=("index",)),
     Action("base.deselect", "Clear selection", enabled=_has_any_selection),
     Action("base.remove", "Remove ID", enabled=_has_selection),
+    Action("base.add", "Add operative", enabled=_can_add),
     *(Action(f"ring.{n}", f"Ring {n} in", str(n), enabled=_has_selection, checked=partial(lambda n, s: s["ring_in"] == n, n)) for n in range(1, 10)),
     Action("ring.clear", "Clear ring", "0", enabled=lambda s: s["ring_in"] is not None),
     Action("wounds.minus", "Wound -1", "-", enabled=_has_wounds),
@@ -437,6 +445,9 @@ class LiveSession:
         self.selected: int | None = None  # index of the selected base
         self.target: int | None = None  # index of the second base of a distance
         self.ring_in: int | None = None  # ring on the selected base, in inches
+        self.adding = False  # "Add operative": the next click on the board is the centre of a missed base
+        self.new_base: int | None = None  # base that "Add operative" made and the user did not name yet
+        self.right_click: str | None = None  # what the last right click did: "name" (select for names) or "measure"
         self.shown: np.ndarray | None = None  # rendered snapshot
         self.dirty = True
         # Game state. Current wounds of each operative label that is not at its
@@ -468,6 +479,7 @@ class LiveSession:
             "base.select": self._select_index,
             "base.deselect": self._deselect,
             "base.remove": self._remove_base,
+            "base.add": self._start_adding,
             **{f"ring.{n}": partial(self._set_ring, n) for n in range(1, 10)},
             "ring.clear": partial(self._set_ring, None),
             "wounds.minus": partial(self._add_wounds, -1),
@@ -521,8 +533,11 @@ class LiveSession:
         return LiveFrame(self.image, state, self.win.scale, self._selected_crop())
 
     def _selected_crop(self) -> np.ndarray | None:
-        """The selected base with `PREVIEW_PAD_MM` of board around it, cut
+        """While "Add operative" waits for a click: the board under the
+        pointer (`_aim_crop`). Else the selected base with `PREVIEW_PAD_MM` of board around it, cut
         from the centre of its gallery crop (`ident.store_crop`)."""
+        if self.adding:
+            return self._aim_crop()
         s, i = self.session, self.selected
         if s is None or i is None or i >= len(s.crops):
             return None
@@ -532,6 +547,27 @@ class LiveSession:
         keep = min(side, int(round((diameter + 2 * PREVIEW_PAD_MM) * px_per_mm)))
         start = (side - keep) // 2
         return np.ascontiguousarray(crop[start : start + keep, start : start + keep])  # a QImage needs one block
+
+    def _aim_crop(self) -> np.ndarray | None:
+        """The snapshot board around the pointer, the same size as the crop of
+        a selected `AIM_DIAMETER_MM` base, with a cross at the pointer. None
+        when the pointer is off the board image."""
+        img = None if self.result is None else self.result.scratch.get("bases_image")
+        at = self.hover_mm
+        if img is None or at is None:
+            return None
+        ppm = self.cfg.bases_px_per_mm
+        cx, cy = mm_to_rect(bases_config(self.cfg), np.asarray(at, float)[None])[0]
+        h, w = img.shape[:2]
+        if not (0 <= cx < w and 0 <= cy < h):
+            return None
+        side = int(round((AIM_DIAMETER_MM + 2 * PREVIEW_PAD_MM) * ppm))
+        crop = cv2.getRectSubPix(img, (side, side), (float(cx), float(cy)))
+        c, arm = side // 2, max(4, side // 12)
+        for color, width in ((GREY, 3), (WHITE, 1)):
+            cv2.line(crop, (c - arm, c), (c + arm, c), color, width)
+            cv2.line(crop, (c, c - arm), (c, c + arm), color, width)
+        return np.ascontiguousarray(crop)
 
     def set_display_width(self, width: int) -> None:
         """Largest width of the returned image. A front end sets it to the width on the screen."""
@@ -842,6 +878,9 @@ class LiveSession:
             "naming": s is not None,
             "bases": self._bases_state(),
             "selected": self.selected,
+            "adding": self.adding,
+            "new_base": self.new_base,
+            "right_click": self.right_click,
             "selected_opening": None if self.selected_opening is None else {"index": self.selected_opening, "kind": self.openings[self.selected_opening].kind, "open": self.selected_opening in self.opened},
             "openings": [{"index": i, "kind": sh.kind, "open": i in self.opened} for i, sh in enumerate(self.openings)],
             "selected_wounds": self._selected_wounds_state(),
@@ -1043,7 +1082,8 @@ class LiveSession:
 
     def _close_snapshot(self) -> None:
         self.result = self.snap = self.session = self.shown = None
-        self.selected = self.target = self.ring_in = self.selected_opening = None
+        self.selected = self.target = self.ring_in = self.selected_opening = self.new_base = None
+        self.adding = False
         self.frozen = False
 
     def _load_gallery(self) -> None:
@@ -1107,6 +1147,8 @@ class LiveSession:
         one thing is selected: a base or an opening."""
         self.selected = index
         self.target = self.ring_in = self.selected_opening = None
+        if index != self.new_base:
+            self.new_base = None
         self.dirty = True
 
     def _select_opening(self, index: int | None) -> None:
@@ -1126,8 +1168,11 @@ class LiveSession:
     def _back(self) -> None:
         """Go back to the live video. The bases, names and selection of the
         snapshot stay, in board mm, until the next snapshot. In the live
-        video the key clears the selection."""
-        if self.frozen:
+        video the key clears the selection. While a base is added, it only
+        stops that."""
+        if self.adding:
+            self.adding = False
+        elif self.frozen:
             self.frozen = False
             self.dirty = True
         else:
@@ -1286,32 +1331,39 @@ class LiveSession:
         return index
 
     def _click(self, x: float, y: float) -> None:
-        """A left click. The first base is the selected base, and another
-        base is the target of the distance. A click on one of them or on the
-        empty board takes it away. Without a base there, a click on a
-        hatchway or a breach point selects it."""
+        """A left click selects the base there (a click on the selected base
+        takes it away). Without a base there, a click on a hatchway or a
+        breach point selects it. A right click measures (`_select_for_names`)."""
         if not self._mapped():
+            return
+        if self.adding:
+            self._add_at(x, y)
             return
         index = self._base_under(x, y)
         if index is None:
             opening = self._opening_under(x, y)
             self._select_opening(None if opening == self.selected_opening else opening)
-        elif index == self.selected:
-            self._set_selected(None)
-        elif self.selected is None:
-            self._set_selected(index)
         else:
-            self.target = None if index == self.target else index
-            self.dirty = True
+            self._set_selected(None if index == self.selected else index)
 
     def _select_for_names(self, x: float, y: float) -> None:
-        """A right click: the base there becomes the selected base, to fix its name."""
+        """A right click. With a selected base, a right click on another base
+        makes it the target of the distance (again: takes it away). Else the
+        base there becomes the selected base, to fix its name (a front end
+        can open its name popup: `right_click` is "name")."""
+        self.right_click = None
         if not self._mapped():
             return
         index = self._base_under(x, y)
         if index is None:
             self._select_opening(self._opening_under(x, y))
             return
+        if self.selected is not None and index != self.selected:
+            self.target = None if index == self.target else index
+            self.right_click = "measure"
+            self.dirty = True
+            return
+        self.right_click = "name"
         self._set_selected(index)
         s = self.session
         if s is None:
@@ -1366,6 +1418,105 @@ class LiveSession:
             print(f"removed {path}")
         self.notice.say("base removed" + (f", {len(removed)} gallery photo removed" if len(removed) == 1 else f", {len(removed)} gallery photos removed" if removed else ""))
         self.dirty = True
+
+    def _start_adding(self) -> None:
+        """"Add operative": the next click is the centre of a base that the
+        detector missed. `Esc` stops it."""
+        if self.adding:
+            return
+        if not self.frozen and self.session is None and not self._need_frame():
+            return
+        self.busy = True
+        try:
+            if self.on_busy is not None:
+                self.on_busy(self.current())
+            ready = self._prepare_adding()
+        finally:
+            self.busy = False
+        if ready:
+            self.adding = True
+            self._set_selected(None)
+            self.notice.say("click the centre of the base, Esc to cancel")
+
+    def _prepare_adding(self) -> bool:
+        """A snapshot with a name session for "Add operative". In the live
+        video, the names of the last identification come back with their
+        snapshot; with no names yet, a new snapshot of the frame with no bases
+        (the user adds each one). A snapshot of bases only (`b`) gets a name
+        session with its bases unknown."""
+        if not self.gallery_tried:
+            self._load_gallery()
+        gallery = self.gallery
+        if gallery is None:
+            self.notice.error("no gallery: cannot name an operative")
+            return False
+        if not self.frozen and self.session is not None:
+            self.frozen = True
+            self.win.top_down = True
+            self.dirty = True
+            return True
+        if not self.frozen:
+            self._close_snapshot()
+            self.win.top_down = True
+            self.snap = self.frame.copy()
+            self.frozen = True
+            self.result = result = self.pipe.analyze(self.snap, source="camera", until="rectify")
+            self.dirty = True
+            if not result.ok:
+                self.notice.error(failed_stage(result))
+                return False
+            img = bases_image(self.snap, result.scratch["view"], self.cfg)
+            result.scratch.update(bases=[], bases_image=img, idents=[], base_crops=[], base_backgrounds=[])
+        result = self.result
+        if result is None or not result.ok or result.scratch.get("bases_image") is None:
+            self.notice.error("no board in the snapshot: push space")
+            return False
+        if self.session is None:
+            found = self._found()
+            img, ref = result.scratch["bases_image"], self.pipe.cache.get("bases_reference")
+            result.scratch["base_crops"] = base_crops(img, found, self.cfg)
+            result.scratch["base_backgrounds"] = [] if ref is None else base_crops(ref, found, self.cfg)
+            self.session = self._label_session(result, gallery)
+            self.dirty = True
+        return True
+
+    def _add_at(self, x: float, y: float) -> None:
+        """Search a base (also a part of its rim) around the clicked point of
+        the snapshot, add it and name it as the gallery says. The new base is
+        selected, and the front end shows its name list."""
+        s, gallery = self.session, self.gallery
+        at = self._to_mm(x, y)
+        img = self.result.scratch.get("bases_image") if s is not None and gallery is not None else None
+        if at is None or img is None:
+            self.adding = False
+            return
+        found = self._found()
+        circle = find_base_near(img, self.cfg, at, gallery.base_sizes(), [(c.center_mm, c.diameter_mm) for c in found])
+        if circle is None:
+            self.notice.error("no base found there: click the centre of the base")  # self.adding stays on, the user clicks again
+            return
+        self.adding = False
+        crop = base_crops(img, [circle], self.cfg)[0]
+        ref = self.pipe.cache.get("bases_reference")
+        background = None if ref is None else base_crops(ref, [circle], self.cfg)[0]
+        if len(gallery):
+            ident = idt.identify([crop], [circle.diameter_mm], gallery, [] if background is None else [background], [circle.center_mm])[0]
+            if ident.label is not None and any(x.label == ident.label for x in s.idents):
+                ident = idt.Ident(None, ident.score, -np.inf, ident.candidates)  # the name is on another base: the user decides
+        else:
+            ident = idt.Ident(None, float("-inf"), float("-inf"))
+        index = s.add(circle.center_mm, circle.diameter_mm, crop, ident, background)
+        scratch = self.result.scratch
+        scratch["bases"] = [*found, circle]
+        for key, item in (("idents", ident), ("base_crops", crop), ("base_backgrounds", background)):
+            if scratch.get(key) is not None and item is not None:
+                scratch[key] = [*scratch[key], item]
+        self._set_selected(index)
+        self.new_base = index
+        if not s.menu(index):
+            self.notice.error(f"no operative with a {circle.diameter_mm:g} mm base in the gallery: battlesight enroll")
+        else:
+            self.notice.say(f"base found ({circle.diameter_mm:g} mm): choose the operative")
 
     def _accept_all(self) -> None:
         if self.session is None:

@@ -344,7 +344,7 @@ A browser front end later uses the same action ids and state dict over a WebSock
 
 1. Layouts: `rosters`, `inspector` and `panel` are built. `rosters` is the default (2026-11-10).
 2. The name fix in `inspector` is a list in the panel, with crop and scores. In `rosters` it is a list in the inspector that opens with "Change identification". `panel` uses the shell popup.
-5. `rosters` (2026-11-10): no "Back" button to an unidentified board. `Esc` is "Go back to Live" in Commands: the names stay on the live video until the next identification. A badge on the video shows "Live" (red) or "Snapshot" (green). Teams change at run time in the team lists (`--team` fills them). Hatchways and breach points can be selected in live and snapshot. Scores show as percentages; the video shows names on a dark box, with no score. Debug values go to the right end of the status bar. "Add operative" and "Open/Close" are disabled placeholders.
+5. `rosters` (2026-11-10): no "Back" button to an unidentified board. `Esc` is "Go back to Live" in Commands: the names stay on the live video until the next identification. A badge on the video shows "Live" (red) or "Snapshot" (green). Teams change at run time in the team lists (`--team` fills them). Hatchways and breach points can be selected in live and snapshot. Scores show as percentages; the video shows names on a dark box, with no score. Debug values go to the right end of the status bar. "Add operative" (2026-11-11) works: click it, click the centre of a missed base, choose the name in the inspector list.
 3. Live inset over the snapshot: not in the first version.
 4. PySide6 now. A browser front end can come later, if a tablet at the table becomes a goal.
 

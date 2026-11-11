@@ -320,6 +320,114 @@ def test_remove_base_without_names(tmp_path, named):
     assert len(s["bases"]) == 2 and not s["naming"]
 
 
+def test_add_operative_finds_a_removed_base_and_opens_its_name_list(tmp_path, named):
+    cfg, frame = named
+    session = make_session(tmp_path, cfg, frame, teams=("orks",))
+    settled(session, frame)
+    session.dispatch("snapshot.name")
+    s = session.step(frame).state
+    assert next(a for a in ACTIONS if a.id == "base.add").enabled(s)
+    gone = s["bases"][1]
+    session.dispatch("base.select", index=1)
+    session.dispatch("base.remove")
+    assert len(session.state()["bases"]) == 2
+
+    session.dispatch("base.add")
+    s = session.step(frame).state
+    assert s["adding"] and s["selected"] is None
+    assert session.current().crop is None  # no pointer yet
+    px, py = gone["position_px"]
+    session.dispatch("board.hover", x=px, y=py)
+    aim = session.current().crop
+    assert aim is not None and aim.shape[0] == aim.shape[1] == round((live_mod.AIM_DIAMETER_MM + 2 * PREVIEW_PAD_MM) * cfg.bases_px_per_mm)
+    session.dispatch("board.hover", x=None, y=None)
+    assert session.current().crop is None
+    session.dispatch("board.click", x=5.0, y=5.0)  # no base there: still waiting
+    s = session.step(frame).state
+    assert s["adding"] and "no base found" in s["notice"]["text"]
+    x, y = gone["position_px"]
+    session.dispatch("board.click", x=x + 4.0, y=y - 3.0)  # near the centre
+    s = session.step(frame).state
+    assert_json_safe(s)
+    assert not s["adding"] and len(s["bases"]) == 3
+    assert s["selected"] == 2 and s["new_base"] == 2 and s["candidates"]
+    assert s["bases"][2]["diameter_mm"] == gone["diameter_mm"]
+    session.dispatch("board.click", x=x, y=y)  # the same base again: a click selects (and clears) it
+    assert len(session.state()["bases"]) == 3
+    session.dispatch("base.select", index=2)
+    assert session.state()["new_base"] is None
+
+    session.dispatch("base.select", index=2)
+    label = session.state()["candidates"][0]["label"]
+    session.dispatch("base.choose", label=label)
+    s = session.step(frame).state
+    assert s["bases"][2]["label"] == label and s["bases"][2]["confirmed"] and s["new_base"] is None
+    session.dispatch("names.undo")
+    assert session.state()["bases"][2]["label"] is None or not session.state()["bases"][2]["confirmed"]
+
+
+def test_add_operative_before_identification_starts_an_empty_snapshot(tmp_path, named):
+    cfg, frame = named
+    session = make_session(tmp_path, cfg, frame, teams=("orks",))
+    live = settled(session, frame)
+    assert next(a for a in ACTIONS if a.id == "base.add").enabled(live.state)
+    session.dispatch("snapshot.bases")  # positions of the bases, for the clicks
+    where = session.step(frame).state["bases"]
+    session.dispatch("snapshot.back")
+    session._close_snapshot()  # no snapshot, no names: as at the start
+    session.dispatch("base.add")
+    s = session.step(frame).state
+    assert_json_safe(s)
+    assert s["adding"] and s["mode"] == "snapshot" and s["naming"] and s["bases"] == []
+    x, y = where[0]["position_px"]
+    session.dispatch("board.click", x=x, y=y)
+    s = session.step(frame).state
+    assert len(s["bases"]) == 1 and s["selected"] == 0 and s["new_base"] == 0 and s["candidates"]
+    session.dispatch("base.choose", label=s["candidates"][0]["label"])
+    session.dispatch("base.add")  # a second operative in the same snapshot
+    x, y = where[1]["position_px"]
+    session.dispatch("board.click", x=x, y=y)
+    s = session.step(frame).state
+    assert len(s["bases"]) == 2 and s["bases"][0]["confirmed"]
+
+
+def test_add_operative_after_bases_only_and_from_the_live_video(tmp_path, named):
+    cfg, frame = named
+    session = make_session(tmp_path, cfg, frame, teams=("orks",))
+    settled(session, frame)
+    session.dispatch("snapshot.bases")
+    session.dispatch("base.add")  # bases only: the bases get a name session, all unknown
+    s = session.step(frame).state
+    assert s["adding"] and s["naming"] and len(s["bases"]) == 3 and all(b["label"] is None for b in s["bases"])
+    session.dispatch("snapshot.back")  # stops adding
+    session.dispatch("snapshot.back")  # back to the live video, the names stay
+    assert session.state()["mode"] == "live"
+    session.dispatch("base.add")  # the snapshot of those names comes back
+    s = session.step(frame).state
+    assert s["adding"] and s["mode"] == "snapshot" and len(s["bases"]) == 3
+
+
+def test_add_operative_does_not_double_an_existing_base_and_only_esc_cancels(tmp_path, named):
+    cfg, frame = named
+    session = make_session(tmp_path, cfg, frame, teams=("orks",))
+    settled(session, frame)
+    session.dispatch("snapshot.name")
+    s = session.step(frame).state
+    session.dispatch("base.add")
+    x, y = s["bases"][0]["position_px"]
+    session.dispatch("board.click", x=x, y=y)  # on a base that is known
+    s = session.step(frame).state
+    assert s["adding"] and len(s["bases"]) == 3
+    session.dispatch("snapshot.back")  # stops adding, stays in the snapshot
+    s = session.step(frame).state
+    assert not s["adding"] and s["mode"] == "snapshot"
+    session.dispatch("base.add")
+    session.dispatch("base.add")  # a second push changes nothing: only Esc stops it
+    assert session.state()["adding"]
+    session.dispatch("snapshot.back")
+    assert not session.state()["adding"] and session.state()["mode"] == "snapshot"
+
+
 def test_back_goes_live_and_keeps_names_and_selection(tmp_path, named):
     cfg, frame = named
     session = make_session(tmp_path, cfg, frame, teams=("orks",))
@@ -338,7 +446,7 @@ def test_back_goes_live_and_keeps_names_and_selection(tmp_path, named):
     assert live.image is not snap.image
     # Clicks work on the live video too.
     other = s["bases"][1]
-    session.dispatch("board.click", x=other["position_px"][0], y=other["position_px"][1])
+    session.dispatch("board.select", x=other["position_px"][0], y=other["position_px"][1])
     assert session.state()["target"] == 1
     session.dispatch("snapshot.back")  # in the live video: clears the selection
     s = session.state()
@@ -624,7 +732,7 @@ def test_second_base_gives_rim_to_rim_distance_within_2_mm(tmp_path):
     click_base(session, state, 0)
     assert session.state()["distance"] is None
     before = session.step(frame).image.copy()
-    click_base(session, state, 1)
+    click_base(session, state, 1, "board.select")
     live = session.step(frame)
     s = live.state
     assert_json_safe(s)
@@ -640,14 +748,18 @@ def test_clicks_move_and_clear_the_target_and_the_selection(tmp_path):
     frame = paint_board(cfg, GAME)
     session, state = bases_snapshot(tmp_path, cfg, frame)
     click_base(session, state, 0)
-    click_base(session, state, 1)
-    click_base(session, state, 2)
-    assert session.state()["target"] == 2
-    click_base(session, state, 2)
+    click_base(session, state, 1, "board.select")
+    click_base(session, state, 2, "board.select")
+    assert session.state()["target"] == 2 and session.state()["right_click"] == "measure"
+    click_base(session, state, 2, "board.select")
     s = session.state()
     assert s["target"] is None and s["selected"] == 0 and s["distance"] is None
+    click_base(session, state, 1, "board.select")
+    click_base(session, state, 2)  # a left click on another base selects it
+    s = session.state()
+    assert s["selected"] == 2 and s["target"] is None
     session.dispatch("ring.4")
-    click_base(session, state, 0)
+    click_base(session, state, 2)
     s = session.state()
     assert s["selected"] is None and s["ring_in"] is None
 
@@ -667,12 +779,16 @@ def test_right_click_starts_a_new_selection(tmp_path, named):
     settled(session, frame)
     session.dispatch("snapshot.name")
     state = session.step(frame).state
-    click_base(session, state, 0)
-    click_base(session, state, 1)
-    session.dispatch("ring.2")
-    click_base(session, state, 2, "board.select")
+    click_base(session, state, 2, "board.select")  # nothing selected: select for names
     s = session.state()
-    assert s["selected"] == 2 and s["target"] is None and s["ring_in"] is None and s["candidates"]
+    assert s["selected"] == 2 and s["right_click"] == "name" and s["candidates"]
+    click_base(session, state, 1, "board.select")  # another base: the target
+    session.dispatch("ring.2")
+    s = session.state()
+    assert s["selected"] == 2 and s["target"] == 1 and s["right_click"] == "measure"
+    click_base(session, state, 2, "board.select")  # the selected base: names again, a new selection
+    s = session.state()
+    assert s["selected"] == 2 and s["target"] is None and s["ring_in"] is None and s["right_click"] == "name"
 
 
 def test_view_change_keeps_ring_and_distance(tmp_path):
@@ -680,7 +796,7 @@ def test_view_change_keeps_ring_and_distance(tmp_path):
     frame = paint_board(cfg, GAME)
     session, state = bases_snapshot(tmp_path, cfg, frame)
     click_base(session, state, 0)
-    click_base(session, state, 1)
+    click_base(session, state, 1, "board.select")
     session.dispatch("ring.2")
     top = session.step(frame)
     session.dispatch("view.top_down")
@@ -694,7 +810,7 @@ def test_esc_keeps_the_measurement_and_a_new_snapshot_clears_it(tmp_path):
     frame = paint_board(cfg, GAME)
     session, state = bases_snapshot(tmp_path, cfg, frame)
     click_base(session, state, 0)
-    click_base(session, state, 1)
+    click_base(session, state, 1, "board.select")
     session.dispatch("ring.2")
     before = session.state()
     session.dispatch("snapshot.back")
@@ -713,7 +829,7 @@ def test_choosing_a_name_clears_the_measurement(tmp_path, named):
     session.dispatch("snapshot.name")
     state = session.step(frame).state
     click_base(session, state, 0)
-    click_base(session, state, 1)
+    click_base(session, state, 1, "board.select")
     label = session.state()["candidates"][0]["label"]
     session.dispatch("base.choose", label=label, index=0)
     s = session.state()
@@ -1149,7 +1265,7 @@ def test_distance_goes_around_a_wall_and_through_an_open_hatchway(tmp_path):
     session, frame, state, nob, burna = wall_session(tmp_path)
     straight = np.linalg.norm(np.subtract(GAME["Nob"][0], GAME["Burna"][0])) - 0.5 * SIZES["Nob"] - 0.5 * SIZES["Burna"]
     click_base(session, state, nob)
-    click_base(session, state, burna)
+    click_base(session, state, burna, "board.select")
     around = session.step(frame)
     d = around.state["distance"]
     assert_json_safe(around.state)
@@ -1167,7 +1283,7 @@ def test_distance_goes_around_a_wall_and_through_an_open_hatchway(tmp_path):
     session.dispatch("board.click", x=x, y=y)
     session.dispatch("opening.toggle")
     click_base(session, state, nob)
-    click_base(session, state, burna)
+    click_base(session, state, burna, "board.select")
     through = session.step(frame).state["distance"]
     assert through["around"] is True and abs(through["mm"] - straight) < 2.0  # through the gap
 

@@ -887,6 +887,18 @@ class LabelSession:
         self.selected = None
         return path
 
+    def add(self, center_mm: Sequence[float], diameter_mm: float, crop: np.ndarray, ident: Ident, background: np.ndarray | None = None) -> int:
+        """Add a base that the detector missed (the user clicked it). It
+        becomes the last base; returns its index. `background` is needed
+        when the other bases have one."""
+        self.centers_mm = np.vstack([np.asarray(self.centers_mm, float).reshape(-1, 2), np.asarray(center_mm, float)[None]])
+        self.diameters_mm.append(float(diameter_mm))
+        self.crops.append(crop)
+        self.idents.append(ident)
+        if self.backgrounds or background is not None:
+            self.backgrounds.append(background if background is not None else crop)
+        return len(self.idents) - 1
+
     def accept_all(self) -> list[Path | None]:
         """Confirm every named, not yet confirmed base and add its crop to the
         gallery. One entry per base: the new photo, or None when the gallery

@@ -26,6 +26,8 @@ OPENING_NAMES = {"hatchway": "Hatchway", "breach": "Breach point"}
 
 def page_for(state: dict[str, Any]) -> str:
     """The base page also in the live video: the bases of the last snapshot stay there."""
+    if state["adding"]:
+        return "adding"
     if state["selected"] is not None:
         return "selected"
     if state["selected_opening"] is not None:
@@ -72,7 +74,7 @@ class InspectorLayout:
         column.addWidget(self.map_picker)
         self._add_controls(column, "view.top_down", "view.grid", "view.terrain", "view.zones", "view.keys", "view.minimap", "view.marks", "measure.walls")
         self.stack = QStackedWidget()
-        for name, make in (("live", self._live_page), ("snapshot", self._snapshot_page), ("selected", self._selected_page), ("opening", self._opening_page)):
+        for name, make in (("live", self._live_page), ("snapshot", self._snapshot_page), ("adding", self._adding_page), ("selected", self._selected_page), ("opening", self._opening_page)):
             self.pages[name] = page = QWidget()
             make(QVBoxLayout(page))
             self.stack.addWidget(page)
@@ -108,7 +110,17 @@ class InspectorLayout:
         column.addWidget(self.summary)
         self.operatives = OperativeList(self.shell.dispatch)
         column.addWidget(self.operatives, 1)
-        self._add_controls(column, "names.accept", "names.undo", "snapshot.name", "frame.save", "snapshot.back")
+        self._add_controls(column, "base.add", "names.accept", "names.undo", "snapshot.name", "frame.save", "snapshot.back")
+
+    def _adding_page(self, column: QVBoxLayout) -> None:
+        hint = QLabel("Click the centre of the base of the operative that was not identified. Push Esc to cancel.")
+        hint.setWordWrap(True)
+        column.addWidget(hint)
+        self.aim_crop = VideoWidget()
+        self.aim_crop.setMinimumSize(100, 100)
+        self.aim_crop.setFixedHeight(CROP_HEIGHT)
+        column.addWidget(self.aim_crop)
+        column.addStretch(1)
 
     def _selected_page(self, column: QVBoxLayout) -> None:
         self.base_title = QLabel()
@@ -150,6 +162,8 @@ class InspectorLayout:
         elif page == "snapshot":
             self.summary.setText(summary_text(state))
             self.operatives.show_state(state)
+        elif page == "adding":
+            self.aim_crop.set_image(self.shell.selected_crop())
         elif page == "opening":
             self.opening_title.setText(OPENING_NAMES.get(state["selected_opening"]["kind"], state["selected_opening"]["kind"]))
             self.opening.show_state(state)
@@ -161,5 +175,5 @@ class InspectorLayout:
             self.crop.set_image(crop)
             self.wounds.show_state(state)
             distance = state["distance"]
-            self.distance.setText("Click a second base to measure." if distance is None else distance_label(distance))
+            self.distance.setText("Right click a second base to measure to." if distance is None else distance_label(distance))
             self.candidates.show_state(state)

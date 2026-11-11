@@ -63,7 +63,8 @@ def status_text(state: dict[str, Any]) -> tuple[str, str]:
 
 def help_text() -> str:
     rows = [f"{a.key}\t{a.label}" for a in ACTIONS if a.key]
-    rows.append("click\ta base: select it. Click a second base: measure the distance")
+    rows.append("click\ta base: select it")
+    rows.append("right click\ta second base: measure the distance")
     rows.append("click\ta hatchway or a breach point: select it")
     rows.append("right click\ta base after space: choose its name")
     return "\n".join(rows)
@@ -332,10 +333,14 @@ class MainWindow(QMainWindow):
             self._pending_click = number, global_pos
 
     def _on_hover(self, at) -> None:
-        """The pointer moved. Only the movement measurement uses it. One
-        position is with the worker at a time; the newest waits."""
+        """The pointer moved. The movement measurement and "Add operative"
+        (the board under the pointer) use it. One position is with the worker
+        at a time; the newest waits."""
         state = self.state
-        if state is None or not state.get("movement") or state["ring_in"] is None or state["selected"] is None:
+        if state is None:
+            return
+        moving = state.get("movement") and state["ring_in"] is not None and state["selected"] is not None
+        if not moving and not state.get("adding"):
             return
         self._hover_next = (at,)
         self._send_hover()
@@ -357,7 +362,7 @@ class MainWindow(QMainWindow):
                 self._hover_sent = None
                 self._send_hover()
             if self._pending_click is not None and done >= self._pending_click[0]:
-                if self.current_layout.name_popup:
+                if self.current_layout.name_popup and live.state.get("right_click") == "name":
                     self._open_name_popup(live.state, self._pending_click[1])
                 self._pending_click = None
         finally:  # the worker sends no more frames until this call
