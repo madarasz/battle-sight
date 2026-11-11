@@ -902,6 +902,22 @@ def test_team_colors_paint_the_circles():
         assert np.allclose(name / name.max(), np.array(color) / max(color), atol=0.1)
 
 
+def test_names_inside_put_the_name_in_the_middle_of_the_base():
+    from battlesight.overlay import RED, draw_idents
+
+    class C:
+        center_mm = np.array([100.0, 100.0])
+        diameter_mm = 32.0
+
+    x = idt.Ident("orks/Nob", 0.9, 0.5, sure=True)
+    img = np.zeros((200, 200, 3), np.uint8)
+    draw_idents(img, [C()], [x], lambda p: np.asarray(p, float), scores=False, team_colors={"orks": RED}, inside=True)
+    text = np.argwhere((img[:, :, 2] > 150) & (img[:, :, 0] < 80))  # red text, not the ring
+    text = text[np.hypot(text[:, 0] - 100, text[:, 1] - 100) < 14]
+    assert len(text) and abs(text[:, 0].mean() - 100) < 4  # rows centred on the base
+    assert not img[118:140, 80:121].any()  # nothing under the base
+
+
 # --- minimap ------------------------------------------------------------------------
 
 
@@ -946,7 +962,8 @@ def test_minimap_shows_named_bases_and_takes_clicks(tmp_path, named):
     assert mini.state["minimap"] is True and mini.state["mode"] == "snapshot"
     nob = base_of(mini.state, "Nob")
     x, y = (int(round(v)) for v in mini.state["bases"][nob]["position_px"])
-    assert tuple(int(v) for v in mini.image[y, x]) == live_mod.TEAM_COLORS[0]  # a full disc in the team colour
+    up = int(0.35 * mini.state["bases"][nob]["diameter_mm"] * mini.scale)  # the name covers the centre
+    assert tuple(int(v) for v in mini.image[y - up, x]) == live_mod.TEAM_COLORS[0]  # a full disc in the team colour
     click_base(session, mini.state, nob)
     assert session.state()["selected"] == nob
     session.dispatch("wounds.minus")

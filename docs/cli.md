@@ -917,7 +917,8 @@ each light terrain piece. `view.minimap` ("Minimap", off at the start, no
 key) shows a drawn board in place of the camera image
 (`LiveSession._render_minimap`): the layout (also with "Layout" off), the
 grid when "Grid" is on, a full disc for each base of the last snapshot (team
-colour, grey without a name), names, health bars and the selection with its
+colour, grey without a name), names in the middle of the disc, larger
+(`draw_idents(inside=True)`; on the camera image they are under the base), health bars and the selection with its
 measurements. It has the size and scale of the top-down view, so clicks and
 `position_px` work the same. It covers the live video and the snapshot:
 `state["mode"]` does not change, `state["minimap"]` is true. It shows also

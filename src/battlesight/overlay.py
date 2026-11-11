@@ -169,11 +169,14 @@ def draw_base_discs(frame: np.ndarray, bases, colors, to_px) -> None:
 LABEL_BOX_ALPHA = 0.65  # dark box behind a name
 
 
-def _label(frame: np.ndarray, text: str, org: tuple[int, int], color, s: float, thick: int, center: bool = True, box: bool = False) -> None:
-    """Text with a black outline. `box`: a dark box behind it, for names on a busy board."""
-    (tw, th), base = cv2.getTextSize(text, cv2.FONT_HERSHEY_SIMPLEX, 0.6 * s, thick)
+def _label(frame: np.ndarray, text: str, org: tuple[int, int], color, s: float, thick: int, center: bool = True, box: bool = False, middle: bool = False, size: float = 1.0) -> None:
+    """Text with a black outline. `org` is the top of the text, or its
+    middle with `middle`. `box`: a dark box behind it, for names on a busy board.
+    `size`: font size factor."""
+    font = 0.6 * s * size
+    (tw, th), base = cv2.getTextSize(text, cv2.FONT_HERSHEY_SIMPLEX, font, thick)
     x = int(org[0] - tw / 2) if center else int(org[0])
-    y = int(org[1] + th)
+    y = int(org[1] + th / 2) if middle else int(org[1] + th)
     if box:
         pad = max(2, round(4 * s))
         h, w = frame.shape[:2]
@@ -182,8 +185,11 @@ def _label(frame: np.ndarray, text: str, org: tuple[int, int], color, s: float, 
         if x1 > x0 and y1 > y0:
             area = frame[y0:y1, x0:x1]
             cv2.addWeighted(area, 1 - LABEL_BOX_ALPHA, np.zeros_like(area), LABEL_BOX_ALPHA, 0, dst=area)
-    cv2.putText(frame, text, (x, y), cv2.FONT_HERSHEY_SIMPLEX, 0.6 * s, BLACK, thick + 2, cv2.LINE_AA)
-    cv2.putText(frame, text, (x, y), cv2.FONT_HERSHEY_SIMPLEX, 0.6 * s, color, thick, cv2.LINE_AA)
+    cv2.putText(frame, text, (x, y), cv2.FONT_HERSHEY_SIMPLEX, font, BLACK, thick + 2, cv2.LINE_AA)
+    cv2.putText(frame, text, (x, y), cv2.FONT_HERSHEY_SIMPLEX, font, color, thick, cv2.LINE_AA)
+
+
+INSIDE_NAME_SIZE = 1.6  # font size factor of the names on the minimap
 
 
 def ident_color(x) -> tuple[int, int, int]:
@@ -193,9 +199,10 @@ def ident_color(x) -> tuple[int, int, int]:
     return GREEN if x.sure else YELLOW
 
 
-def draw_idents(frame: np.ndarray, bases, idents, to_px, scores: bool = True, team_colors: dict[str, tuple[int, int, int]] | None = None) -> None:
+def draw_idents(frame: np.ndarray, bases, idents, to_px, scores: bool = True, team_colors: dict[str, tuple[int, int, int]] | None = None, inside: bool = False) -> None:
     """Operative names (ident.Ident) under the bases (circles.Circle), on a
-    dark box. The team part of the label is left out. `scores`: the score
+    dark box; with `inside` (minimap) in the middle of the base, in a larger
+    font (`INSIDE_NAME_SIZE`). The team part of the label is left out. `scores`: the score
     after a name that is not confirmed. `team_colors`: circle and name colour
     per team; then a base without a name gets a grey circle and `?`. Without
     it the colour is `ident_color`."""
@@ -215,8 +222,10 @@ def draw_idents(frame: np.ndarray, bases, idents, to_px, scores: bool = True, te
         name = "?" if x.label is None else x.label.partition("/")[2] or x.label
         if scores and x.label is not None and not x.confirmed:
             name += f" {x.score:.2f}"
-        bottom = np.rint(to_px((c.center_mm + (0.0, r + 2.0)).reshape(1, 2))[0]).astype(int)
-        _label(frame, name, (int(bottom[0]), int(bottom[1])), ring_color, s, thick, box=True)
+        at = c.center_mm if inside else c.center_mm + (0.0, r + 2.0)
+        org = np.rint(to_px(np.asarray(at, float).reshape(1, 2))[0]).astype(int)
+        size = INSIDE_NAME_SIZE if inside else 1.0
+        _label(frame, name, (int(org[0]), int(org[1])), ring_color, s, max(thick, round(thick * size)), box=True, middle=inside, size=size)
 
 
 def draw_outline_mm(frame: np.ndarray, points_mm, to_px, color: tuple[int, int, int]) -> None:

@@ -603,7 +603,7 @@ class LiveSession:
                 objectives = self._objectives()
                 for i, k in control["objectives"]:
                     draw_objective_arrows(img, found[i].center_mm, found[i].diameter_mm, objectives[k], to_px)
-            draw_idents(img, found, self.session.idents, to_px, scores=False, team_colors=colors)
+            draw_idents(img, found, self.session.idents, to_px, scores=False, team_colors=colors, inside=minimap)
             bars = []
             for c, x in zip(found, self.session.idents):
                 current, maximum = self._wounds_of(x.label)
