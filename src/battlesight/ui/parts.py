@@ -14,7 +14,7 @@ from ..live import ACTIONS, Action
 
 ACTION_GROUPS = {"wounds": "Game", "opening": "Game", "team": "View", "map": "View", "snapshot": "Snapshot", "base": "Snapshot", "names": "Snapshot", "frame": "Snapshot", "ring": "Measure", "measure": "Measure", "view": "View", "reference": "Reference", "app": "Help"}
 RING_COLUMNS = 5
-COLORS = {"none": "#8a8a8a", "ok": "#2e9e4f", "done": "#2e9e4f", "warn": "#c98a00", "hint": "#c98a00", "error": "#d03a3a"}
+COLORS = {"none": "#8a8a8a", "ok": "#2e9e4f", "done": "#2e9e4f", "warn": "#c98a00", "hint": "#c98a00", "error": "#d03a3a", "info": "#3d8bfd"}
 DRIFT_LEVEL = {"OK": "ok", "NO_REFERENCE": "warn", "MOVED": "warn", "CARD_MOVED": "error", "LOST": "error"}
 
 
@@ -229,11 +229,12 @@ class VideoWidget(QWidget):
         self.setMouseTracking(True)  # pointer positions with no button down
         self._array: np.ndarray | None = None  # keeps the pixels of `_image` alive
         self._image: QImage | None = None
-        self.badge: tuple[str, str] | None = None  # text and dot colour at the top right
+        self.badge: tuple[str, str, str] | None = None  # text, sign colour and sign at the top right
 
-    def set_badge(self, text: str | None, color: str = "#ffffff") -> None:
-        """A small label at the top-right corner of the image, for example the mode."""
-        badge = None if text is None else (text, color)
+    def set_badge(self, text: str | None, color: str = "#ffffff", sign: str = "dot") -> None:
+        """A small label at the top-right corner of the image, for example the
+        mode. `sign`: `dot` (circle), `pause` (two bars) or `square`."""
+        badge = None if text is None else (text, color, sign)
         if badge != self.badge:
             self.badge = badge
             self.update()
@@ -273,7 +274,7 @@ class VideoWidget(QWidget):
             self._paint_badge(painter, rect or QRectF(self.rect()))
 
     def _paint_badge(self, painter: QPainter, area: QRectF) -> None:
-        text, color = self.badge
+        text, color, sign = self.badge
         font = QFont(painter.font())
         font.setPointSizeF(max(10.0, font.pointSizeF() * 1.2))
         font.setBold(True)
@@ -287,7 +288,15 @@ class VideoWidget(QWidget):
         painter.setBrush(QColor(0, 0, 0, 170))
         painter.drawRoundedRect(box, h / 2, h / 2)
         painter.setBrush(QColor(color))
-        painter.drawEllipse(QRectF(box.left() + pad, box.center().y() - dot / 2, dot, dot))
+        mark = QRectF(box.left() + pad, box.center().y() - dot / 2, dot, dot)
+        if sign == "pause":
+            bar = dot * 0.36
+            painter.drawRect(QRectF(mark.left(), mark.top(), bar, dot))
+            painter.drawRect(QRectF(mark.right() - bar, mark.top(), bar, dot))
+        elif sign == "square":
+            painter.drawRect(mark)
+        else:
+            painter.drawEllipse(mark)
         painter.setPen(QColor(255, 255, 255))
         painter.drawText(QRectF(box.left() + dot + 2 * pad, box.top(), w - dot - 2 * pad, h), Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft, text)
 

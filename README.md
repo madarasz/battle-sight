@@ -97,8 +97,11 @@ show below it, with marks at the right end of the line:
 Click an operative that the app found to show it in the inspector. When you
 change a team, push `space` again to identify the operatives of the new team.
 
-The top-right corner of the video shows the mode: a red dot and "Live" for
-the live video, a green dot and "Snapshot" for a result.
+The top-right corner of the video shows the mode:
+
+- A red circle and "Live": the live video.
+- A blue pause sign and "Snapshot": a result.
+- A green square and "Minimap": the minimap (see "Terrain map").
 
 ### Terrain map
 
@@ -118,6 +121,13 @@ vertical wall, a `T` on each teleporter pad, and the label of each light
 terrain piece (for example `C1`). The keys are on top of the
 other terrain. The drop zones and the terrain keys are off at the start. The app keeps the terrain type
 and layout for the next start.
+
+Use the **Minimap** check box to show a drawing of the board in place of the
+camera image. The minimap shows the layout, the grid, and a full circle for
+each operative that the app found, with its name and its health bar. Clicks,
+rings and distances work as on the camera image. The minimap is available
+only when you chose a layout, and it is off at the start. Push `space` to
+find the operatives again after they move.
 
 Put the board so that it agrees with the layout card: corner card 0 is at the
 top-left corner of the card picture. If the drawing does not sit on the real

@@ -70,7 +70,7 @@ class InspectorLayout:
         column = QVBoxLayout(panel)
         self.map_picker = MapPicker(self.shell.dispatch)
         column.addWidget(self.map_picker)
-        self._add_controls(column, "view.top_down", "view.grid", "view.terrain", "view.zones", "view.keys", "measure.walls")
+        self._add_controls(column, "view.top_down", "view.grid", "view.terrain", "view.zones", "view.keys", "view.minimap", "measure.walls")
         self.stack = QStackedWidget()
         for name, make in (("live", self._live_page), ("snapshot", self._snapshot_page), ("selected", self._selected_page), ("opening", self._opening_page)):
             self.pages[name] = page = QWidget()

@@ -343,8 +343,13 @@ A `TeamRoster` each side of the video; the mark of a row starts with
 `wounds.set` and gives the focus back, so the keys work again); a warning
 instead of the controls without a maximum. `inspector` has an `opening` page
 too.
-`VideoWidget.set_badge` paints the mode ("Live" red, "Snapshot" green) at the
-top right of the image. Scores in all lists are percentages (`parts.percent`).
+A frame from before a check box command (`shell.CHECK_ACTIONS`, `MainWindow._check_sent`)
+updates only the image and the status line, not the controls: the old state
+must not put the box back for a moment.
+`VideoWidget.set_badge(text, color, sign)` paints the mode at the top right of
+the image: "Live" with a red `dot`, "Snapshot" with a blue `pause` sign,
+"Minimap" with a green `square` (`rosters.shown_mode`: `state["minimap"]`
+goes before `state["mode"]`). Scores in all lists are percentages (`parts.percent`).
 
 `data/ui.toml` is local to the machine, and git ignores it. There is no
 command option for it. A missing file is not an error. An unknown layout, a bad
@@ -880,7 +885,16 @@ the start) shows or hides walls, pillars, openings, discs and light terrain; `vi
 ("Drop zones", off at the start) shows or hides the zones; `view.keys`
 ("Terrain keys", off at the start) shows or hides the wall keys (above a
 horizontal wall, right of a vertical wall), `T` on each pad and `C1`.. on
-each light terrain piece. All three are enabled only with a
+each light terrain piece. `view.minimap` ("Minimap", off at the start, no
+key) shows a drawn board in place of the camera image
+(`LiveSession._render_minimap`): the layout (also with "Layout" off), the
+grid when "Grid" is on, a full disc for each base of the last snapshot (team
+colour, grey without a name), names, health bars and the selection with its
+measurements. It has the size and scale of the top-down view, so clicks and
+`position_px` work the same. It covers the live video and the snapshot:
+`state["mode"]` does not change, `state["minimap"]` is true. It shows also
+while the camera is down. It goes off when no layout is left. All four are
+enabled only with a
 layout. State: `terrain_types`, `terrain_type`, `map_layouts`, `map_layout`,
 `terrain`, `zones`, `keys`. A bad file gives a notice, never a stop. `overlay.draw_terrain`
 draws the shapes in the live view, both views, and the snapshot.

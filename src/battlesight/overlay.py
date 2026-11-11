@@ -157,6 +157,15 @@ def draw_bases(frame: np.ndarray, bases, to_px, color: tuple[int, int, int] = GR
         cv2.putText(frame, label, org, cv2.FONT_HERSHEY_SIMPLEX, 0.6 * s, color, thick, cv2.LINE_AA)
 
 
+def draw_base_discs(frame: np.ndarray, bases, colors, to_px) -> None:
+    """A full disc for each base (circles.Circle), one colour per base (the minimap)."""
+    a = np.linspace(0, 2 * np.pi, 64, endpoint=False)
+    for c, color in zip(bases, colors):
+        ring = c.center_mm + 0.5 * c.diameter_mm * np.c_[np.cos(a), np.sin(a)]
+        pts = np.rint(to_px(ring)).astype(np.int32).reshape(-1, 1, 2)
+        cv2.fillPoly(frame, [pts], color, cv2.LINE_AA)
+
+
 LABEL_BOX_ALPHA = 0.65  # dark box behind a name
 
 

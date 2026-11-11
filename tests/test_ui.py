@@ -24,7 +24,7 @@ from battlesight.ui.layouts import DEFAULT_LAYOUT, LAYOUTS  # noqa: E402
 from battlesight.ui.layouts.inspector import InspectorLayout, page_for, summary_text  # noqa: E402
 from battlesight.ui.layouts.panel import PanelLayout  # noqa: E402
 from battlesight.ui.parts import debug_text, distance_label  # noqa: E402
-from battlesight.ui.parts import VideoWidget  # noqa: E402
+from battlesight.ui.parts import COLORS, VideoWidget  # noqa: E402
 from battlesight.ui.settings import load_ui_settings, save_layout  # noqa: E402
 from battlesight.ui.shell import MainWindow, help_text, status_text  # noqa: E402
 
@@ -1055,6 +1055,31 @@ def test_rosters_shows_mode_badge_team_list_and_commands(idle_rosters, recorded)
     accepted = replace(frames["snapshot"], state=dict(snap, unconfirmed=0))
     idle_rosters._on_frame(accepted, 0)
     assert not layout.accept.isVisibleTo(idle_rosters)
+    assert idle_rosters.video.badge[1:] == (COLORS["info"], "pause")
+    idle_rosters._on_frame(replace(frames["snapshot"], state=dict(snap, minimap=True)), 0)
+    assert idle_rosters.video.badge == ("Minimap", COLORS["ok"], "square")
+    idle_rosters._on_frame(frames["live"], 0)
+    assert idle_rosters.video.badge == ("Live", COLORS["error"], "dot")
+    for sign in ("dot", "pause", "square"):  # each sign paints
+        idle_rosters.video.set_badge("Mode", "#ffffff", sign)
+        idle_rosters.video.grab()
+
+
+def test_a_frame_from_before_a_check_box_command_does_not_put_the_box_back(idle_rosters, recorded):
+    layout = idle_rosters.current_layout
+    live = recorded[2]["live"]
+    box = next(control for action, control in layout.controls if action.id == "view.grid")
+    idle_rosters._on_frame(live, 0)
+    assert box.isChecked()
+    box.click()  # the box changes at once, the command waits in the worker queue
+    number = idle_rosters._check_sent
+    assert number == idle_rosters.worker.sent and not box.isChecked()
+    idle_rosters._on_frame(live, number - 1)  # a frame from before the command
+    assert not box.isChecked()
+    idle_rosters._on_frame(replace(live, state=dict(live.state, grid=False)), number)
+    assert not box.isChecked()
+    idle_rosters._on_frame(live, number)  # the core has the last word
+    assert box.isChecked()
 
 
 def test_rosters_inspector_shows_the_operative(idle_rosters, recorded):

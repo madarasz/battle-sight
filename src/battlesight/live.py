@@ -34,9 +34,9 @@ from . import walls
 from .calib import DriftMonitor, DriftReport, DriftStatus, TagDetector, board_corners_px, lens_for_frame
 from .camera import CameraSettings
 from .config import BoardConfig
-from .overlay import BLUE, GREEN, MAGENTA, RED, WHITE, YELLOW, draw_bases, draw_board_corners, draw_circle_mm, draw_grid, draw_health_bars, draw_idents, draw_move_mm, draw_outline_mm, draw_path_mm, draw_range_mm, draw_rim_line, draw_tags, draw_terrain, fit_to_width
+from .overlay import BLUE, GREEN, GREY, MAGENTA, RED, WHITE, YELLOW, draw_base_discs, draw_bases, draw_board_corners, draw_circle_mm, draw_grid, draw_health_bars, draw_idents, draw_move_mm, draw_outline_mm, draw_path_mm, draw_range_mm, draw_rim_line, draw_tags, draw_terrain, fit_to_width
 from .pipeline import Pipeline
-from .rectify import fit_view, mm_to_rect, warp_board
+from .rectify import fit_view, mm_to_rect, rect_transform, warp_board
 
 SNAPSHOT_DIR = Path(__file__).resolve().parents[2] / "data" / "snapshots"
 DEFAULT_REFERENCE = SNAPSHOT_DIR / "empty_board.png"
@@ -45,6 +45,8 @@ PREVIEW_PAD_MM = 16.0  # board around the base in the crop of the selected base
 OPENING_KINDS = ("hatchway", "breach")
 OPENING_HIT_MM = 8.0  # a click this near to a hatchway or a breach point selects it
 TEAM_SLOTS = 2  # one team list each side of the board
+MINIMAP_BACK = (24, 24, 24)  # minimap: around the board
+MINIMAP_BOARD = (48, 48, 48)  # minimap: the board
 TEAM_COLORS = (RED, BLUE)  # circles of the team on the left and on the right side
 
 
@@ -299,6 +301,7 @@ ACTIONS: tuple[Action, ...] = (
     Action("view.terrain", "Layout", checked=lambda s: s["terrain"], enabled=lambda s: s["map_layout"] is not None),
     Action("view.zones", "Drop zones", checked=lambda s: s["zones"], enabled=lambda s: s["map_layout"] is not None),
     Action("view.keys", "Terrain keys", checked=lambda s: s["keys"], enabled=lambda s: s["map_layout"] is not None),
+    Action("view.minimap", "Minimap", checked=lambda s: s["minimap"], enabled=lambda s: s["map_layout"] is not None),
     Action("measure.walls", "Measure around walls", "w", checked=lambda s: s["around_walls"], enabled=lambda s: s["map_layout"] is not None),
     Action("map.terrain_type", "Terrain type", args=("name",)),
     Action("map.layout", "Layout", args=("name",)),
@@ -393,6 +396,7 @@ class LiveSession:
         self.terrain = True  # terrain overlay on, when a map layout is chosen
         self.zones = False  # drop zones of the layout off
         self.keys = False  # wall keys (A1, B2, ...) off
+        self.minimap = False  # a drawn board (layout, grid, bases) in place of the camera; needs a layout
         self.around_walls = False  # measure around walls, not through them; on at each layout load
         self.movement = False  # the ring is the area that the selected base can move to
         self.hover_mm: np.ndarray | None = None  # board position of the mouse pointer
@@ -445,6 +449,7 @@ class LiveSession:
             "view.terrain": self._toggle_terrain,
             "view.zones": self._toggle_zones,
             "view.keys": self._toggle_keys,
+            "view.minimap": self._toggle_minimap,
             "measure.walls": self._toggle_around_walls,
             "measure.move": self._toggle_movement,
             "board.hover": self._hover,
@@ -476,6 +481,8 @@ class LiveSession:
         self.camera_up = frame is not None
         if frame is None:
             self.meter.reset()
+            if self._minimap_on():  # the minimap needs no camera
+                self.image = self._render_minimap()
             return self.current()
         self.frame = frame
         started = self.clock()
@@ -497,7 +504,10 @@ class LiveSession:
                 self.view = fit_view(self.cfg, tags, self.lens)
             except ValueError as exc:
                 print(f"rectify: {exc}", file=sys.stderr)
-        self.image = self._snapshot_image() if self.frozen else self._render_live()
+        if self._minimap_on():
+            self.image = self._render_minimap()
+        else:
+            self.image = self._snapshot_image() if self.frozen else self._render_live()
         return self.current()
 
     def current(self) -> LiveFrame:
@@ -538,6 +548,21 @@ class LiveSession:
             self._draw_board(out)
         return self.win.fit(out)
 
+    def _minimap_on(self) -> bool:
+        return self.minimap and self.map_layout is not None
+
+    def _render_minimap(self) -> np.ndarray:
+        """A drawn top-down board in place of the camera image: the layout,
+        the grid, a disc for each base of the last snapshot with its name and
+        health bar, and the selection. Same pixels per mm as the top-down view."""
+        cfg = self.cfg
+        _, (w, h) = rect_transform(cfg)
+        img = np.full((h, w, 3), MINIMAP_BACK, np.uint8)
+        (x0, y0), (x1, y1) = np.rint(mm_to_rect(cfg, np.array([[0.0, 0.0], [cfg.width_mm, cfg.height_mm]]))).astype(int)
+        cv2.rectangle(img, (int(x0), int(y0)), (int(x1), int(y1)), MINIMAP_BOARD, -1)
+        self._draw_board(img, minimap=True)
+        return self.win.fit(img)
+
     def _snapshot_image(self) -> np.ndarray:
         if self.dirty:
             self.shown = self._render_snapshot()
@@ -552,18 +577,22 @@ class LiveSession:
         self._draw_board(img)
         return win.fit(img)
 
-    def _draw_board(self, img: np.ndarray) -> None:
+    def _draw_board(self, img: np.ndarray, minimap: bool = False) -> None:
         """Terrain, grid, the bases of the last snapshot and the selection,
-        with the mapping of the shown image."""
+        with the mapping of the shown image. `minimap`: the layout shows also
+        with "Layout" off, and each base is a full disc."""
         to_px = self._to_px
-        self._draw_terrain(img, to_px)
+        self._draw_terrain(img, to_px, always=minimap)
         if self.grid:
             draw_grid(img, self.cfg, to_px)
         if self.selected_opening is not None:
             draw_outline_mm(img, self.openings[self.selected_opening].points, to_px, WHITE)
         found = self._found()
+        colors = {team: color for team, color in zip(self.team_slots, TEAM_COLORS) if team is not None}
+        if minimap and found:
+            labels = [x.label for x in self.session.idents] if self.session is not None else [None] * len(found)
+            draw_base_discs(img, found, [GREY if label is None else colors.get(label.partition("/")[0], GREEN) for label in labels], to_px)
         if self.session is not None:
-            colors = {team: color for team, color in zip(self.team_slots, TEAM_COLORS) if team is not None}
             draw_idents(img, found, self.session.idents, to_px, scores=False, team_colors=colors)
             bars = []
             for c, x in zip(found, self.session.idents):
@@ -704,6 +733,8 @@ class LiveSession:
     def _shown_view(self) -> tuple[bool, Any]:
         """(top-down, BoardView) of the image on the screen. The view is None
         when the live frame has no board fit."""
+        if self._minimap_on():
+            return True, None
         if self.frozen:
             return self.win.top_down, self.win.view
         return self.top_down and self.view is not None, self.view
@@ -722,7 +753,7 @@ class LiveSession:
 
     def _to_mm(self, x: float, y: float) -> np.ndarray | None:
         """Pixel of the returned image -> board mm, or None without a mapping."""
-        if self.frozen:
+        if self.frozen and not self._minimap_on():
             return self.win.to_mm(x, y)
         top_down, view = self._shown_view()
         px = np.array([[x / self.win.scale, y / self.win.scale]])
@@ -734,7 +765,7 @@ class LiveSession:
 
     def state(self) -> dict[str, Any]:
         """All that a front end can show. JSON-safe."""
-        if self.frozen:
+        if self.frozen and not self._minimap_on():
             self._snapshot_image()  # brings the scale and the view up to date
         s = self.session
         current = self.notice.current()
@@ -746,6 +777,7 @@ class LiveSession:
             "terrain": self.terrain,
             "zones": self.zones,
             "keys": self.keys,
+            "minimap": self._minimap_on(),
             "around_walls": self.around_walls,
             "movement": self.movement,
             "move": self._move_state(),
@@ -1083,9 +1115,10 @@ class LiveSession:
         opened = {id(self.openings[i]) for i in self.opened}
         return [replace(s, open=True) if id(s) in opened else s for s in self.terrain_shapes]
 
-    def _draw_terrain(self, img: np.ndarray, to_px) -> None:
+    def _draw_terrain(self, img: np.ndarray, to_px, always: bool = False) -> None:
+        """`always`: the layout shows also with "Layout" off (the minimap)."""
         switch = {"zone": self.zones, "wall_key": self.keys, "teleporter_key": self.keys, "light_key": self.keys}
-        shown = [s for s in self._shapes_now() if switch.get(s.kind, self.terrain)]
+        shown = [s for s in self._shapes_now() if switch.get(s.kind, self.terrain or always)]
         if shown:
             draw_terrain(img, shown, to_px)
 
@@ -1101,6 +1134,14 @@ class LiveSession:
         self.keys = not self.keys
         self.dirty = True
 
+    def _toggle_minimap(self) -> None:
+        if self.map_layout is None:
+            self.minimap = False
+            self.notice.say("choose a layout first")
+            return
+        self.minimap = not self.minimap
+        self.dirty = True  # the snapshot image gets its own scale again
+
     def _set_terrain_type(self, name: str) -> None:
         """A new terrain type starts with no layout."""
         if name not in {e.terrain for e in self.maps}:
@@ -1112,7 +1153,13 @@ class LiveSession:
 
     def _set_map_layout(self, name: str | None) -> None:
         """Load the layout `name` of the terrain type, or no layout for None.
-        A bad file gives a notice and leaves no layout."""
+        A bad file gives a notice and leaves no layout. Without a layout the
+        minimap goes off."""
+        self._load_map_layout(name)
+        if self.map_layout is None:
+            self.minimap = False
+
+    def _load_map_layout(self, name: str | None) -> None:
         self.dirty = True
         self.map_layout, self.terrain_shapes, self.openings, self.selected_opening = None, [], [], None
         self.opened = set()  # a new layout starts with all hatchways and breach points closed

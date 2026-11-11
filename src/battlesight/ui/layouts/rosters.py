@@ -26,7 +26,12 @@ TOP_HEIGHT = 175
 ROSTER_WIDTH = 240
 CROP_SIZE = 96
 OPENING_NAMES = {"hatchway": "Hatchway", "breach": "Breach point"}
-MODE_BADGE = {"live": ("Live", COLORS["error"]), "snapshot": ("Snapshot", COLORS["ok"])}
+MODE_BADGE = {"live": ("Live", COLORS["error"], "dot"), "snapshot": ("Snapshot", COLORS["info"], "pause"), "minimap": ("Minimap", COLORS["ok"], "square")}
+
+
+def shown_mode(state: dict[str, Any]) -> str:
+    """What the video shows: the minimap covers the live video and the snapshot."""
+    return "minimap" if state["minimap"] else state["mode"]
 
 
 def operative_title(state: dict[str, Any]) -> str:
@@ -121,8 +126,8 @@ class RostersLayout:
         toggles = QGridLayout()
         toggles.setVerticalSpacing(10)
         toggles.setHorizontalSpacing(14)
-        for k, action_id in enumerate(("view.top_down", "view.grid", "view.terrain", "view.zones", "view.keys", "measure.walls")):
-            toggles.addWidget(self._control(action_id), k // 3, k % 3)
+        for k, action_id in enumerate(("view.top_down", "view.grid", "view.terrain", "view.zones", "view.keys", "measure.walls", "view.minimap")):
+            toggles.addWidget(self._control(action_id), k // 4, k % 4)
         column.addLayout(toggles)
         column.addStretch(1)
         return box
@@ -246,7 +251,7 @@ class RostersLayout:
         self.reference_label.setText(f"Reference: {'set' if state['reference_set'] else 'not set'}")
         for roster in self.rosters:
             roster.show_state(state)
-        self.video.set_badge(*MODE_BADGE[state["mode"]])
+        self.video.set_badge(*MODE_BADGE[shown_mode(state)])
         self._show_inspector(state)
 
     def _show_inspector(self, state: dict[str, Any]) -> None:

@@ -144,6 +144,9 @@ class Worker(QThread):
                 self._send_now(live)
 
 
+CHECK_ACTIONS = frozenset(a.id for a in ACTIONS if a.checked is not None)  # shown as check boxes
+
+
 class MainWindow(QMainWindow):
     """Status bar, menu and keys, for all layouts. The layout is the central widget."""
 
@@ -171,6 +174,7 @@ class MainWindow(QMainWindow):
         self._build_keys()
         self.popup: QMenu | None = None
         self._pending_click: tuple[int, QPoint] | None = None  # command number, global position
+        self._check_sent = 0  # command number of the last check box action
         self._hover_sent: int | None = None  # command number of the pointer position that the worker has
         self._hover_next: tuple | None = None  # (position or None,) to send after it
         self.worker.frame_ready.connect(self._on_frame)
@@ -306,7 +310,10 @@ class MainWindow(QMainWindow):
         elif not self._busy():
             if action_id in ("map.terrain_type", "map.layout"):
                 self._save_map(action_id, args.get("name"))
-            return self.worker.submit(action_id, **args)
+            number = self.worker.submit(action_id, **args)
+            if action_id in CHECK_ACTIONS:
+                self._check_sent = number
+            return number
         return None
 
     def _busy(self) -> bool:
@@ -343,7 +350,9 @@ class MainWindow(QMainWindow):
 
     def _on_frame(self, live: LiveFrame, done: int) -> None:
         try:
-            self._show_frame(live)
+            # A frame from before a check box command has the old value: it
+            # must not put the box back for a moment.
+            self._show_frame(live, controls=done >= self._check_sent)
             if self._hover_sent is not None and done >= self._hover_sent:
                 self._hover_sent = None
                 self._send_hover()
@@ -354,11 +363,13 @@ class MainWindow(QMainWindow):
         finally:  # the worker sends no more frames until this call
             self.worker.gui_free()
 
-    def _show_frame(self, live: LiveFrame) -> None:
+    def _show_frame(self, live: LiveFrame, controls: bool = True) -> None:
         self.last_frame = live
         self.state = state = live.state
         self.video.set_image(live.image)
         self._show_status(state)
+        if not controls:
+            return
         for action, item in self.menu_actions.values():
             item.setEnabled(action.enabled(state))
             if action.checked is not None:

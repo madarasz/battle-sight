@@ -11,6 +11,7 @@ import numpy as np
 import pytest
 
 import battlesight.app as app
+import battlesight.live as live_mod
 from battlesight import ident as idt
 from battlesight import walls
 from battlesight.calib import TagDetector
@@ -865,6 +866,78 @@ def test_team_colors_paint_the_circles():
         name = img[60:120, x - 30 : x + 31].reshape(-1, 3)
         name = name[name.sum(axis=1) > 150].sum(axis=0).astype(float)  # the text, not its dark box
         assert np.allclose(name / name.max(), np.array(color) / max(color), atol=0.1)
+
+
+# --- minimap ------------------------------------------------------------------------
+
+
+def test_minimap_needs_a_layout_and_is_off_at_the_start(tmp_path):
+    cfg = ident_cfg()
+    frame, _ = render_board(cfg)
+    write_map(tmp_path / "maps")
+    session = make_session(tmp_path, cfg, frame)
+    live = settled(session, frame)
+    assert live.state["minimap"] is False and not ACTIONS_BY_ID["view.minimap"].enabled(live.state)
+    session.dispatch("view.minimap")  # no layout: a hint, no change
+    s = session.state()
+    assert s["minimap"] is False and "layout" in s["notice"]["text"]
+    session.dispatch("map.layout", name="Small")
+    with_layout = session.step(frame)
+    assert with_layout.state["minimap"] is False and ACTIONS_BY_ID["view.minimap"].enabled(with_layout.state)
+    session.dispatch("view.minimap")
+    mini = session.step(frame)
+    assert mini.state["minimap"] is True and mini.state["mode"] == "live"
+    assert mini.image.shape == with_layout.image.shape  # same scale as the top-down view
+    assert not np.array_equal(mini.image, with_layout.image)
+    other = session.step(np.full_like(frame, 255))  # the camera image is not in it
+    assert np.array_equal(other.image, mini.image)
+    assert np.array_equal(session.step(None).image, mini.image)  # camera down
+    session.dispatch("view.terrain")  # "Layout" off: the minimap keeps the layout
+    assert np.array_equal(session.step(frame).image, mini.image)
+    session.dispatch("view.grid")
+    assert not np.array_equal(session.step(frame).image, mini.image)
+    session.dispatch("map.layout", name=None)  # no layout: off, and it stays off with the next layout
+    assert session.step(frame).state["minimap"] is False
+    session.dispatch("map.layout", name="Small")
+    assert session.step(frame).state["minimap"] is False
+
+
+def test_minimap_shows_named_bases_and_takes_clicks(tmp_path, named):
+    set_wounds(tmp_path, {"Nob": 5})
+    write_map(tmp_path / "maps")
+    session, frame, state = named_session(tmp_path, named)
+    session.dispatch("map.layout", name="Small")
+    session.dispatch("view.minimap")
+    mini = session.step(frame)
+    assert mini.state["minimap"] is True and mini.state["mode"] == "snapshot"
+    nob = base_of(mini.state, "Nob")
+    x, y = (int(round(v)) for v in mini.state["bases"][nob]["position_px"])
+    assert tuple(int(v) for v in mini.image[y, x]) == live_mod.TEAM_COLORS[0]  # a full disc in the team colour
+    click_base(session, mini.state, nob)
+    assert session.state()["selected"] == nob
+    session.dispatch("wounds.minus")
+    assert not np.array_equal(session.step(frame).image, mini.image)
+    session.dispatch("snapshot.back")  # live video under the minimap: still the minimap
+    live = session.step(frame)
+    assert live.state["mode"] == "live" and live.state["minimap"] is True
+    session.dispatch("view.minimap")
+    off = session.step(frame)
+    assert off.state["minimap"] is False and off.state["bases"][nob]["position_px"] is not None
+
+
+def test_minimap_off_gives_the_snapshot_its_own_scale_again(tmp_path, named):
+    write_map(tmp_path / "maps")
+    session, frame, state = named_session(tmp_path, named)
+    session.dispatch("view.top_down")  # the snapshot as the camera frame
+    before = session.step(frame)
+    session.dispatch("map.layout", name="Small")
+    with_layout = session.step(frame)
+    session.dispatch("view.minimap")
+    session.step(frame)
+    session.dispatch("view.minimap")
+    after = session.step(frame)
+    assert after.scale == before.scale and np.array_equal(after.image, with_layout.image)
+    assert after.state["bases"] == with_layout.state["bases"]
 
 
 # --- game state: wounds and openings ----------------------------------------------
