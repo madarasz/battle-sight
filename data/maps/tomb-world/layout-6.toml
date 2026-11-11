@@ -136,7 +136,7 @@ at = [5, 2]
 at_mm = [81.0, 303.0]
 
 [[objective]] # touches C5 on its left; off the grid
-at_mm = [391.0, 406.0]
+at_mm = [396.0, 406.0]
 
 [[teleporter]]
 at = [2, 2.5]
@@ -153,3 +153,28 @@ to = [7, 1]
 name = "orange"
 from = [0, 5]
 to = [7, 6]
+
+# Light terrain C1..C5: footprint of the card symbol, sizes in [terrain] light_mm.
+# long = the board axis of the long side (C1, C2). Centres measured on the card photo.
+
+[[light]] # touches the right board edge
+key = "C1"
+at_mm = [662.5, 400]
+long = "x"
+
+[[light]] # touches the left board edge; bottom edge on the mid line
+key = "C2"
+at_mm = [31, 280]
+long = "x"
+
+[[light]] # off the grid
+key = "C3"
+at_mm = [600, 204]
+
+[[light]]
+key = "C4"
+at = [4, 2]
+
+[[light]] # objective touches it on the left; off the grid
+key = "C5"
+at_mm = [436, 406]

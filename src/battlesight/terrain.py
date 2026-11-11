@@ -1,4 +1,4 @@
-"""Terrain map files: walls, pillars, openings, objectives, teleporters, zones.
+"""Terrain map files: walls, pillars, openings, objectives, teleporters, zones, light terrain.
 
 A map file (`data/maps/<terrain>/<layout>.toml`) holds one layout of a
 terrain type. An agent writes it from a photo of the layout card (skill
@@ -24,6 +24,7 @@ DEFAULT_MAPS_ROOT = Path(__file__).resolve().parents[2] / "data" / "maps"
 SCHEMA = 1
 OPENINGS = ("none", "hatchway", "breach")
 WALL_KEY = re.compile(r"[AB][1-9][0-9]?$")
+LIGHT_EDGE_TOL_MM = 1.0  # light terrain may stick out of the board this much (it touches the edge)
 
 
 class MapError(ValueError):
@@ -47,6 +48,13 @@ class WallEnd:
 
 
 @dataclass(frozen=True)
+class Light:
+    key: str  # light terrain on the card: C1..C5
+    at: tuple[float, float]  # board mm, centre of the footprint
+    long_axis: str = "x"  # "x" or "y": the long side of the footprint is along this board axis
+
+
+@dataclass(frozen=True)
 class Zone:
     name: str
     rect: tuple[float, float, float, float]  # x0, y0, x1, y1 in board mm
@@ -64,14 +72,16 @@ class TerrainMap:
     objectives: tuple[tuple[float, float], ...] = ()
     teleporters: tuple[tuple[float, float], ...] = ()
     zones: tuple[Zone, ...] = ()
+    light: tuple[Light, ...] = ()
 
 
 @dataclass(frozen=True)
 class Shape:
     """One footprint in board mm. `kind`: zone, wall, hatchway, breach,
     pillar, wall_end, objective, objective_range (the circle 1 in around
-    an objective marker), teleporter, wall_key (label of a wall at its middle), teleporter_key
-    (`T` at the pad centre). Keys come last. A polygon has `points` (N, 2); a
+    an objective marker), teleporter, light (light terrain C1..C5, `name` = key),
+    wall_key (label of a wall at its middle), teleporter_key (`T` at the pad
+    centre), light_key (`C1`.. at the centre of the light terrain). Keys come last. A polygon has `points` (N, 2); a
     disc has `center` and `radius` (and `points` sampled on its rim)."""
 
     kind: str
@@ -151,7 +161,7 @@ def parse_map(raw: dict[str, Any], cfg: BoardConfig, path: Path | None = None) -
     for key in ("name", "terrain"):
         if not isinstance(raw.get(key), str) or not raw[key].strip():
             raise MapError(f"{name}: {key} must be text")
-    known = {"schema", "name", "terrain", "source", "pillars", "wall_ends", "wall", "objective", "teleporter", "zone"}
+    known = {"schema", "name", "terrain", "source", "pillars", "wall_ends", "wall", "objective", "teleporter", "zone", "light"}
     unknown = sorted(set(raw) - known)
     if unknown:
         raise MapError(f"{name}: unknown keys {', '.join(unknown)}")
@@ -245,6 +255,30 @@ def parse_map(raw: dict[str, Any], cfg: BoardConfig, path: Path | None = None) -
             raise MapError(f"{grid.where}: from must be the top-left and to the bottom-right corner")
         zones.append(Zone(entry["name"], _to_edge(a, b, grid, cfg)))
 
+    light = []
+    for k, entry in enumerate(_list(raw, "light", name)):
+        grid.where = f"{name}: light {k + 1}"
+        if not isinstance(entry, dict):
+            raise MapError(f"{grid.where}: must be a table")
+        key = entry.get("key")
+        size = cfg.light_size(key) if isinstance(key, str) else None
+        if size is None:
+            known_keys = ", ".join(k for k, *_ in cfg.terrain_light_mm)
+            raise MapError(f"{grid.where}: key must be a light terrain label of [terrain] light_mm ({known_keys}), not {key!r}")
+        grid.where = f"{name}: light {k + 1} ({key})"
+        extra = sorted(set(entry) - {"key", "at", "at_mm", "long"})
+        if extra:
+            raise MapError(f"{grid.where}: unknown keys {', '.join(extra)}")
+        long_axis = entry.get("long", "x")
+        if long_axis not in ("x", "y"):
+            raise MapError(f"{grid.where}: long must be \"x\" or \"y\", not {long_axis!r}")
+        at = grid.located(entry)
+        hx, hy = _light_half(size, long_axis)
+        tol = LIGHT_EDGE_TOL_MM
+        if at[0] - hx < -tol or at[1] - hy < -tol or at[0] + hx > cfg.width_mm + tol or at[1] + hy > cfg.height_mm + tol:
+            raise MapError(f"{grid.where}: the footprint goes over the board edge")
+        light.append(Light(key, at, long_axis))
+
     return TerrainMap(
         name=raw["name"].strip(),
         terrain=raw["terrain"].strip(),
@@ -256,6 +290,7 @@ def parse_map(raw: dict[str, Any], cfg: BoardConfig, path: Path | None = None) -
         objectives=tuple(objectives),
         teleporters=tuple(teleporters),
         zones=tuple(zones),
+        light=tuple(light),
     )
 
 
@@ -373,12 +408,33 @@ def _disc(center, diameter: float, kind: str) -> Shape:
     return Shape(kind, c + 0.5 * diameter * np.c_[np.cos(a), np.sin(a)], (float(c[0]), float(c[1])), 0.5 * diameter)
 
 
+def _light_half(size: tuple[float, float, float], long_axis: str) -> tuple[float, float]:
+    long, short, _ = size
+    return (0.5 * long, 0.5 * short) if long_axis == "x" else (0.5 * short, 0.5 * long)
+
+
+def _light_outline(item: Light, cfg: BoardConfig) -> np.ndarray:
+    """Rectangle (or octagon with a corner cut) of the card symbol, in board mm."""
+    size = cfg.light_size(item.key)
+    assert size is not None
+    hx, hy = _light_half(size, item.long_axis)
+    c = size[2]
+    x, y = item.at
+    if c <= 0:
+        corners = [(-hx, -hy), (hx, -hy), (hx, hy), (-hx, hy)]
+    else:
+        corners = [(-hx + c, -hy), (hx - c, -hy), (hx, -hy + c), (hx, hy - c), (hx - c, hy), (-hx + c, hy), (-hx, hy - c), (-hx, -hy + c)]
+    return np.array([(x + dx, y + dy) for dx, dy in corners], float)
+
+
 def shapes(tmap: TerrainMap, cfg: BoardConfig) -> list[Shape]:
     """All footprints in board mm, in drawing order (zones first, discs last)."""
     out: list[Shape] = []
     for z in tmap.zones:
         x0, y0, x1, y1 = z.rect
         out.append(Shape("zone", np.array([[x0, y0], [x1, y0], [x1, y1], [x0, y1]], float), name=z.name))
+    for item in tmap.light:  # on the floor, under walls and markers
+        out.append(Shape("light", _light_outline(item, cfg), item.at, name=item.key))
     for w in tmap.walls:
         a, b = np.asarray(w.start), np.asarray(w.end)
         length = float(np.linalg.norm(b - a))
@@ -408,6 +464,7 @@ def shapes(tmap: TerrainMap, cfg: BoardConfig) -> list[Shape]:
         anchor = (c[0] + gap, c[1]) if vertical else (c[0], c[1] - gap)  # right of a vertical wall, above a horizontal one
         out.append(Shape("wall_key", np.array([anchor]), c, name=w.key, vertical=vertical))
     out += [Shape("teleporter_key", np.array([p]), p, name="T") for p in tmap.teleporters]
+    out += [Shape("light_key", np.array([item.at]), item.at, name=item.key) for item in tmap.light]
     return out
 
 
@@ -416,5 +473,6 @@ def summary(tmap: TerrainMap) -> str:
     return (
         f"{tmap.terrain} / {tmap.name}: {len(tmap.walls)} walls ({openings.count('hatchway')} hatchways, "
         f"{openings.count('breach')} breach points), {len(tmap.pillars)} pillars, {len(tmap.wall_ends)} wall ends, "
-        f"{len(tmap.objectives)} objectives, {len(tmap.teleporters)} teleporters, {len(tmap.zones)} zones"
+        f"{len(tmap.objectives)} objectives, {len(tmap.teleporters)} teleporters, {len(tmap.zones)} zones, "
+        f"{len(tmap.light)} light terrain"
     )

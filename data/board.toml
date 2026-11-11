@@ -95,3 +95,6 @@ objective_range_mm = 25.4  # dashed circle this far from the marker edge (1 in)
 breach_walls = ["A1", "B2"]     # wall keys with a breach point; an opening on another wall is a hatchway
 no_middle_pillar = ["A2"]       # A walls (2 grid) with no pillar at the middle; all other A walls have one
 teleporter_mm = 60.0       # teleporter pad diameter
+# Light terrain (C1..C5 on the layout cards): [long side, short side, corner cut] in mm.
+# The footprint of the card symbol (C1 is an octagon); the real pieces have more detailed outlines.
+light_mm = { C1 = [81.0, 63.0, 16.0], C2 = [62.0, 46.0], C3 = [48.0, 48.0], C4 = [45.0, 45.0], C5 = [40.0, 40.0] }

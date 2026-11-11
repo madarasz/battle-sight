@@ -876,10 +876,11 @@ from a photo of the layout card with the project skill
 The live app has no key and no option for maps. `MapPicker` (`ui/parts.py`)
 at the top of the panel of each layout sends `map.terrain_type` and
 `map.layout` (`name = None` = no layout); `view.terrain` ("Layout", on at
-the start) shows or hides walls, pillars, openings and discs; `view.zones`
+the start) shows or hides walls, pillars, openings, discs and light terrain; `view.zones`
 ("Drop zones", off at the start) shows or hides the zones; `view.keys`
 ("Terrain keys", off at the start) shows or hides the wall keys (above a
-horizontal wall, right of a vertical wall). All three are enabled only with a
+horizontal wall, right of a vertical wall), `T` on each pad and `C1`.. on
+each light terrain piece. All three are enabled only with a
 layout. State: `terrain_types`, `terrain_type`, `map_layouts`, `map_layout`,
 `terrain`, `zones`, `keys`. A bad file gives a notice, never a stop. `overlay.draw_terrain`
 draws the shapes in the live view, both views, and the snapshot.
@@ -912,7 +913,17 @@ at = [2, 2.5]
 name = "grey"                # "grey" | "orange" (fill colour)
 from = [0, 0]                # top-left grid point
 to = [7, 1]                  # bottom-right; a side on an outer grid line goes to the board edge
+
+[[light]]
+key = "C2"                   # light terrain label on the card, a key of [terrain] light_mm
+at = [5, 4]                  # centre; or at_mm = [x, y]
+long = "y"                   # board axis of the long side: "x" (default) or "y"
 ```
+
+Light terrain (`C1`..`C5`) is the footprint of the card symbol (rectangle,
+C1 an octagon), not the real outline of the piece. It is drawn only: it is
+not in `walls.obstacles`, so it has no effect on measurement around walls or
+on movement.
 
 A grid point `[col, row]` is an intersection of the `[grid]` lines (index
 from 0, steps of 0.5; Tomb World col 0..7, row 0..6). `at_mm` is board mm.
@@ -926,7 +937,9 @@ one, `opening` is not true or false, `opening_at` is given with no opening, two 
 wall end touches not exactly 1 wall, two pillars share a point, a pillar
 inside a wall is not at its middle, an opening of a wall with a middle pillar
 has no `opening_at`, `opening_at` is not the centre between two pillars, a
-zone has `from` not top-left of `to`.
+zone has `from` not top-left of `to`, a light `key` is not in
+`[terrain] light_mm`, `long` is not `"x"` or `"y"`, a light footprint goes
+more than 1 mm over the board edge.
 
 ### Shapes and `[terrain]` sizes
 
@@ -945,6 +958,7 @@ zone has `from` not top-left of `to`.
 | `no_middle_pillar` | `["A2"]` | A walls with no pillar at the middle. |
 | `objective_range_mm` | `25.4` | Dashed circle this far from the marker edge (1 in), shape `objective_range`. |
 | `teleporter_mm` | `60.0` | Teleporter pad diameter. |
+| `light_mm` | `{ C1 = [81, 63, 16], C2 = [62, 46], C3 = [48, 48], C4 = [45, 45], C5 = [40, 40] }` | Light terrain: `[long, short]` or `[long, short, corner cut]` in mm. A corner cut gives an octagon. Shape `light` (half see-through dark fill), key `light_key`. |
 
 ### `map` command
 

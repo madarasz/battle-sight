@@ -109,12 +109,13 @@ At the top of the panel, choose the map of this game:
    map.
 
 The app draws the walls, pillars, hatchways, breach points, objective markers,
-teleporter pads of the layout on the board, and a dashed circle 1 in around
+teleporter pads and light terrain (`C1` to `C5`) of the layout on the board, and a dashed circle 1 in around
 each objective marker. Use the **Layout** check box (View menu) to show or
 hide them. Use the **Drop zones** check box to show or hide the deployment
 zones. Use the **Terrain keys** check box to show the label of each wall
 (for example `A1`, `B3`), above a horizontal wall and at the right of a
-vertical wall, and a `T` on each teleporter pad. The keys are on top of the
+vertical wall, a `T` on each teleporter pad, and the label of each light
+terrain piece (for example `C1`). The keys are on top of the
 other terrain. The drop zones and the terrain keys are off at the start. The app keeps the terrain type
 and layout for the next start.
 
@@ -347,7 +348,8 @@ On the camera image:
   hatchways, orange breach points (filled when closed; when open, a gap in the
   wall with a short yellow or orange line at each end), white rings with a cross for objective
   markers and a white dashed circle 1 in around them, blue rings for
-  teleporter pads. With **Drop zones** on: a light grey and an orange area
+  teleporter pads, dark see-through areas for light terrain (the shape of the
+  card symbol, not of the real piece; it has no effect on measurements). With **Drop zones** on: a light grey and an orange area
   for the deployment zones.
 - Green circle with a number: a base that the app found, and its size in mm.
   The circle is the bottom edge of the base, where it touches the board.

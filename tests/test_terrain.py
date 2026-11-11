@@ -184,8 +184,8 @@ def test_keys_come_last_with_a_t_on_each_teleporter():
     cfg = tomb_world_grid()
     m = ter.load_map(CARD_6, cfg)
     kinds = [s.kind for s in ter.shapes(m, cfg)]
-    first_key = min(kinds.index("wall_key"), kinds.index("teleporter_key"))
-    assert set(kinds[first_key:]) == {"wall_key", "teleporter_key"}
+    first_key = min(kinds.index("wall_key"), kinds.index("teleporter_key"), kinds.index("light_key"))
+    assert set(kinds[first_key:]) == {"wall_key", "teleporter_key", "light_key"}
     pads = [s for s in ter.shapes(m, cfg) if s.kind == "teleporter_key"]
     assert [p.name for p in pads] == ["T", "T"] and pads[0].center == pytest.approx(m.teleporters[0])
 
@@ -210,3 +210,63 @@ def test_open_opening_is_a_gap_in_the_wall(key):
     assert not np.array_equal(closed[y, x], floor[y, x])  # filled
     assert np.array_equal(opened[y, x], floor[y, x])  # the floor shows through
     assert not np.array_equal(opened, closed)
+
+
+def test_light_terrain_footprints():
+    cfg = tomb_world_grid()
+    text = HEAD + '[[light]]\nkey = "C2"\nat = [1, 1]\nlong = "y"\n[[light]]\nkey = "C1"\nat_mm = [200, 300]\n[[light]]\nkey = "C5"\nat = [3, 3]\n'
+    m = parse(text, cfg)
+    assert [(i.key, i.long_axis) for i in m.light] == [("C2", "y"), ("C1", "x"), ("C5", "x")]
+    light = by_kind(ter.shapes(m, cfg), "light")
+    c2, c1, c5 = light
+    assert (size_along(c2, 0), size_along(c2, 1)) == pytest.approx((46.0, 62.0)) and c2.center == pytest.approx(mm(1, 1))
+    assert len(c1.points) == 8 and (size_along(c1, 0), size_along(c1, 1)) == pytest.approx((81.0, 63.0))
+    top = c1.points[np.isclose(c1.points[:, 1], 300 - 31.5)]
+    assert float(np.ptp(top[:, 0])) == pytest.approx(81.0 - 2 * 16.0)  # corner cut
+    assert len(c5.points) == 4 and size_along(c5, 0) == pytest.approx(40.0)
+    keys = by_kind(ter.shapes(m, cfg), "light_key")
+    assert [k.name for k in keys] == ["C2", "C1", "C5"]
+
+
+def test_light_terrain_is_on_the_floor_and_does_not_block():
+    from battlesight import walls
+
+    cfg = tomb_world_grid()
+    m = parse(HEAD + '[[light]]\nkey = "C3"\nat = [3, 3]\n', cfg)
+    shapes = ter.shapes(m, cfg)
+    assert [s.kind for s in shapes] == ["light", "light_key"]
+    assert len(walls.obstacles(shapes)) == 0
+
+
+@pytest.mark.parametrize(
+    "entry, message",
+    [
+        ('key = "C9"\nat = [3, 3]', "light terrain label"),
+        ('key = "A1"\nat = [3, 3]', "light terrain label"),
+        ('key = "C1"\nat = [3, 3]\nlong = "z"', 'long must be "x" or "y"'),
+        ('key = "C1"\nat = [0, 3]', "over the board edge"),
+        ('key = "C1"\nat = [3, 3]\nturn = 90', "unknown keys turn"),
+    ],
+)
+def test_light_terrain_errors(entry, message):
+    with pytest.raises(ter.MapError, match=message):
+        parse(HEAD + "[[light]]\n" + entry + "\n")
+
+
+def test_light_terrain_may_touch_the_board_edge():
+    cfg = tomb_world_grid()
+    m = parse(HEAD + '[[light]]\nkey = "C1"\nat_mm = [662.5, 400]\n', cfg)  # right edge at 703 mm
+    assert m.light[0].at == (662.5, 400.0)
+
+
+def test_light_sizes_from_the_board_file(tmp_path):
+    from battlesight.config import DEFAULT_CONFIG, BoardConfig
+
+    cfg = BoardConfig.load(DEFAULT_CONFIG)
+    assert cfg.light_size("C1") == (81.0, 63.0, 16.0) and cfg.light_size("C2") == (62.0, 46.0, 0.0)
+    assert cfg.light_size("C9") is None
+    text = open(DEFAULT_CONFIG).read()
+    bad = tmp_path / "board.toml"
+    bad.write_text(text.replace("C2 = [62.0, 46.0]", "C2 = [46.0, 62.0]"))
+    with pytest.raises(ValueError, match="light_mm.C2"):
+        BoardConfig.load(bad)

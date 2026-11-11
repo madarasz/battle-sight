@@ -1083,7 +1083,7 @@ class LiveSession:
         return [replace(s, open=True) if id(s) in opened else s for s in self.terrain_shapes]
 
     def _draw_terrain(self, img: np.ndarray, to_px) -> None:
-        switch = {"zone": self.zones, "wall_key": self.keys, "teleporter_key": self.keys}
+        switch = {"zone": self.zones, "wall_key": self.keys, "teleporter_key": self.keys, "light_key": self.keys}
         shown = [s for s in self._shapes_now() if switch.get(s.kind, self.terrain)]
         if shown:
             draw_terrain(img, shown, to_px)

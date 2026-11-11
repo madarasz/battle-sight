@@ -36,12 +36,32 @@ Format reference: `docs/cli.md`, section "Terrain maps".
 | No hexagon marker next to the wall | `opening = false` |
 | Circle with a skull (white or red, same meaning) | `[[objective]]` |
 | Black circle with `T` | `[[teleporter]]` |
+| Black rectangle or octagon with `C1`..`C5` (light terrain) | `[[light]]` with `key` (the label), `at` or `at_mm` (centre), `long = "x"` or `"y"` (board axis of the long side; C1 and C2 only, default `"x"`) |
 | Dark grey area, dark orange area | `[[zone]]`, `name = "grey"` / `"orange"`, `from` top-left, `to` bottom-right grid point. A side on an outer grid line goes on to the board edge. |
 
 Ignore: green squares along a wall, faded
 grey squares (unused pillar positions, mostly at the board edge), dashed
-lines, light terrain (`C1`, `C2`, ...), the light grey and light orange
-halves.
+lines, the light grey and light orange halves.
+
+## Light terrain
+
+The file holds the footprint of the card symbol, not the real outline of the
+piece. Sizes are in `[terrain] light_mm` of `data/board.toml` (long x short,
+mm): C1 81 x 63 octagon, C2 62 x 46, C3 48 x 48, C4 45 x 45, C5 40 x 40. A
+grid section is 97 mm, so C2 is about 2/3 x 1/2 of a section.
+
+- Measure the centre, not a corner. Most C2 and C4 centres are on a grid
+  point; C1, C3 and C5 are often off the half grid. Use `at` only when the
+  centre is within about 3 mm of a half grid point, else `at_mm`.
+- To measure, warp the card photo to board mm with the four outer grid
+  corners (homography to x = 12 + 97 * col, y = 12 + 97 * row), then find the
+  dark shape around the label with a local threshold and take its bounding
+  box. Check each outline by eye: shadows and a touching objective merge with
+  the shape (use a darker threshold then).
+- A piece that touches the board edge on the card: put its side on the edge
+  (for example C1 81 mm along x at the right edge: x = 703 - 40.5).
+- A piece that touches an objective: check that the objective is 20 mm
+  (marker radius) from the side of the piece.
 
 ## Openings
 
@@ -63,14 +83,15 @@ wall matters.
    is next to.
 3. List the pillars: all wall ends and junctions, plus the middle of each `A`
    wall except `A2`. Put a wall end (✕) in `wall_ends`, not in `pillars`.
-4. Objectives and teleporters: grid or half grid. When one is clearly off
+4. Light terrain `C1`..`C5`: label, centre, long axis (see "Light terrain").
+5. Objectives and teleporters: grid or half grid. When one is clearly off
    the half grid (for example it touches light terrain), estimate `at_mm`
    from the nearest grid lines and add a comment.
-5. Deployment zones.
-6. Write the file. Start from `layout-6.toml`: `schema = 1`, `name =
+6. Deployment zones.
+7. Write the file. Start from `layout-6.toml`: `schema = 1`, `name =
    "Layout <n>"`, `terrain = "Tomb World"`, `source`. Give each wall its
    label as `key`. The same label can be on more than one wall.
-7. Check and draw it:
+8. Check and draw it:
 
    ```bash
    uv run battlesight map data/maps/tomb-world/layout-<n>.toml --out out/maps/
@@ -81,11 +102,12 @@ wall matters.
    the middle pillar (an A wall except A2 needs one). Then open
    `out/maps/layout-<n>.png` and compare it with the photo, wall by wall:
    wall keys (above or right of each wall), walls, pillars, openings (yellow hatchway, orange
-   breach), objectives (white ring), pads (cyan ring), zones.
-8. If a photo of the real board with this layout exists (for example
+   breach), objectives (white ring), pads (cyan ring), light terrain (dark
+   fill with its key), zones.
+9. If a photo of the real board with this layout exists (for example
    `tests/images/<name>.empty.png`), draw the map on it to check the
    positions, the same way as for card 6: rectify the photo with
    `Pipeline(cfg, until="rectify")`, then `overlay.draw_terrain` with
    `rectify.mm_to_rect`.
-9. Tell the user the counts (the `map` command prints them) and each item
+10. Tell the user the counts (the `map` command prints them) and each item
    that you were not sure of (an off-grid objective, a faint marker).

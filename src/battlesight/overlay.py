@@ -331,6 +331,8 @@ TERRAIN_FILL = {
 OPENING_KINDS = ("hatchway", "breach")
 ZONE_FILL = {"orange": (40, 110, 220), "grey": (220, 220, 220)}
 ZONE_ALPHA = 0.3
+LIGHT_FILL = (60, 75, 90)  # light terrain (C1..C5): dark brown-grey, half see-through
+LIGHT_ALPHA = 0.55
 
 
 def _dense(poly: np.ndarray, step_mm: float = 10.0) -> np.ndarray:
@@ -364,7 +366,8 @@ def draw_terrain(frame: np.ndarray, shapes, to_px) -> None:
     as a light fill, walls, pillars and closed openings filled, an open
     opening as a gap in its wall with a jamb at each end, objectives and
     teleporter pads as rings, a dashed circle 1 in around each objective,
-    wall keys above horizontal walls and right of vertical walls."""
+    light terrain as a half see-through dark fill, wall keys above horizontal
+    walls and right of vertical walls, `T` and `C1`.. keys at the centre."""
     s = _scale(frame)
     thick = max(1, round(2 * s))
 
@@ -379,6 +382,14 @@ def draw_terrain(frame: np.ndarray, shapes, to_px) -> None:
         cv2.addWeighted(layer, ZONE_ALPHA, frame, 1 - ZONE_ALPHA, 0, dst=frame)
         for sh in zones:
             cv2.polylines(frame, [px(_dense(sh.points))], True, ZONE_FILL.get(sh.name, ZONE_FILL["grey"]), thick, cv2.LINE_AA)
+    light = [sh for sh in shapes if sh.kind == "light"]
+    if light:
+        layer = frame.copy()
+        for sh in light:
+            cv2.fillPoly(layer, [px(_dense(sh.points))], LIGHT_FILL, cv2.LINE_AA)
+        cv2.addWeighted(layer, LIGHT_ALPHA, frame, 1 - LIGHT_ALPHA, 0, dst=frame)
+        for sh in light:
+            cv2.polylines(frame, [px(_dense(sh.points))], True, BLACK, thick, cv2.LINE_AA)
     floor = frame.copy() if any(sh.open and sh.kind in OPENING_KINDS for sh in shapes) else None
     for sh in shapes:
         if sh.open and sh.kind in OPENING_KINDS:
@@ -395,11 +406,11 @@ def draw_terrain(frame: np.ndarray, shapes, to_px) -> None:
         elif sh.kind == "teleporter":
             cv2.polylines(frame, [px(sh.points)], True, BLACK, thick + 2, cv2.LINE_AA)
             cv2.polylines(frame, [px(sh.points)], True, CYAN, thick, cv2.LINE_AA)
-        elif sh.kind in ("wall_key", "teleporter_key"):
+        elif sh.kind in ("wall_key", "teleporter_key", "light_key"):
             a = to_px(sh.points)[0]
             (tw, th), _ = cv2.getTextSize(sh.name, cv2.FONT_HERSHEY_SIMPLEX, 0.8 * s, thick)
-            if sh.kind == "teleporter_key":
-                org = (int(a[0] - tw / 2), int(a[1] + th / 2))  # centred on the pad
+            if sh.kind in ("teleporter_key", "light_key"):
+                org = (int(a[0] - tw / 2), int(a[1] + th / 2))  # centred on the pad or the light terrain
             else:
                 org = (int(a[0]), int(a[1] + th / 2)) if sh.vertical else (int(a[0] - tw / 2), int(a[1]))
             pad = max(2, int(4 * s))

@@ -689,6 +689,19 @@ def test_map_layout_draws_terrain_and_toggles(tmp_path):
     assert session.step(frame).state["map_layout"] is None
 
 
+def test_light_terrain_shows_with_the_layout(tmp_path):
+    cfg = ident_cfg()
+    frame, _ = render_board(cfg)
+    write_map(tmp_path / "maps", text='schema = 1\nname = "Small"\nterrain = "Test World"\n[[light]]\nkey = "C1"\nat = [3, 3]\n')
+    session = make_session(tmp_path, cfg, frame)
+    plain = settled(session, frame)
+    session.dispatch("map.layout", name="Small")
+    shown = session.step(frame)
+    assert shown.state["map_layout"] == "Small" and not np.array_equal(shown.image, plain.image)
+    session.dispatch("view.terrain")
+    assert np.array_equal(session.step(frame).image, plain.image)
+
+
 def test_bad_map_file_gives_a_notice_not_a_stop(tmp_path):
     cfg = ident_cfg()
     frame, _ = render_board(cfg)

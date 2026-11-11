@@ -83,6 +83,15 @@ class BoardConfig:
     terrain_breach_walls: tuple[str, ...] = ("A1", "B2")  # walls with a breach point; the other walls have hatchways
     terrain_no_middle_pillar: tuple[str, ...] = ("A2",)  # A walls with no pillar at the middle
     terrain_teleporter_mm: float = 60.0  # teleporter pad diameter
+    # Light terrain (C1..C5 on the layout cards): (key, long side, short side, corner cut), all mm.
+    # The footprint of the card symbol; the real pieces have more detailed outlines.
+    terrain_light_mm: tuple[tuple[str, float, float, float], ...] = (
+        ("C1", 81.0, 63.0, 16.0),
+        ("C2", 62.0, 46.0, 0.0),
+        ("C3", 48.0, 48.0, 0.0),
+        ("C4", 45.0, 45.0, 0.0),
+        ("C5", 40.0, 40.0, 0.0),
+    )
 
     @classmethod
     def load(cls, path: str | Path = DEFAULT_CONFIG) -> BoardConfig:
@@ -133,8 +142,16 @@ class BoardConfig:
             **table("rectify", rect),
             **table("bases", bases, skip=("bases_diameters_mm",)),
             **table("ident", ident),
-            **table("terrain", terrain),
+            **table("terrain", terrain, skip=("terrain_light_mm",)),
+            terrain_light_mm=_light_sizes(terrain.get("light_mm"), d["terrain_light_mm"]),
         )
+
+    def light_size(self, key: str) -> tuple[float, float, float] | None:
+        """(long, short, corner cut) in mm of light terrain `key`, or None."""
+        for k, long, short, cut in self.terrain_light_mm:
+            if k == key:
+                return long, short, cut
+        return None
 
     def corner_index(self, tag_id: int) -> int | None:
         """Board corner index (0..3) that this tag marks, or None."""
@@ -181,3 +198,20 @@ class BoardConfig:
             else:
                 out.append(np.arange(m, size - m + 1e-6, self.grid_pitch_mm))
         return out[0], out[1]
+
+
+def _light_sizes(raw, default):
+    """`[terrain] light_mm = { C1 = [long, short, corner cut], C2 = [long, short], ... }`."""
+    if raw is None:
+        return default
+    if not isinstance(raw, dict):
+        raise ValueError("terrain.light_mm must be a table: { C1 = [long, short, corner], ... }")
+    out = []
+    for key, v in raw.items():
+        if not isinstance(v, list) or len(v) not in (2, 3) or not all(isinstance(x, int | float) and x >= 0 for x in v):
+            raise ValueError(f"terrain.light_mm.{key} must be [long, short] or [long, short, corner cut] in mm")
+        long, short, cut = float(v[0]), float(v[1]), float(v[2]) if len(v) == 3 else 0.0
+        if short <= 0 or long < short or 2 * cut >= short:
+            raise ValueError(f"terrain.light_mm.{key}: long >= short > 0 and corner cut < short / 2")
+        out.append((str(key), long, short, cut))
+    return tuple(out)

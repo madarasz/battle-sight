@@ -1,0 +1,172 @@
+# Tomb World layout card 2. Recorded from a photo of the card (skill record-map).
+# key = wall label on the card (A = 2 grid, B = 1 grid). opening = true:
+# a hexagon marker is next to the wall (breach point on A1 and B2, hatchway
+# on the others). An opening sits at the centre between two pillars. On an A
+# wall with a middle pillar, opening_at names the half next to the marker.
+# Points: at = [col, row] = grid intersection (0..7, 0..6, steps of 0.5),
+# or at_mm = [x, y] in board mm (origin top-left board corner).
+schema = 1
+name = "Layout 2"
+terrain = "Tomb World"
+source = "layout card 2, photo"
+
+# A walls have a pillar at their middle too, but A2 has none.
+
+pillars = [
+    [2, 0], [1, 1], [2, 1], [3, 1], [4, 1], [4, 0], [4, 2],
+    [4, 3], [4, 4], [1, 2], [1, 3], [2, 3], [3, 3], [3, 5],
+    [3, 6], [4, 5], [5, 5], [6, 5], [6, 3], [6, 4],
+]
+wall_ends = [[3, 2], [6, 2]]
+
+[[wall]]
+key = "B2"
+from = [2, 0]
+to = [2, 1]
+opening = true
+
+[[wall]]
+key = "B1"
+from = [1, 1]
+to = [2, 1]
+opening = false
+
+[[wall]]
+key = "A1"
+from = [2, 1]
+to = [4, 1]
+opening = true
+opening_at = [3.5, 1]   # the half next to the marker
+
+[[wall]]
+key = "B3"
+from = [4, 0]
+to = [4, 1]
+opening = true
+
+[[wall]]
+key = "A1"
+from = [4, 1]
+to = [4, 3]
+opening = true
+opening_at = [4, 2.5]   # the half next to the marker
+
+[[wall]]
+key = "B4"
+from = [4, 3]
+to = [4, 4]
+opening = false
+
+[[wall]]
+key = "A3"
+from = [1, 1]
+to = [1, 3]
+opening = true
+opening_at = [1, 1.5]   # the half next to the marker
+
+[[wall]]
+key = "A4"
+from = [1, 3]
+to = [3, 3]
+opening = true
+opening_at = [2.5, 3]   # the half next to the marker
+
+[[wall]]
+key = "B2"
+from = [3, 2]
+to = [3, 3]
+opening = true
+
+[[wall]]
+key = "A2"
+from = [3, 3]
+to = [3, 5]
+opening = false
+
+[[wall]]
+key = "B3"
+from = [3, 5]
+to = [3, 6]
+opening = true
+
+[[wall]]
+key = "A3"
+from = [3, 5]
+to = [5, 5]
+opening = true
+opening_at = [4.5, 5]   # the half next to the marker
+
+[[wall]]
+key = "B4"
+from = [5, 5]
+to = [6, 5]
+opening = false
+
+[[wall]]
+key = "A2"
+from = [4, 3]
+to = [6, 3]
+opening = false
+
+[[wall]]
+key = "B1"
+from = [6, 2]
+to = [6, 3]
+opening = false
+
+[[wall]]
+key = "A4"
+from = [6, 3]
+to = [6, 5]
+opening = true
+opening_at = [6, 4.5]   # the half next to the marker
+
+[[objective]]
+at = [3, 0.5]
+
+[[objective]]
+at = [3.5, 3]
+
+[[objective]]
+at = [4, 5.5]
+
+[[teleporter]]
+at = [2.5, 2]
+
+[[teleporter]]
+at = [4.5, 3.5]
+
+[[zone]] # dark orange
+name = "orange"
+from = [0, 0]
+to = [1, 6]
+
+[[zone]] # dark grey
+name = "grey"
+from = [6, 0]
+to = [7, 6]
+
+# Light terrain C1..C5: footprint of the card symbol, sizes in [terrain] light_mm.
+# long = the board axis of the long side (C1, C2). Centres measured on the card photo.
+
+[[light]] # off the grid
+key = "C1"
+at_mm = [140, 501]
+long = "y"
+
+[[light]]
+key = "C2"
+at = [5, 2]
+long = "y"
+
+[[light]] # off the grid
+key = "C3"
+at_mm = [183, 209]
+
+[[light]] # off the grid
+key = "C4"
+at_mm = [574, 112]
+
+[[light]] # touches the bottom board edge
+key = "C5"
+at_mm = [400, 586]
