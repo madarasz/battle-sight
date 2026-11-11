@@ -126,7 +126,7 @@ class RostersLayout:
         toggles = QGridLayout()
         toggles.setVerticalSpacing(10)
         toggles.setHorizontalSpacing(14)
-        for k, action_id in enumerate(("view.top_down", "view.grid", "view.terrain", "view.zones", "view.keys", "measure.walls", "view.minimap")):
+        for k, action_id in enumerate(("view.top_down", "view.grid", "view.terrain", "view.zones", "view.keys", "measure.walls", "view.minimap", "view.marks")):
             toggles.addWidget(self._control(action_id), k // 4, k % 4)
         column.addLayout(toggles)
         column.addStretch(1)

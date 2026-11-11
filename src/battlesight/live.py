@@ -34,7 +34,7 @@ from . import walls
 from .calib import DriftMonitor, DriftReport, DriftStatus, TagDetector, board_corners_px, lens_for_frame
 from .camera import CameraSettings
 from .config import BoardConfig
-from .overlay import BLUE, GREEN, GREY, MAGENTA, RED, WHITE, YELLOW, draw_base_discs, draw_bases, draw_board_corners, draw_circle_mm, draw_grid, draw_health_bars, draw_idents, draw_move_mm, draw_outline_mm, draw_path_mm, draw_range_mm, draw_rim_line, draw_tags, draw_terrain, fit_to_width
+from .overlay import BLUE, GREEN, GREY, MAGENTA, RED, WHITE, YELLOW, draw_base_discs, draw_bases, draw_board_corners, draw_circle_mm, draw_grid, draw_health_bars, draw_idents, draw_melee_sign, draw_objective_arrows, draw_move_mm, draw_outline_mm, draw_path_mm, draw_range_mm, draw_rim_line, draw_tags, draw_terrain, fit_to_width
 from .pipeline import Pipeline
 from .rectify import fit_view, mm_to_rect, rect_transform, warp_board
 
@@ -302,6 +302,7 @@ ACTIONS: tuple[Action, ...] = (
     Action("view.zones", "Drop zones", checked=lambda s: s["zones"], enabled=lambda s: s["map_layout"] is not None),
     Action("view.keys", "Terrain keys", checked=lambda s: s["keys"], enabled=lambda s: s["map_layout"] is not None),
     Action("view.minimap", "Minimap", checked=lambda s: s["minimap"], enabled=lambda s: s["map_layout"] is not None),
+    Action("view.marks", "Control marks", checked=lambda s: s["marks"], enabled=lambda s: any(b["label"] is not None for b in s["bases"])),
     Action("measure.walls", "Measure around walls", "w", checked=lambda s: s["around_walls"], enabled=lambda s: s["map_layout"] is not None),
     Action("map.terrain_type", "Terrain type", args=("name",)),
     Action("map.layout", "Layout", args=("name",)),
@@ -397,6 +398,7 @@ class LiveSession:
         self.terrain = True  # terrain overlay on, when a map layout is chosen
         self.zones = False  # drop zones of the layout off
         self.keys = False  # wall keys (A1, B2, ...) off
+        self.marks = True  # melee signs and objective arrows of named operatives
         self.minimap = False  # a drawn board (layout, grid, bases) in place of the camera; needs a layout
         self.around_walls = False  # measure around walls, not through them; on at each layout load
         self.movement = False  # the ring is the area that the selected base can move to
@@ -451,6 +453,7 @@ class LiveSession:
             "view.zones": self._toggle_zones,
             "view.keys": self._toggle_keys,
             "view.minimap": self._toggle_minimap,
+            "view.marks": self._toggle_marks,
             "measure.walls": self._toggle_around_walls,
             "measure.move": self._toggle_movement,
             "board.hover": self._hover,
@@ -595,6 +598,11 @@ class LiveSession:
             labels = [x.label for x in self.session.idents] if self.session is not None else [None] * len(found)
             draw_base_discs(img, found, [GREY if label is None else colors.get(label.partition("/")[0], GREEN) for label in labels], to_px)
         if self.session is not None:
+            control = self._control(found) if self.marks else None
+            if control:
+                objectives = self._objectives()
+                for i, k in control["objectives"]:
+                    draw_objective_arrows(img, found[i].center_mm, found[i].diameter_mm, objectives[k], to_px)
             draw_idents(img, found, self.session.idents, to_px, scores=False, team_colors=colors)
             bars = []
             for c, x in zip(found, self.session.idents):
@@ -602,6 +610,10 @@ class LiveSession:
                 if maximum is not None:
                     bars.append((c.center_mm, c.diameter_mm, current, maximum))
             draw_health_bars(img, bars, to_px)
+            if control:
+                for i, j in control["melee"]:
+                    _, start, end = measure.rim_gap(found[i].center_mm, found[i].diameter_mm, found[j].center_mm, found[j].diameter_mm)
+                    draw_melee_sign(img, 0.5 * (start + end), to_px)
         elif found:
             draw_bases(img, found, to_px)
         self._draw_measure(img, found)
@@ -633,6 +645,32 @@ class LiveSession:
             else:
                 gap, start, end = measure.rim_gap(a.center_mm, a.diameter_mm, b.center_mm, b.diameter_mm)
                 draw_rim_line(img, start, end, f'{gap / measure.MM_PER_INCH:.2f}"', to_px)
+
+    # --- control marks --------------------------------------------------------------
+
+    def _objectives(self) -> list[tuple[float, float]]:
+        """Objective marker centres of the layout (none without a layout)."""
+        return [s.center for s in self.terrain_shapes if s.kind == "objective"]
+
+    def _control(self, found: list) -> dict[str, list[list[int]]] | None:
+        """`melee`: pairs of base indexes of named operatives of two teams
+        within 1 in (rim to rim); `objectives`: [base index, objective index]
+        of named operatives within 1 in of an objective marker (needs a
+        layout). None without names."""
+        if self.session is None or not found:
+            return None
+        teams = [None if x.label is None else x.label.partition("/")[0] for x in self.session.idents]
+        centers, diameters = [c.center_mm for c in found], [c.diameter_mm for c in found]
+        named = [i for i, t in enumerate(teams) if t is not None]
+        contacts = measure.objective_contacts([centers[i] for i in named], [diameters[i] for i in named], self._objectives(), self.cfg.terrain_objective_mm, self.cfg.terrain_objective_range_mm)
+        return {
+            "melee": [[i, j] for i, j in measure.melee_pairs(centers, diameters, teams)],
+            "objectives": [[named[i], k] for i, k in contacts],
+        }
+
+    def _toggle_marks(self) -> None:
+        self.marks = not self.marks
+        self.dirty = True
 
     # --- movement -------------------------------------------------------------------
 
@@ -782,6 +820,8 @@ class LiveSession:
             "zones": self.zones,
             "keys": self.keys,
             "minimap": self._minimap_on(),
+            "marks": self.marks,
+            "control": self._control(self._found()) if self.marks else None,
             "around_walls": self.around_walls,
             "movement": self.movement,
             "move": self._move_state(),

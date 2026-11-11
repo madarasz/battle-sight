@@ -4,6 +4,7 @@ no window, no model download."""
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 from types import SimpleNamespace
 
 import cv2
@@ -13,7 +14,7 @@ import pytest
 import battlesight.app as app
 import battlesight.live as live_mod
 from battlesight import ident as idt
-from battlesight import walls
+from battlesight import overlay, walls
 from battlesight.calib import TagDetector
 from battlesight.camera import CameraSettings, ImageSource
 from battlesight.live import ACTIONS, PREVIEW_PAD_MM, LiveSession
@@ -1284,3 +1285,95 @@ def test_no_stop_on_another_base_in_the_movement_area(tmp_path):
     assert walls.contains(outline, beside) and field.cost(beside) is not None
     hover(session, burna)
     assert session.state()["move"] is None
+
+
+# --- control marks ------------------------------------------------------------------
+
+# Nob and Grot rims 20 mm apart; Burna rim 20 mm from the edge of the objective marker.
+CLOSE = {"Nob": ((300.0, 350.0), 120.0), "Grot": ((352.5, 350.0), 200.0), "Burna": ((450.0, 200.0), 300.0)}
+OBJECTIVE_MAP = """schema = 1
+name = "Objective"
+terrain = "Test World"
+
+[[objective]]
+at_mm = [450, 256]
+"""
+
+
+def close_session(tmp_path, other: str | None = "Grot"):
+    """Named snapshot of CLOSE; `other` goes to a second team."""
+    cfg = ident_cfg()
+    gallery = make_gallery(tmp_path, cfg)
+    enroll_from(gallery, cfg, paint_board(cfg, TRAIN), {n: c for n, (c, _) in TRAIN.items()})
+    frame = paint_board(cfg, CLOSE)
+    session = make_session(tmp_path, cfg, frame, teams=("orks",))
+    settled(session, frame)
+    session.dispatch("snapshot.name")
+    found = session._found()
+    index = {min(CLOSE, key=lambda n: np.linalg.norm(np.subtract(CLOSE[n][0], c.center_mm))): i for i, c in enumerate(found)}
+    assert len(index) == 3
+    for name, i in index.items():
+        team = "elves" if name == other else "orks"
+        session.session.idents[i] = replace(session.session.idents[i], label=f"{team}/{name}")
+    session.dirty = True
+    return session, frame, index
+
+
+def yellow_pixels(image) -> int:
+    return int(np.sum(np.all(image == overlay.MARK_COLOR, axis=2)))
+
+
+def test_control_marks_need_named_operatives(tmp_path):
+    cfg = ident_cfg()
+    frame = paint_board(cfg, CLOSE)
+    session = make_session(tmp_path, cfg, frame)
+    assert not ACTIONS_BY_ID["view.marks"].enabled(settled(session, frame).state)
+    session.dispatch("snapshot.bases")  # bases without names
+    s = session.step(frame).state
+    assert s["bases"] and not ACTIONS_BY_ID["view.marks"].enabled(s) and s["control"] is None
+
+
+def test_control_marks_are_on_at_the_start_and_show_melee(tmp_path):
+    session, frame, index = close_session(tmp_path)
+    assert ACTIONS_BY_ID["view.marks"].enabled(session.state())
+    live = session.step(frame)
+    assert live.state["marks"] is True and ACTIONS_BY_ID["view.marks"].checked(live.state)
+    assert live.state["control"] == {"melee": [sorted([index["Nob"], index["Grot"]])], "objectives": []}
+    assert_json_safe(live.state)
+    assert yellow_pixels(live.image) > 50
+    session.dispatch("view.marks")
+    off = session.step(frame)
+    assert off.state["marks"] is False and off.state["control"] is None and yellow_pixels(off.image) == 0
+
+
+def test_no_melee_in_one_team(tmp_path):
+    session, frame, _ = close_session(tmp_path, other=None)
+    live = session.step(frame)
+    assert live.state["control"] == {"melee": [], "objectives": []} and yellow_pixels(live.image) == 0
+
+
+def test_objective_arrows_need_a_layout(tmp_path):
+    write_map(tmp_path / "maps", file="objective.toml", text=OBJECTIVE_MAP)
+    session, frame, index = close_session(tmp_path)
+    without = session.step(frame)
+    assert without.state["control"]["objectives"] == []
+    session.dispatch("map.layout", name="Objective")
+    session.dispatch("view.terrain")  # the arrows only
+    session.dispatch("view.grid")
+    with_layout = session.step(frame)
+    assert with_layout.state["control"]["objectives"] == [[index["Burna"], 0]]
+    assert yellow_pixels(with_layout.image) > yellow_pixels(without.image)
+
+
+def test_arrow_heads_go_to_the_objective_or_around_the_base():
+    far = overlay.objective_arrows_mm((0.0, 0.0), 32.0, (0.0, 56.0))  # 40 mm from rim to centre
+    assert len(far) == 6 and all(h[1][0] == pytest.approx(0.0) for h in far)
+    tips = [h[1][1] for h in far]
+    assert tips[0] == pytest.approx(16.0 + overlay.ARROW_LEN_MM) and max(tips) <= 56.0
+    assert all(h[1][1] > h[0][1] for h in far)  # pointing to the objective
+    near = overlay.objective_arrows_mm((0.0, 0.0), 32.0, (5.0, 5.0))  # objective under the base
+    assert len(near) == 4
+    for h in near:
+        tip, back = h[1], 0.5 * (h[0] + h[2])
+        assert np.linalg.norm(tip) == pytest.approx(17.0) and np.linalg.norm(back) > np.linalg.norm(tip)  # to the rim
+        assert abs(tip[0]) == pytest.approx(abs(tip[1]))  # X fashion

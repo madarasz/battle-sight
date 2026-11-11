@@ -471,3 +471,79 @@ def draw_health_bars(frame: np.ndarray, bars, to_px) -> None:
         if part > 0:
             cv2.fillPoly(frame, [poly(x0, x0 + length * part)], health_color(current, maximum), cv2.LINE_AA)
         cv2.polylines(frame, [poly(x0, x0 + length)], True, HEALTH_INJURED if current <= 0 else BLACK, thick, cv2.LINE_AA)
+
+
+# --- control marks ----------------------------------------------------------------
+
+MARK_COLOR = (0, 225, 255)  # bright yellow: melee signs and objective arrows
+MARK_BACK = (30, 30, 30)  # dark sign behind the crossed swords
+MELEE_SIGN_MM = 13.0  # radius of the melee sign
+ARROW_LEN_MM = 5.0  # depth of one arrow head
+ARROW_HALF_MM = 6.0  # half width of one arrow head
+ARROW_STEP_MM = 7.0  # from one arrow head to the next
+
+
+def _px_per_mm(to_px, at_mm) -> float:
+    """Image pixels for 1 mm of board at this board point (mean of x and y)."""
+    p = np.asarray(at_mm, float)
+    q = np.asarray(to_px(np.array([p, p + (1.0, 0.0), p + (0.0, 1.0)])), float)
+    return 0.5 * float(np.linalg.norm(q[1] - q[0]) + np.linalg.norm(q[2] - q[0]))
+
+
+def draw_melee_sign(frame: np.ndarray, at_mm, to_px) -> None:
+    """Crossed swords on a dark octagon (a stop sign), centred on a board
+    point. The sign stays upright; its size follows the board scale."""
+    c = np.asarray(to_px(np.asarray(at_mm, float).reshape(1, 2)), float).reshape(2)
+    R = max(10.0, MELEE_SIGN_MM * _px_per_mm(to_px, at_mm))
+    a = np.deg2rad(22.5 + 45.0 * np.arange(8))
+    octagon = np.rint(c + R * np.c_[np.cos(a), np.sin(a)]).astype(np.int32).reshape(-1, 1, 2)
+    cv2.fillPoly(frame, [octagon], MARK_BACK, cv2.LINE_AA)
+    cv2.polylines(frame, [octagon], True, MARK_COLOR, max(1, round(0.08 * R)), cv2.LINE_AA)
+    for sx in (1.0, -1.0):  # blade from the lower corner to the upper corner
+        tip, pommel = c + 0.46 * R * np.array([sx, -1.0]), c + 0.46 * R * np.array([-sx, 1.0])
+        along = (tip - pommel) / np.linalg.norm(tip - pommel)
+        normal = np.array([-along[1], along[0]])
+        span = float(np.linalg.norm(tip - pommel))
+        guard = pommel + 0.27 * span * along
+        w = 0.075 * R  # half width of the blade
+        blade = np.array([guard + w * normal, tip - 2 * w * along + w * normal, tip, tip - 2 * w * along - w * normal, guard - w * normal])
+        grip = np.array([pommel + 0.45 * w * normal, guard + 0.45 * w * normal, guard - 0.45 * w * normal, pommel - 0.45 * w * normal])
+        bar = np.array([guard + 0.22 * R * normal + 0.6 * w * along, guard + 0.22 * R * normal - 0.6 * w * along, guard - 0.22 * R * normal - 0.6 * w * along, guard - 0.22 * R * normal + 0.6 * w * along])
+        for poly in (blade, grip, bar):
+            cv2.fillPoly(frame, [np.rint(poly).astype(np.int32).reshape(-1, 1, 2)], MARK_COLOR, cv2.LINE_AA)
+        cv2.circle(frame, tuple(int(v) for v in np.rint(pommel)), max(1, round(0.9 * w)), MARK_COLOR, -1, cv2.LINE_AA)
+
+
+def objective_arrows_mm(center_mm, diameter_mm: float, objective_mm) -> list[np.ndarray]:
+    """Arrow heads (3 points each: arm, tip, arm) in board mm. From the base
+    rim to the objective centre, one head each `ARROW_STEP_MM`. When the
+    centre is nearer to the rim than two heads (or inside the base), four
+    heads around the base, at 45 degrees, point to its rim."""
+    c, o = np.asarray(center_mm, float), np.asarray(objective_mm, float)
+    r = 0.5 * diameter_mm
+    between = float(np.linalg.norm(o - c))
+
+    def head(tip: np.ndarray, toward: np.ndarray) -> np.ndarray:
+        side = np.array([-toward[1], toward[0]])
+        back = tip - ARROW_LEN_MM * toward
+        return np.array([back + ARROW_HALF_MM * side, tip, back - ARROW_HALF_MM * side])
+
+    gap = between - r
+    if gap < 2 * ARROW_STEP_MM:
+        out = []
+        for a in np.deg2rad([45.0, 135.0, 225.0, 315.0]):
+            w = np.array([np.cos(a), np.sin(a)])
+            out.append(head(c + (r + 1.0) * w, -w))
+        return out
+    u = (o - c) / between
+    rim = c + r * u
+    n = int((gap - ARROW_LEN_MM) // ARROW_STEP_MM) + 1
+    return [head(rim + (ARROW_LEN_MM + k * ARROW_STEP_MM) * u, u) for k in range(n)]
+
+
+def draw_objective_arrows(frame: np.ndarray, center_mm, diameter_mm: float, objective_mm, to_px) -> None:
+    """Yellow arrow heads with a dark outline (`objective_arrows_mm`)."""
+    heads = [np.rint(to_px(h)).astype(np.int32).reshape(-1, 1, 2) for h in objective_arrows_mm(center_mm, diameter_mm, objective_mm)]
+    thick = max(2, round(1.2 * _px_per_mm(to_px, center_mm)))
+    cv2.polylines(frame, heads, False, BLACK, thick + 3, cv2.LINE_AA)
+    cv2.polylines(frame, heads, False, MARK_COLOR, thick, cv2.LINE_AA)

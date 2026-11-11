@@ -231,6 +231,22 @@ change.
   field, about 2 ms for a route. The shell sends one pointer position at a
   time and keeps only the newest (`MainWindow._on_hover`).
 
+Control marks: `view.marks` ("Control marks", on at the start, no key,
+enabled only when a base has a name). After names (`LiveSession.session`), `LiveSession._control`
+gives `state["control"]` = `{"melee": [[i, j]], "objectives": [[i, k]]}`
+(null with the marks off or no names). `melee`: `measure.melee_pairs`,
+named bases of two different teams with rim gap at most 1 in; one
+`overlay.draw_melee_sign` (yellow crossed swords on a dark octagon,
+`MELEE_SIGN_MM` radius, upright) at the middle of the rim gap of each pair,
+drawn after names and health bars. `objectives`: `measure.objective_contacts`,
+named bases with rim gap to the objective marker edge (`[terrain]
+objective_mm`) at most `objective_range_mm`; index `k` in the objective
+shapes of the layout. `overlay.draw_objective_arrows` (drawn under the names)
+puts heads every `ARROW_STEP_MM` from the base rim toward the objective
+centre, last tip not past the centre; with less than two steps from the rim
+to the centre, four heads at 45 degrees outside the rim point to it.
+`state["marks"]` is the check box.
+
 - `LiveSession` keeps the navigator per layout and set of open openings, and
   the last path and area per base position, because the live view draws again
   on each frame. Layout 6 at 9 in: about 0.1 s for a new area.

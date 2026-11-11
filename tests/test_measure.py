@@ -65,3 +65,26 @@ def test_health_bar_color_follows_the_wounds(current, color):
 
     assert overlay.health_color(current, 18) == getattr(overlay, color)
     assert overlay.health_color(7, 15) == overlay.HEALTH_INJURED and overlay.health_color(8, 15) == overlay.HEALTH_WOUNDED  # 15 / 2 = 7.5
+
+
+# --- control marks ----------------------------------------------------------------
+
+
+def test_melee_pairs_need_two_teams_within_one_inch():
+    from battlesight.measure import melee_pairs
+
+    centers = [(0.0, 0.0), (32.0 + MM_PER_INCH, 0.0), (0.0, 33.5 + MM_PER_INCH), (0.0, -40.0), (40.0, -40.0)]
+    diameters = [32.0, 32.0, 34.0, 32.0, 32.0]
+    # 0-1: rims exactly 1 in apart; 0-2: 1 in + 0.5 mm; 0-3: friends; 4 has no name.
+    teams = ["orks", "elves", "elves", "orks", None]
+    assert melee_pairs(centers, diameters, teams) == [(0, 1)]
+    teams[3] = "elves"  # enemy 8 mm away; 1-3 too far
+    assert melee_pairs(centers, diameters, teams) == [(0, 1), (0, 3)]
+
+
+def test_objective_contacts_measure_to_the_marker_edge():
+    from battlesight.measure import objective_contacts
+
+    centers = [(0.0, 0.0), (100.0, 0.0), (200.0, 0.0)]
+    objectives = [(0.0, 16.0 + 20.0 + MM_PER_INCH), (100.0, 0.0), (200.0, 16.0 + 20.0 + MM_PER_INCH + 0.5)]
+    assert objective_contacts(centers, [32.0] * 3, objectives, 40.0) == [(0, 0), (1, 1)]

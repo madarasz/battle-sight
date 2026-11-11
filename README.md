@@ -272,6 +272,23 @@ file, or give them when you teach the app the operative (`docs/setup.md`,
 step 8). When the maximum is not known, the inspector shows a warning and no
 wounds controls.
 
+### Control marks
+
+The **Control marks** check box (View) is on at the start. It is available
+only when operatives have names (after `space`). Then the app shows:
+
+- **Melee.** Two operatives of different teams are 1 in or less apart (edge
+  to edge). A yellow crossed-swords sign on a dark octagon shows between
+  them. When an operative is in melee with more than one enemy, each pair
+  has its own sign.
+- **Objectives.** You chose a layout, and an operative is 1 in or less from
+  an objective marker (it touches the dashed circle). Yellow arrow heads go
+  from the edge of the base to the centre of the objective. When the
+  objective centre is very near the base, or under it, four arrow heads point
+  to the edge of the base in an X shape.
+
+Operatives without a name get no marks.
+
 ### Keys
 
 Push `h` to see this list in the window. The menus have the same actions.
@@ -385,6 +402,11 @@ On the camera image:
   wounds or more are left). Red: the operative is
   injured (fewer than half of its wounds are left). An empty bar with a red
   edge: no wounds are left.
+- Yellow crossed swords on a dark octagon (Control marks): two operatives
+  of different teams are in melee.
+- Yellow arrow heads (Control marks): the operative is in control range of
+  an objective (they point to the objective centre, or in an X shape to the
+  edge of the base when the objective is under it).
 - White outline: the hatchway or breach point that you selected.
 - White circle: the base that you selected.
 - Magenta circle around the base, with space between them: the range ring.

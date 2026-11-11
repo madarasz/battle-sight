@@ -38,3 +38,31 @@ def rim_gap(center_a: Sequence[float], diameter_a: float, center_b: Sequence[flo
     gap = max(0.0, between - 0.5 * diameter_a - 0.5 * diameter_b)
     start = a + 0.5 * diameter_a * unit
     return gap, start, start + gap * unit
+
+
+# --- control marks ----------------------------------------------------------------
+
+
+def melee_pairs(centers_mm: Sequence, diameters_mm: Sequence[float], teams: Sequence[str | None], reach_mm: float = MM_PER_INCH) -> list[tuple[int, int]]:
+    """Pairs (i, j), i < j, of bases of two different teams with rims at most
+    `reach_mm` apart: the operatives are in melee. A base with team None
+    (no name) is in no pair."""
+    out = []
+    for i in range(len(teams)):
+        for j in range(i + 1, len(teams)):
+            if teams[i] is None or teams[j] is None or teams[i] == teams[j]:
+                continue
+            if rim_gap(centers_mm[i], diameters_mm[i], centers_mm[j], diameters_mm[j])[0] <= reach_mm:
+                out.append((i, j))
+    return out
+
+
+def objective_contacts(centers_mm: Sequence, diameters_mm: Sequence[float], objectives_mm: Sequence, objective_mm: float, reach_mm: float = MM_PER_INCH) -> list[tuple[int, int]]:
+    """Pairs (base index, objective index) where the base rim is at most
+    `reach_mm` from the edge of the objective marker (diameter `objective_mm`)."""
+    return [
+        (i, k)
+        for i in range(len(diameters_mm))
+        for k in range(len(objectives_mm))
+        if rim_gap(centers_mm[i], diameters_mm[i], objectives_mm[k], objective_mm)[0] <= reach_mm
+    ]
