@@ -67,7 +67,7 @@ def test_open_hatchway_lets_each_base_through_for_one_inch_more():
     field = move_field((300.0, 260.0), 40.0, 6, rects, gaps)  # the base is wider than the gap
     total, points, costs = field.route((300.0, 340.0))
     assert total == 5 and costs == [5] and len(points) == 2  # 80 mm = 4 in, and 1 in for the hatchway
-    assert field.cost((300.0, 275.0)) == 1 and field.cost((300.0, 330.0)) == 4  # 70 mm = 3 in, and 1
+    assert field.cost((300.0, 272.0)) == 1 and field.cost((300.0, 330.0)) == 4  # 70 mm = 3 in, and 1
     assert field.cost((300.0, 288.0)) is None and field.cost((300.0, 312.0)) is None  # no stop with the base over the wall
     assert field.cost((340.0, 285.0)) is None  # beside the gap the base keeps away from the wall
     total, points, costs = field.route((318.0, 350.0))  # a slanted line through the gap: 92 mm
@@ -110,3 +110,33 @@ def test_point_on_the_covered_area_goes_to_the_nearest_centre_in_reach():
     total, points, _ = field.route((300.0 + limit + 10.0, 300.0))  # the centre cannot get here, the rim can
     assert total == 2 and points[-1] == pytest.approx((300.0 + limit, 300.0), abs=1.5)
     assert field.route((300.0 + limit + 16.0 + 6.0, 300.0)) is None
+
+
+def test_the_base_goes_through_a_friend_but_cannot_stop_on_it():
+    friend = ((300.0, 300.0), 40.0)
+    start, goal = (230.0, 300.0), (370.0, 300.0)  # 140 mm: 6 in
+    field = move_field(start, D, 6, friends=[friend])
+    total, points, costs = field.route(goal)
+    assert (total, costs, len(points)) == (6, [6], 2)  # straight through the friend
+    assert field.cost((300.0, 300.0)) is None and field.cost((268.0, 300.0)) is None  # the bases would overlap
+    assert field.cost((262.0, 300.0)) == 2 and field.cost((338.0, 300.0)) == 5
+    area = field.outline()
+    assert len(area) == 2  # the friend is a hole in the area
+    assert not contains(area, (300.0, 300.0)) and not contains(area, (300.0, 315.0))
+    assert contains(area, (300.0, 325.0)) and contains(area, (262.0, 300.0))
+    assert field.route((300.0, 300.0)) is None  # the pointer on the friend: not in the area
+    total, points, _ = field.route((300.0, 322.0))  # at the edge of the hole: the nearest place beside the friend
+    assert np.linalg.norm(points[-1] - (300.0, 300.0)) == pytest.approx(16.0 + 20.0, abs=2.0)
+
+
+def test_no_stop_on_an_open_hatchway_or_breach_point():
+    # A breach gap of 35 mm: a 25 mm base fits in it, but it cannot stop there.
+    shapes = [Shape("wall", np.array([[0, 298], [600, 298], [600, 302], [0, 302]], float)), Shape("breach", np.array([[282.5, 298], [317.5, 298], [317.5, 302], [282.5, 302]], float), open=True)]
+    rects, gaps = obstacles(shapes), open_gaps(shapes)
+    field = move_field((300.0, 260.0), 25.0, 6, rects, gaps)
+    assert field.cost((300.0, 300.0)) is None and field.cost((300.0, 288.0)) is None  # on the gap, or the rim on it
+    assert field.cost((300.0, 284.0)) == 1 and field.cost((300.0, 330.0)) == 4  # before it, and through it (70 mm = 3 in, and 1)
+    area = field.outline()
+    for x in (285.0, 300.0, 315.0):
+        assert not contains(area, (x, 300.0))  # the gap is not in the area
+    assert contains(area, (300.0, 294.0)) and contains(area, (300.0, 306.0))

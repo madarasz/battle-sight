@@ -242,7 +242,12 @@ The rules of the move:
   go through. The base size does not matter there. This costs 1 in more. The
   base cannot stop while it is over the wall.
 - A base of the other team stops the move. Bases of the same team and bases
-  without a name do not. Thus name the operatives first (`space`).
+  without a name do not: the operative can move through them. Thus name the
+  operatives first (`space`).
+- The operative cannot stop on another base. The area has a hole at each
+  other operative.
+- The operative cannot stop on an open hatchway or breach point. The area
+  does not include them.
 
 The distance to a second base stays as it was. Without a layout, only other
 bases and the board edge stop the move.

@@ -651,7 +651,9 @@ class LiveSession:
     def _field(self, found: list) -> tuple[moves.MoveField, list[np.ndarray]]:
         """Movement field of the selected base for the ring distance, and its outline."""
         a, enemies = found[self.selected], self._enemies(found)
-        key = (self.map_layout, frozenset(self.opened), self._base_key(a), self.ring_in, tuple(enemies))
+        # The base can go through all other bases, but it cannot stop on one.
+        friends = [(xy, d) for i, c in enumerate(found) if i != self.selected for xy, d in [((float(c.center_mm[0]), float(c.center_mm[1])), float(c.diameter_mm))] if (xy, d) not in enemies]
+        key = (self.map_layout, frozenset(self.opened), self._base_key(a), self.ring_in, tuple(enemies), tuple(friends))
         if self._move_field is None or self._move_field[0] != key:
             size = (self.cfg.width_mm, self.cfg.height_mm)
             rects, gaps = (), ()
@@ -659,7 +661,7 @@ class LiveSession:
                 shapes = self._shapes_now()
                 xs, ys = self.cfg.grid_lines_mm()
                 rects, gaps = walls.obstacles(shapes, size, (xs[0], ys[0], xs[-1], ys[-1])), walls.open_gaps(shapes)
-            field = moves.move_field(a.center_mm, a.diameter_mm, self.ring_in, rects, gaps, enemies, size)
+            field = moves.move_field(a.center_mm, a.diameter_mm, self.ring_in, rects, gaps, enemies, size, friends)
             self._move_field = (key, field, field.outline())
             self._move_route = None
         return self._move_field[1], self._move_field[2]

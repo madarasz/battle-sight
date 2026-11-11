@@ -1266,3 +1266,21 @@ def test_only_named_bases_of_the_other_team_block_the_movement(tmp_path):
         assert [center for center, _ in got] == [tuple(float(v) for v in found[i].center_mm) for i in blocking]
         assert [size for _, size in got] == [found[i].diameter_mm for i in blocking]
     session.session = None
+
+
+def test_no_stop_on_another_base_in_the_movement_area(tmp_path):
+    cfg = ident_cfg()
+    frame = paint_board(cfg, GAME)
+    session, state = bases_snapshot(tmp_path, cfg, frame)
+    index = {game_name(session, i): i for i in range(len(state["bases"]))}
+    click_base(session, state, index["Nob"])
+    session.dispatch("measure.move")
+    session.dispatch("ring.9")
+    session.step(frame)
+    field, outline = session._field(session._found())
+    burna = np.asarray(GAME["Burna"][0])  # 212 mm away: in reach, no name, so it does not block
+    assert not walls.contains(outline, burna) and field.cost(burna) is None
+    beside = burna + (0.0, 0.5 * SIZES["Burna"] + 0.5 * SIZES["Nob"] + 3.0)
+    assert walls.contains(outline, beside) and field.cost(beside) is not None
+    hover(session, burna)
+    assert session.state()["move"] is None

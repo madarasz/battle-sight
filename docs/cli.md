@@ -202,7 +202,7 @@ change.
 - `moves.move_field` makes a raster (`MOVE_PX_PER_MM` = 1) of the positions
   of the base centre. `stand`: board inset by the base radius, without the
   terrain rectangles grown by the base radius (`SLACK_MM` = 0.5 less) and
-  without the enemy discs (radius = both radii). `free` adds a zone around
+  without the enemy discs (radius = both radii), and without each open gap rectangle grown by the base radius (no stop on an open hatchway or breach point). `free` adds a zone around
   each open gap (`walls.open_gaps`, base radius + 3 mm around the gap line,
   without the terrain itself): the base can be over the wall parts there
   while it moves, but it cannot stop. A line in the gap (`barrier`) costs
@@ -222,6 +222,10 @@ change.
   nearest position in reach.
 - Enemies: bases with a name of another team than the selected base
   (`LiveSession._enemies`). No name on the selected base: nothing blocks.
+- All other bases are `friends` of `move_field`: they are taken out of
+  `stand` only (disc of both radii), so a move goes through them but cannot
+  stop on them. The outline has a hole at each one, and the pointer on one
+  gives no route.
 - `state["movement"]`, `state["move"]` = `{"in", "increments"}` or null. The
   status bar shows `move 5" (3 + 2)`. Layout 6 at 9 in: about 0.15 s for a new
   field, about 2 ms for a route. The shell sends one pointer position at a
