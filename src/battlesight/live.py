@@ -489,7 +489,8 @@ class LiveSession:
             print(report.summary())
             self.last_status = report.status
         # A still board uses the saved position, so the view does not jitter.
-        tags = self.monitor.reference if report.status is DriftStatus.OK else self.obs
+        # It also stays when a player covers one or two cards (`held`).
+        tags = self.monitor.reference if report.ok or report.held else self.obs
         self.view = None
         if tags and all(i in tags for i in self.cfg.tag_ids):
             try:

@@ -307,7 +307,7 @@ tells the board status, in all layouts. It also tells the ring size and the dist
 | Yellow "BOARD MOVED" | A card moved more than 2 mm. | Keep the board still. When all four cards moved together, the app saves the new position after about 10 frames. |
 | Green "board position updated" | The board or the camera moved, and the app saved the new position. | Play. |
 | Red "CARD MOVED" | One card moved, but the other cards did not. The card is not on its board corner now. | Put the card back against the board corner. |
-| Red "TAG LOST" | The camera cannot see a card. | Remove what covers the card (a hand, a model, a dice tray). |
+| Red "TAG LOST" | The camera cannot see a card. When one or two cards are covered and the other cards did not move, the display stays as it is. When more cards are covered, the display goes back to the camera image. | Remove what covers the card (a hand, a model, a dice tray). |
 | Red "camera down" | The app gets no image from the camera. It tries again by itself. | Check the camera and its cable or network. |
 | Red "CORNERS NOT SEEN" (second line, `enroll`) | The camera cannot see one or more corner cards now. The line names the cards. `space` cannot find the board. | Remove what covers the card. Move the camera if a card is outside the image. |
 | Message at the right of the status line | The result of your last key or click, for 6 seconds. Red: it did not work, for example "no base found". Yellow: do the next step, for example "click the base". Green: done, for example "photo 3 added". | Read the message. For a red message, correct the cause and try again. |

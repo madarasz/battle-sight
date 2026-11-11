@@ -112,6 +112,7 @@ class DriftReport:
     relocked: bool = False  # this frame saved a new reference after the board moved as one piece
     card: int | None = None  # CARD_MOVED: tag id of the card that moved relative to the others
     card_mm: float = 0.0  # CARD_MOVED: how far that card is off its place, in mm
+    held: bool = False  # LOST: the tags that stay in view did not move, so the reference is still good
 
     @property
     def ok(self) -> bool:
@@ -153,6 +154,9 @@ def card_offset_mm(cfg: BoardConfig, ref: dict[int, TagObs], now: dict[int, TagO
     return worst, worst_mm
 
 
+HOLD_MAX_LOST = 2  # most tags out of view while the reference still holds the board position
+
+
 class DriftMonitor:
     """Compare every frame's tags against a locked reference.
 
@@ -164,6 +168,9 @@ class DriftMonitor:
       When all four cards moved as one piece (board or camera moved), the new
       position becomes the reference (`relocked`). When one card moved
       relative to the others, the status is CARD_MOVED until it is back.
+    - With `HOLD_MAX_LOST` tags or fewer out of view and the other tags still,
+      a LOST report is `held`: the reference is still the board position (a
+      hand or an arm covers a card while a player moves a model).
     Pixel shift converts to mm with the tag's own apparent size.
     """
 
@@ -232,7 +239,8 @@ class DriftMonitor:
         moved = {i: mm for i, mm in shift.items() if mm > self.cfg.drift_tolerance_mm}
         if lost:
             self._settle.clear()
-            return DriftReport(DriftStatus.LOST, lost=lost, moved=moved, shift_mm=shift, visible=visible, settle_progress=1.0)
+            held = not moved and len(self.cfg.tag_ids) - visible <= HOLD_MAX_LOST
+            return DriftReport(DriftStatus.LOST, lost=lost, moved=moved, shift_mm=shift, visible=visible, settle_progress=1.0, held=held)
         if not moved:
             self._settle.clear()
             self._card = None

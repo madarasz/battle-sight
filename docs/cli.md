@@ -109,7 +109,7 @@ Drift status (`calib.DriftMonitor`):
 | `BOARD MOVED` | One or more tags moved more than `drift.tolerance_mm`. The view follows the tags in each frame. |
 | `board position updated` | After a move the tags were still for `settle_frames` frames, and all four cards moved as one piece (the board or the camera moved). The app saved the new positions by itself. |
 | `CARD MOVED` | After a move, one card moved relative to the other three by more than `drift.tolerance_mm`: it is no longer on its board corner. The status stays until the card is back. |
-| `TAG LOST` | A tag was not seen for `drift.lost_after_frames` frames. |
+| `TAG LOST` | A tag was not seen for `drift.lost_after_frames` frames. With one or two tags out of view (`calib.HOLD_MAX_LOST`) and the other tags within `drift.tolerance_mm` of the saved positions, the report is `held`: the view keeps the saved positions. With three or more tags out of view, or a moved tag in view, there is no board fit. |
 
 The one-card check (`calib.card_offset_mm`): for each tag, a homography from
 the other three tags (12 corners, saved -> now) predicts its corners. When

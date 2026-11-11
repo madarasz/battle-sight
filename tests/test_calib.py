@@ -1,4 +1,5 @@
 import numpy as np
+import pytest
 
 from battlesight.calib import DriftMonitor, DriftStatus, TagDetector, board_corners_px
 
@@ -114,6 +115,36 @@ def test_drift_detects_lost_tag(cfg):
     assert r.lost == [1]
     # Tag returns: status recovers at once.
     assert mon.update(obs).status is DriftStatus.OK
+
+
+def _moved(t, dy_px):
+    return type(t)(t.tag_id, t.corners + np.array([0, dy_px]), t.center + np.array([0, dy_px]), t.side_px)
+
+
+@pytest.mark.parametrize("hidden, held", [((1,), True), ((1, 3), True), ((0, 1, 3), False)])
+def test_lost_tags_hold_the_reference_when_two_or_more_tags_stay_still(cfg, hidden, held):
+    img, _ = render_board(cfg)
+    det, mon = TagDetector(cfg), DriftMonitor(cfg)
+    obs = det.detect(img)
+    mon.set_reference(obs)
+    partial = {k: v for k, v in obs.items() if k not in hidden}
+    for _ in range(cfg.lost_after_frames):
+        r = mon.update(partial)
+    assert r.status is DriftStatus.LOST and r.lost == list(hidden)
+    assert r.held is held
+
+
+def test_lost_tags_do_not_hold_the_reference_when_a_tag_in_view_moved(cfg):
+    img, _ = render_board(cfg)
+    det, mon = TagDetector(cfg), DriftMonitor(cfg)
+    obs = det.detect(img)
+    mon.set_reference(obs)
+    partial = {k: v for k, v in obs.items() if k != 1}
+    partial[2] = _moved(obs[2], 6.0)  # 3 mm
+    for _ in range(cfg.lost_after_frames):
+        r = mon.update(partial)
+    assert r.status is DriftStatus.LOST and list(r.moved) == [2]
+    assert r.held is False
 
 
 def test_auto_lock_restarts_when_board_moves_during_settle(cfg):

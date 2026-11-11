@@ -13,6 +13,7 @@ import pytest
 import battlesight.app as app
 from battlesight import ident as idt
 from battlesight import walls
+from battlesight.calib import TagDetector
 from battlesight.camera import CameraSettings, ImageSource
 from battlesight.live import ACTIONS, PREVIEW_PAD_MM, LiveSession
 
@@ -148,6 +149,43 @@ def test_live_view_opens_with_adjusted_perspective(tmp_path):
     assert next(a for a in ACTIONS if a.id == "view.top_down").label == "Adjust perspective"
     live = settled(session, frame)
     assert live.state["top_down"] is True and live.image.shape != frame.shape
+
+
+def _cover_tags(cfg, frame, ids):
+    """The frame with a grey patch on each of these tags (a hand over a card)."""
+    out = frame.copy()
+    for tag in (t for i, t in TagDetector(cfg).detect(frame).items() if i in ids):
+        (x, y), r = tag.center, int(tag.side_px)
+        cv2.rectangle(out, (int(x) - r, int(y) - r), (int(x) + r, int(y) + r), (128, 128, 128), -1)
+    return out
+
+
+@pytest.mark.parametrize("ids", [(1,), (0, 2)])
+def test_adjusted_perspective_stays_when_one_or_two_tags_are_covered(tmp_path, ids):
+    cfg = ident_cfg()
+    frame, _ = render_board(cfg)
+    session = make_session(tmp_path, cfg, frame)
+    full = settled(session, frame)
+    covered = settled(session, _cover_tags(cfg, frame, ids))
+    assert covered.state["drift"]["status"] == "LOST" and covered.state["drift"]["lost"] == list(ids)
+    assert covered.state["drift"]["text"].startswith("TAG LOST")
+    assert covered.image.shape == full.image.shape != frame.shape  # still top-down
+    assert covered.state["debug"]["fit_max_mm"] == full.state["debug"]["fit_max_mm"]  # the saved position
+    back = session.step(frame)
+    assert back.state["drift"]["status"] == "OK" and back.image.shape == full.image.shape
+
+
+def test_adjusted_perspective_stops_when_three_tags_are_covered_or_the_board_moved(tmp_path):
+    cfg = ident_cfg()
+    frame, _ = render_board(cfg)
+    session = make_session(tmp_path, cfg, frame)
+    settled(session, frame)
+    three = settled(session, _cover_tags(cfg, frame, (0, 1, 2)))
+    assert three.state["drift"]["status"] == "LOST" and three.image.shape == frame.shape
+    settled(session, frame)
+    shifted, _ = render_board(cfg, shift_px=(8.0, 0.0))  # 4 mm
+    moved = settled(session, _cover_tags(cfg, shifted, (1,)))
+    assert moved.state["drift"]["status"] == "LOST" and moved.image.shape == frame.shape
 
 
 def test_camera_down_keeps_working(tmp_path):
