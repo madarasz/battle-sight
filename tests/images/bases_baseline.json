@@ -22,8 +22,62 @@
     "rim_ratio": 0.75
   },
   "overrides": {},
-  "git": "aaecf3f+dirty",
+  "git": "2cc16d2+dirty",
   "photos": [
+    {
+      "name": "empty-board",
+      "mode": "reference",
+      "changed_fraction": 0.023,
+      "metrics": {
+        "truth": 10,
+        "found": 8,
+        "matched": 8,
+        "size_ok": 8,
+        "wrong_size": 0,
+        "missed": 2,
+        "false": 0,
+        "false_by_kind": {},
+        "recall": 0.8,
+        "precision": 1.0,
+        "f1": 0.8889,
+        "size_accuracy": 1.0,
+        "center_err_mm": {
+          "median": 0.0,
+          "p90": 0.0,
+          "max": 0.0
+        },
+        "done_ok": false,
+        "done": 0,
+        "photos": 1,
+        "ms": 1110.2
+      },
+      "by_rim": {
+        "clear": {
+          "truth": 10,
+          "matched": 8,
+          "size_ok": 8,
+          "wrong_size": 0,
+          "missed": 2,
+          "recall": 0.8,
+          "size_accuracy": 1.0,
+          "center_err_mm": {
+            "median": 0.0,
+            "p90": 0.0,
+            "max": 0.0
+          }
+        },
+        "hidden": {
+          "truth": 0,
+          "matched": 0,
+          "size_ok": 0,
+          "wrong_size": 0,
+          "missed": 0,
+          "recall": 1.0,
+          "size_accuracy": 1.0,
+          "center_err_mm": null
+        }
+      }
+    },
     {
       "name": "tomb-world-1",
       "mode": "single_frame",
@@ -37,7 +91,7 @@
         "missed": 1,
         "false": 1,
         "false_by_kind": {
-          "other": 1
+          "wall": 1
         },
         "recall": 0.8571,
         "precision": 0.8571,
@@ -51,7 +105,7 @@
         "done_ok": false,
         "done": 0,
         "photos": 1,
-        "ms": 846.6
+        "ms": 784.6
       },
       "by_rim": {
         "clear": {
@@ -105,7 +159,7 @@
         "done_ok": false,
         "done": 0,
         "photos": 1,
-        "ms": 828.2
+        "ms": 862.6
       },
       "by_rim": {
         "clear": {
@@ -159,7 +213,7 @@
         "done_ok": true,
         "done": 1,
         "photos": 1,
-        "ms": 786.6
+        "ms": 729.1
       },
       "by_rim": {
         "clear": {
@@ -213,7 +267,7 @@
         "done_ok": true,
         "done": 1,
         "photos": 1,
-        "ms": 761.1
+        "ms": 732.8
       },
       "by_rim": {
         "clear": {
@@ -241,46 +295,104 @@
           "center_err_mm": null
         }
       }
+    },
+    {
+      "name": "tomb-world-light-terrain",
+      "mode": "single_frame",
+      "changed_fraction": null,
+      "metrics": {
+        "truth": 2,
+        "found": 7,
+        "matched": 2,
+        "size_ok": 2,
+        "wrong_size": 0,
+        "missed": 0,
+        "false": 5,
+        "false_by_kind": {
+          "token": 2,
+          "wall": 3
+        },
+        "recall": 1.0,
+        "precision": 0.2857,
+        "f1": 0.4444,
+        "size_accuracy": 1.0,
+        "center_err_mm": {
+          "median": 0.0,
+          "p90": 0.0,
+          "max": 0.0
+        },
+        "done_ok": false,
+        "done": 0,
+        "photos": 1,
+        "ms": 1158.9
+      },
+      "by_rim": {
+        "clear": {
+          "truth": 2,
+          "matched": 2,
+          "size_ok": 2,
+          "wrong_size": 0,
+          "missed": 0,
+          "recall": 1.0,
+          "size_accuracy": 1.0,
+          "center_err_mm": {
+            "median": 0.0,
+            "p90": 0.0,
+            "max": 0.0
+          }
+        },
+        "hidden": {
+          "truth": 0,
+          "matched": 0,
+          "size_ok": 0,
+          "wrong_size": 0,
+          "missed": 0,
+          "recall": 1.0,
+          "size_accuracy": 1.0,
+          "center_err_mm": null
+        }
+      }
     }
   ],
   "total": {
     "metrics": {
-      "truth": 34,
-      "found": 31,
-      "matched": 30,
-      "size_ok": 30,
+      "truth": 46,
+      "found": 46,
+      "matched": 40,
+      "size_ok": 40,
       "wrong_size": 0,
-      "missed": 4,
-      "false": 1,
+      "missed": 6,
+      "false": 6,
       "false_by_kind": {
-        "other": 1
+        "token": 2,
+        "wall": 4
       },
-      "recall": 0.8824,
-      "precision": 0.9677,
-      "f1": 0.9231,
+      "recall": 0.8696,
+      "precision": 0.8696,
+      "f1": 0.8696,
       "size_accuracy": 1.0,
       "center_err_mm": {
-        "median": 0.054,
-        "p90": 0.558,
+        "median": 0.034,
+        "p90": 0.53,
         "max": 0.926
       },
       "done_ok": false,
       "done": 2,
-      "photos": 4,
-      "ms": 3222.5
+      "photos": 6,
+      "ms": 5378.3
     },
     "by_rim": {
       "clear": {
-        "truth": 29,
-        "matched": 28,
-        "size_ok": 28,
+        "truth": 41,
+        "matched": 38,
+        "size_ok": 38,
         "wrong_size": 0,
-        "missed": 1,
-        "recall": 0.9655,
+        "missed": 3,
+        "recall": 0.9268,
         "size_accuracy": 1.0,
         "center_err_mm": {
-          "median": 0.054,
-          "p90": 0.558,
+          "median": 0.034,
+          "p90": 0.53,
           "max": 0.926
         }
       },
@@ -297,56 +409,58 @@
     },
     "by_mode": {
       "reference": {
-        "truth": 19,
-        "found": 19,
-        "matched": 19,
-        "size_ok": 19,
+        "truth": 29,
+        "found": 27,
+        "matched": 27,
+        "size_ok": 27,
         "wrong_size": 0,
-        "missed": 0,
+        "missed": 2,
         "false": 0,
         "false_by_kind": {},
-        "recall": 1.0,
+        "recall": 0.931,
         "precision": 1.0,
-        "f1": 1.0,
+        "f1": 0.9643,
         "size_accuracy": 1.0,
         "center_err_mm": {
-          "median": 0.032,
-          "p90": 0.568,
+          "median": 0.01,
+          "p90": 0.415,
           "max": 0.926
         },
-        "done_ok": true,
+        "done_ok": false,
         "done": 2,
-        "photos": 2,
-        "ms": 1547.8
+        "photos": 3,
+        "ms": 2572.1
       },
       "single_frame": {
-        "truth": 15,
-        "found": 12,
-        "matched": 11,
-        "size_ok": 11,
+        "truth": 17,
+        "found": 19,
+        "matched": 13,
+        "size_ok": 13,
         "wrong_size": 0,
         "missed": 4,
-        "false": 1,
+        "false": 6,
         "false_by_kind": {
-          "other": 1
+          "token": 2,
+          "wall": 4
         },
-        "recall": 0.7333,
-        "precision": 0.9167,
-        "f1": 0.8148,
+        "recall": 0.7647,
+        "precision": 0.6842,
+        "f1": 0.7222,
         "size_accuracy": 1.0,
         "center_err_mm": {
-          "median": 0.061,
-          "p90": 0.53,
+          "median": 0.06,
+          "p90": 0.44,
           "max": 0.866
         },
         "done_ok": false,
         "done": 0,
-        "photos": 2,
-        "ms": 1674.8
+        "photos": 3,
+        "ms": 2806.2
       }
     },
     "false_by_kind": {
-      "other": 1
+      "token": 2,
+      "wall": 4
     }
   }
 }

@@ -147,11 +147,11 @@ from = [6, 0]
 to = [7, 6]
 
 # Light terrain C1..C5: footprint of the card symbol, sizes in [terrain] light_mm.
-# long = the board axis of the long side (C1, C2). Centres measured on the card photo.
+# long = the board axis of the long side (C1, C2). Measured on the card photo, then snapped (skill record-map, "Placement of objects").
 
-[[light]] # off the grid
+[[light]] # left side on col 1 (109 + 31.5), centre on row 5
 key = "C1"
-at_mm = [140, 501]
+at_mm = [140.5, 497]
 long = "y"
 
 [[light]]
@@ -159,14 +159,14 @@ key = "C2"
 at = [5, 2]
 long = "y"
 
-[[light]] # off the grid
+[[light]] # right side on col 2 (206 - 24), centre on row 2
 key = "C3"
-at_mm = [183, 209]
+at_mm = [182, 206]
 
-[[light]] # off the grid
+[[light]] # right side on col 6 (594 - 22.5), centre on row 1
 key = "C4"
-at_mm = [574, 112]
+at_mm = [571.5, 109]
 
-[[light]] # touches the bottom board edge
+[[light]] # centre on col 4, bottom side on the board edge (606 - 20)
 key = "C5"
 at_mm = [400, 586]

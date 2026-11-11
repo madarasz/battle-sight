@@ -1,0 +1,385 @@
+{
+  "schema": 1,
+  "source": "tests/images/tomb-world-light-terrain.png",
+  "size": [
+    1920,
+    1080
+  ],
+  "ok": true,
+  "stages": {
+    "corners": {
+      "ok": true,
+      "skipped": false,
+      "message": "4/4 tags",
+      "ms": 24.2,
+      "data": {
+        "tags": {
+          "0": {
+            "corner": "top-left",
+            "corners_px": [
+              [
+                13.44,
+                108.59
+              ],
+              [
+                73.45,
+                106.41
+              ],
+              [
+                80.48,
+                160.24
+              ],
+              [
+                20.49,
+                162.5
+              ]
+            ],
+            "side_px": 57.19
+          },
+          "1": {
+            "corner": "top-right",
+            "corners_px": [
+              [
+                1011.56,
+                55.46
+              ],
+              [
+                1057.26,
+                54.34
+              ],
+              [
+                1062.44,
+                100.56
+              ],
+              [
+                1016.79,
+                102.35
+              ]
+            ],
+            "side_px": 46.27
+          },
+          "2": {
+            "corner": "bottom-right",
+            "corners_px": [
+              [
+                1104.69,
+                841.87
+              ],
+              [
+                1150.31,
+                835.19
+              ],
+              [
+                1156.4,
+                882.81
+              ],
+              [
+                1110.5,
+                890.17
+              ]
+            ],
+            "side_px": 47.31
+          },
+          "3": {
+            "corner": "bottom-left",
+            "corners_px": [
+              [
+                110.6,
+                998.62
+              ],
+              [
+                167.82,
+                991.24
+              ],
+              [
+                172.23,
+                1044.86
+              ],
+              [
+                113.7,
+                1053.6
+              ]
+            ],
+            "side_px": 56.43
+          }
+        },
+        "missing": [],
+        "board_corners_px": [
+          [
+            88.86,
+            166.69
+          ],
+          [
+            1011.74,
+            108.43
+          ],
+          [
+            1098.26,
+            836.67
+          ],
+          [
+            174.42,
+            983.62
+          ]
+        ]
+      }
+    },
+    "rectify": {
+      "ok": true,
+      "skipped": false,
+      "message": "fit rms 0.76 mm, max 1.46 mm, nominal lens",
+      "ms": 13.9,
+      "data": {
+        "lens": {
+          "source": "nominal",
+          "size": [
+            1920,
+            1080
+          ],
+          "fx": 1221.94,
+          "fy": 1221.94,
+          "cx": 960.0,
+          "cy": 540.0,
+          "dist": [
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "rms_px": null
+        },
+        "H_mm_to_px": [
+          [
+            1.48895451,
+            0.140683327,
+            86.8188976
+          ],
+          [
+            -0.0609884041,
+            1.33158722,
+            165.141432
+          ],
+          [
+            0.000171429466,
+            -1.74033543e-05,
+            1.0
+          ]
+        ],
+        "reproj_rms_mm": 0.759,
+        "reproj_max_mm": 1.465,
+        "camera_mm": [
+          471.4,
+          371.0,
+          982.5
+        ],
+        "thickness_mm": 1.0,
+        "surface_scale": 1.001019,
+        "board_corners_px": [
+          [
+            86.82,
+            165.14
+          ],
+          [
+            1011.64,
+            109.12
+          ],
+          [
+            1098.06,
+            837.15
+          ],
+          [
+            173.91,
+            982.44
+          ]
+        ],
+        "rectified": {
+          "px_per_mm": 2.0,
+          "margin_mm": 50.0,
+          "size": [
+            1606,
+            1412
+          ]
+        },
+        "edges": {
+          "top": {
+            "offset_mm": 0.9,
+            "angle_deg": -0.138,
+            "n": 151,
+            "rms_mm": 0.24
+          },
+          "right": {
+            "offset_mm": 0.31,
+            "angle_deg": -0.017,
+            "n": 113,
+            "rms_mm": 0.26
+          },
+          "bottom": {
+            "offset_mm": 0.21,
+            "angle_deg": -0.111,
+            "n": 151,
+            "rms_mm": 0.16
+          },
+          "left": {
+            "offset_mm": 0.45,
+            "angle_deg": -0.035,
+            "n": 127,
+            "rms_mm": 0.09
+          }
+        },
+        "corner_angles_deg": [
+          90.173,
+          89.845,
+          90.129,
+          89.853
+        ],
+        "grid_lines": {
+          "x": [
+            0.72,
+            1.11,
+            1.15,
+            1.23,
+            0.68,
+            0.15,
+            -0.58,
+            -1.17
+          ],
+          "y": [
+            1.66,
+            1.74,
+            1.87,
+            1.15,
+            0.51,
+            0.06,
+            0.08
+          ]
+        }
+      }
+    },
+    "bases": {
+      "ok": true,
+      "skipped": false,
+      "message": "7 bases (2x25, 1x28, 4x40 mm), no reference",
+      "ms": 1156.6,
+      "data": {
+        "mode": "single_frame",
+        "px_per_mm": 4.0,
+        "diameters_mm": [
+          25.0,
+          28.0,
+          32.0,
+          40.0,
+          50.0
+        ],
+        "changed_fraction": null,
+        "bases": [
+          {
+            "center_mm": [
+              145.76,
+              206.72
+            ],
+            "diameter_mm": 40.0,
+            "fit_diameter_mm": 39.98,
+            "coverage": 0.908,
+            "rms_mm": 0.278,
+            "contrast": 45.8,
+            "center_px": [
+              325.97,
+              422.48
+            ]
+          },
+          {
+            "center_mm": [
+              454.12,
+              459.09
+            ],
+            "diameter_mm": 40.0,
+            "fit_diameter_mm": 39.18,
+            "coverage": 0.817,
+            "rms_mm": 0.404,
+            "contrast": 52.7,
+            "center_px": [
+              773.53,
+              699.87
+            ]
+          },
+          {
+            "center_mm": [
+              161.05,
+              332.89
+            ],
+            "diameter_mm": 40.0,
+            "fit_diameter_mm": 39.67,
+            "coverage": 0.675,
+            "rms_mm": 0.356,
+            "contrast": 56.2,
+            "center_px": [
+              365.48,
+              585.82
+            ]
+          },
+          {
+            "center_mm": [
+              379.23,
+              304.43
+            ],
+            "diameter_mm": 40.0,
+            "fit_diameter_mm": 39.93,
+            "coverage": 0.525,
+            "rms_mm": 0.23,
+            "contrast": 40.7,
+            "center_px": [
+              655.18,
+              516.55
+            ]
+          },
+          {
+            "center_mm": [
+              118.14,
+              403.46
+            ],
+            "diameter_mm": 25.0,
+            "fit_diameter_mm": 26.08,
+            "coverage": 0.517,
+            "rms_mm": 0.479,
+            "contrast": 59.2,
+            "center_px": [
+              315.32,
+              686.1
+            ]
+          },
+          {
+            "center_mm": [
+              416.47,
+              305.98
+            ],
+            "diameter_mm": 28.0,
+            "fit_diameter_mm": 28.09,
+            "coverage": 0.508,
+            "rms_mm": 0.523,
+            "contrast": 66.1,
+            "center_px": [
+              703.5,
+              513.27
+            ]
+          },
+          {
+            "center_mm": [
+              239.12,
+              204.94
+            ],
+            "diameter_mm": 25.0,
+            "fit_diameter_mm": 25.91,
+            "coverage": 0.5,
+            "rms_mm": 0.547,
+            "contrast": 39.2,
+            "center_px": [
+              454.68,
+              408.18
+            ]
+          }
+        ]
+      }
+    }
+  }
+}

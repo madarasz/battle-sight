@@ -11,5 +11,7 @@
     {"center_mm": [164.52, 240.28], "diameter_mm": 32, "rim": "clear", "source": "detector", "note": ""},
     {"center_mm": [527.83, 271.44], "diameter_mm": 40, "rim": "hidden", "source": "clicked", "note": "", "points_mm": [[544.21, 282.1], [542.51, 283.97], [514.54, 257.22], [521.84, 253.0]]}
   ],
-  "not_bases": []
+  "not_bases": [
+    {"center_mm": [401.13, 214.85], "diameter_mm": 40, "kind": "wall", "note": ""}
+  ]
 }

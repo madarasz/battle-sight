@@ -1,0 +1,14 @@
+{
+  "schema": 2,
+  "bases": [
+    {"center_mm": [161.05, 332.89], "diameter_mm": 40, "rim": "clear", "source": "detector", "note": ""},
+    {"center_mm": [454.12, 459.09], "diameter_mm": 40, "rim": "clear", "source": "detector", "note": ""}
+  ],
+  "not_bases": [
+    {"center_mm": [145.76, 206.72], "diameter_mm": 40, "kind": "token", "note": ""},
+    {"center_mm": [239.12, 204.94], "diameter_mm": 25, "kind": "wall", "note": ""},
+    {"center_mm": [379.23, 304.43], "diameter_mm": 40, "kind": "token", "note": ""},
+    {"center_mm": [416.47, 305.98], "diameter_mm": 28, "kind": "wall", "note": ""},
+    {"center_mm": [118.14, 403.46], "diameter_mm": 25, "kind": "wall", "note": ""}
+  ]
+}

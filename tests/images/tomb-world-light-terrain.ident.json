@@ -1,0 +1,8 @@
+{
+  "teams": ["Raveners", "Deathwatch"],
+  "tol_mm": 10,
+  "bases": [
+    {"center_mm": [161.05, 332.89], "label": "Raveners/Prime"},
+    {"center_mm": [454.12, 459.09], "label": "Raveners/Felltalon"}
+  ]
+}

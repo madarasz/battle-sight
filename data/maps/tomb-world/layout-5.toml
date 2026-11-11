@@ -122,11 +122,11 @@ to = [7, 5]
 opening = true
 opening_at = [5.5, 5]   # the half next to the marker
 
-[[objective]] # touches C1 on its left; off the half grid
-at_mm = [146.0, 206.0]
+[[objective]] # touches the left side of C1 at [2, 2] (206 - 40.5 - 20), centre on row 2
+at_mm = [145.5, 206.0]
 
-[[objective]] # touches C5 on its left; off the half grid
-at_mm = [376.0, 303.0]
+[[objective]] # touches the left side of C5: x = 400 - 20 (marker radius)
+at_mm = [380.0, 303.0]
 
 [[objective]]
 at = [6, 4]
@@ -148,7 +148,7 @@ from = [0, 5]
 to = [7, 6]
 
 # Light terrain C1..C5: footprint of the card symbol, sizes in [terrain] light_mm.
-# long = the board axis of the long side (C1, C2). Centres measured on the card photo.
+# long = the board axis of the long side (C1, C2). Measured on the card photo, then snapped (skill record-map, "Placement of objects").
 
 [[light]]
 key = "C1"
@@ -168,6 +168,6 @@ at = [5, 1]
 key = "C4"
 at = [1, 4]
 
-[[light]] # touches the objective on its left; off the grid
+[[light]] # left side on the col 4 line (x = 400), on row 3
 key = "C5"
-at_mm = [416, 303]
+at_mm = [420, 303]

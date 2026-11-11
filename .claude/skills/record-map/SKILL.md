@@ -51,17 +51,13 @@ mm): C1 81 x 63 octagon, C2 62 x 46, C3 48 x 48, C4 45 x 45, C5 40 x 40. A
 grid section is 97 mm, so C2 is about 2/3 x 1/2 of a section.
 
 - Measure the centre, not a corner. Most C2 and C4 centres are on a grid
-  point; C1, C3 and C5 are often off the half grid. Use `at` only when the
-  centre is within about 3 mm of a half grid point, else `at_mm`.
+  point; C1, C3 and C5 are often off the half grid.
 - To measure, warp the card photo to board mm with the four outer grid
   corners (homography to x = 12 + 97 * col, y = 12 + 97 * row), then find the
   dark shape around the label with a local threshold and take its bounding
   box. Check each outline by eye: shadows and a touching objective merge with
   the shape (use a darker threshold then).
-- A piece that touches the board edge on the card: put its side on the edge
-  (for example C1 81 mm along x at the right edge: x = 703 - 40.5).
-- A piece that touches an objective: check that the objective is 20 mm
-  (marker radius) from the side of the piece.
+- Snap the position with "Placement of objects".
 
 ## Openings
 
@@ -76,6 +72,36 @@ An opening sits at the centre between two pillars, never on a pillar.
 The marker can be on either side of the wall. Only its position along the
 wall matters.
 
+## Placement of objects
+
+The card designer puts light terrain, objectives and teleporters in one of
+these ways. They are in order: the first is the most common. Measure the
+position on the photo, then snap it to the first rule that fits within
+about 5 mm, separately for x and for y. Write the rule in a comment.
+
+1. Its centre is on a grid line (or a half grid line). Use `at`, for
+   example `at = [4, 2]`.
+2. Its side touches a grid line: a printed (whole) grid line, not a half
+   grid line. Centre = line + half the size (light
+   terrain: half its side along that axis; objective: 20 mm, teleporter:
+   30 mm). Example: C5 (40 mm) with its left side on col 4 (x = 400):
+   x = 420.
+3. Its side touches another object (light terrain, objective, teleporter,
+   wall end or pillar). Place the other object first, then this one next to
+   it. Example: an objective that touches the left side of that C5:
+   x = 400 - 20 = 380. A wall end reaches 6.5 mm past its grid point, a
+   pillar 6.5 mm from its grid point.
+
+The board edge counts as a grid line for rule 2 (for example C1 81 mm along
+x at the right edge: x = 703 - 40.5). Rules 2 and 3 give a point off the
+half grid: use `at_mm` and give the sum in the comment. Only when no rule
+fits, keep the measured point and say so in the comment.
+
+Objects never overlap. When a rule gives an overlap with a neighbour (for
+example an objective on a half grid point 2 mm into a C2), use rule 3
+instead: the two touch. After you write the file, check that no light
+terrain, objective or teleporter overlaps another or a wall.
+
 ## Steps
 
 1. Find the grid lines and number them (col 0..7, row 0..6).
@@ -84,9 +110,8 @@ wall matters.
 3. List the pillars: all wall ends and junctions, plus the middle of each `A`
    wall except `A2`. Put a wall end (✕) in `wall_ends`, not in `pillars`.
 4. Light terrain `C1`..`C5`: label, centre, long axis (see "Light terrain").
-5. Objectives and teleporters: grid or half grid. When one is clearly off
-   the half grid (for example it touches light terrain), estimate `at_mm`
-   from the nearest grid lines and add a comment.
+5. Objectives and teleporters. Snap light terrain, objectives and
+   teleporters with "Placement of objects" (rule 1, then 2, then 3).
 6. Deployment zones.
 7. Write the file. Start from `layout-6.toml`: `schema = 1`, `name =
    "Layout <n>"`, `terrain = "Tomb World"`, `source`. Give each wall its
