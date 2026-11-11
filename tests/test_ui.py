@@ -1099,6 +1099,10 @@ def test_rosters_inspector_shows_the_operative(idle_rosters, recorded):
     assert layout.candidates.isVisibleTo(idle_rosters) and layout.distance.text().startswith("Rim to rim: ")
     idle_rosters._on_frame(recorded[2]["base selected, no names"], 0)
     assert layout.title.text().startswith("Base (") and not layout.change.isEnabled()
+    assert layout.change.text() == "Change ID" and layout.remove.text() == "Remove ID"
+    assert layout.remove.isVisibleTo(idle_rosters) and layout.remove.isEnabled()  # also without names
+    idle_rosters._on_frame(recorded[2]["live"], 0)
+    assert not layout.remove.isVisibleTo(idle_rosters)
 
 
 def test_rosters_inspector_shows_an_opening(idle_rosters, recorded):
@@ -1134,6 +1138,17 @@ def test_rosters_row_slider_and_name_fix_run_actions(rosters):
     assert any(b["label"] for b in rosters.state["bases"])  # the names stay on the live video
     layout.close.click()
     wait_until(lambda: rosters.state["selected"] is None and layout.stack.currentWidget() is layout.pages["empty"])
+
+
+def test_rosters_remove_id_drops_the_base(rosters):
+    open_names(rosters)
+    layout = rosters.current_layout
+    count = len(rosters.state["bases"])
+    rosters.dispatch("base.select", index=0)
+    wait_until(lambda: rosters.state["selected"] == 0 and layout.remove.isVisibleTo(rosters))
+    layout.remove.click()
+    wait_until(lambda: len(rosters.state["bases"]) == count - 1 and rosters.state["selected"] is None)
+    wait_until(lambda: layout.stack.currentWidget() is layout.pages["empty"])
 
 
 def test_rosters_team_choice_sends_the_action(rosters):

@@ -286,6 +286,39 @@ def test_name_fix_flow(tmp_path, named, display_width):
     assert s["unconfirmed"] == 0
 
 
+def test_remove_base_drops_a_false_base(tmp_path, named):
+    cfg, frame = named
+    session = make_session(tmp_path, cfg, frame, teams=("orks",))
+    settled(session, frame)
+    session.dispatch("base.remove")
+    assert session.state()["notice"]["text"] == "click a base first"
+    session.dispatch("snapshot.name")
+    s = session.step(frame).state
+    kept = [b["label"] for k, b in enumerate(s["bases"]) if k != 1]
+    session.dispatch("base.select", index=1)
+    session.dispatch("ring.3")
+    session.dispatch("base.remove")
+    s = session.step(frame).state
+    assert_json_safe(s)
+    assert len(s["bases"]) == 2 and [b["label"] for b in s["bases"]] == kept
+    assert s["selected"] is None and s["ring_in"] is None and s["notice"]["text"] == "base removed"
+    assert [b["index"] for b in s["bases"]] == [0, 1]
+    session.dispatch("base.select", index=1)  # the measurement uses the bases that are left
+    session.dispatch("ring.3")
+    session.step(frame)
+
+
+def test_remove_base_without_names(tmp_path, named):
+    cfg, frame = named
+    session = make_session(tmp_path, cfg, frame, teams=("orks",))
+    settled(session, frame)
+    session.dispatch("snapshot.bases")
+    session.dispatch("base.select", index=0)
+    session.dispatch("base.remove")
+    s = session.step(frame).state
+    assert len(s["bases"]) == 2 and not s["naming"]
+
+
 def test_back_goes_live_and_keeps_names_and_selection(tmp_path, named):
     cfg, frame = named
     session = make_session(tmp_path, cfg, frame, teams=("orks",))

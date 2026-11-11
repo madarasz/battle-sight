@@ -315,6 +315,7 @@ ACTIONS: tuple[Action, ...] = (
     Action("base.choose", "Set name", args=("label", "index"), enabled=_has_selection),
     Action("base.select", "Select operative", args=("index",)),
     Action("base.deselect", "Clear selection", enabled=_has_any_selection),
+    Action("base.remove", "Remove ID", enabled=_has_selection),
     *(Action(f"ring.{n}", f"Ring {n} in", str(n), enabled=_has_selection, checked=partial(lambda n, s: s["ring_in"] == n, n)) for n in range(1, 10)),
     Action("ring.clear", "Clear ring", "0", enabled=lambda s: s["ring_in"] is not None),
     Action("wounds.minus", "Wound -1", "-", enabled=_has_wounds),
@@ -463,6 +464,7 @@ class LiveSession:
             "base.choose": self._choose,
             "base.select": self._select_index,
             "base.deselect": self._deselect,
+            "base.remove": self._remove_base,
             **{f"ring.{n}": partial(self._set_ring, n) for n in range(1, 10)},
             "ring.clear": partial(self._set_ring, None),
             "wounds.minus": partial(self._add_wounds, -1),
@@ -1299,6 +1301,28 @@ class LiveSession:
         else:
             print(f"named {label}: added {path}")
             self.notice.ok(f"named {name}, photo added to the gallery")
+        self.dirty = True
+
+    def _remove_base(self, index: int | None = None) -> None:
+        """Remove base `index` (default: the selected base) from the snapshot:
+        a false base, for example terrain or board print. The later bases move
+        one index down. Gallery photos that a name fix added for it go too."""
+        found = self._found()
+        index = self.selected if index is None else index
+        if index is None or not 0 <= index < len(found):
+            self.notice.say("click a base first")
+            return
+        scratch = self.result.scratch
+        scratch["bases"] = [c for k, c in enumerate(found) if k != index]
+        for key in ("idents", "base_crops", "base_backgrounds"):
+            items = scratch.get(key)
+            if items is not None and index < len(items):
+                scratch[key] = [x for k, x in enumerate(items) if k != index]
+        removed = self.session.remove(index) if self.session is not None else []
+        self._set_selected(None)
+        for path in removed:
+            print(f"removed {path}")
+        self.notice.say("base removed" + (f", {len(removed)} gallery photo removed" if len(removed) == 1 else f", {len(removed)} gallery photos removed" if removed else ""))
         self.dirty = True
 
     def _accept_all(self) -> None:

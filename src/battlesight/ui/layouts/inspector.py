@@ -128,7 +128,7 @@ class InspectorLayout:
         column.addWidget(self.distance)
         self.candidates = CandidateList(self.shell.dispatch)
         column.addWidget(self.candidates, 1)
-        self._add_controls(column, "snapshot.back")
+        self._add_controls(column, "base.remove", "snapshot.back")
 
     def _opening_page(self, column: QVBoxLayout) -> None:
         self.opening_title = QLabel()

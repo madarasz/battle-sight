@@ -236,6 +236,14 @@ breach point of the map layout within 8 mm (`OPENING_HIT_MM`), live and
 snapshot. One thing is selected at a time: a base or an opening. State
 `selected_opening` = `{index, kind, open}`. `base.deselect` clears both.
 
+False bases: `base.remove` ("Remove ID", no key: `Backspace` and `Delete` edit
+the wounds box) removes the selected base from the snapshot (terrain or board
+print found as a base). It works with and without names. The later bases move
+one index down (`result.scratch` lists and `LabelSession.remove`), and the
+selection clears. Gallery photos that a name fix of this snapshot added for
+that base are removed too, and `names.undo` skips that fix. The next snapshot
+finds the base again.
+
 Game state (`LiveSession`, no window): wounds and openings.
 
 - Wounds: `LiveSession.wounds` = `{label: current}` for operatives that are
@@ -333,8 +341,8 @@ of the status bar; off at each layout change). It must not import `pipeline`,
 (`MapPicker`, view toggles and `measure.walls`), Commands (`snapshot.name`, `names.accept` shown
 only with `unconfirmed > 0`, a disabled "Add operative", `snapshot.back` shown
 only in a snapshot), Inspector (operative: title `Team - Name (40mm)`, crop,
-`WoundsControl`, `RingSlider`, `measure.move`, distance, "Change identification" that shows a
-`CandidateList`; opening: "Hatchway" / "Breach point" and `OpeningControl`
+`WoundsControl`, `RingSlider`, `measure.move`, distance, "Change ID" that shows a
+`CandidateList`, "Remove ID" = `base.remove`; opening: "Hatchway" / "Breach point" and `OpeningControl`
 (state and Open / Close button); `✕` = `base.deselect`), Reference and Debug.
 A `TeamRoster` each side of the video; the mark of a row starts with
 `current/max` wounds when the operative has a maximum. `WoundsControl`

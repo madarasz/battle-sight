@@ -243,6 +243,26 @@ def test_label_session_fix_moves_label_and_feeds_gallery(tmp_path):
     assert g.counts()["orks/Nob"] == 0 and s.idents[1].label is None
 
 
+def test_label_session_remove_drops_base_and_its_photos(tmp_path):
+    cfg = ident_cfg()
+    g = make_gallery(tmp_path, cfg)
+    g.ensure_operative("orks", "Nob", 32)
+    g.ensure_operative("orks", "Kommando", 32)
+    crops = [np.full((448, 448, 3), v, np.uint8) for v in (50, 150, 250)]
+    idents = [idt.Ident(None, 0.3, -np.inf, [("orks/Nob", 0.3)]) for _ in crops]
+    s = idt.LabelSession(np.array([[100.0, 100.0], [200.0, 100.0], [300.0, 100.0]]), [32.0, 32.0, 32.0], crops, idents, g)
+    s.choose("orks/Nob", 1)  # a false base named by mistake
+    s.choose("orks/Kommando", 2)
+    s.selected = 2
+    removed = s.remove(1)
+    assert len(removed) == 1 and not removed[0].exists() and g.counts()["orks/Nob"] == 0
+    assert len(s.idents) == len(s.crops) == len(s.diameters_mm) == len(s.centers_mm) == 2
+    assert s.idents[1].label == "orks/Kommando" and s.selected == 1  # later bases move one down
+    assert s.base_at((200, 100)) is None and s.base_at((300, 100)) == 1
+    assert s.undo()[0] and s.idents[1].label is None and g.counts()["orks/Kommando"] == 0
+    assert s.undo() == (False, None)  # the choice of the removed base is not in the history
+
+
 # --- done test ----------------------------------------------------------------
 
 

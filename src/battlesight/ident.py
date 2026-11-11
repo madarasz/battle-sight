@@ -897,6 +897,22 @@ class LabelSession:
                 out.append(self.choose(x.label, i))
         return out
 
+    def remove(self, i: int) -> list[Path]:
+        """Remove base i from the session: a false base (terrain, board print).
+        The later bases move one index down. The gallery photos that a choice
+        of this session added for this base are removed too; returns them."""
+        removed = [path for k, path, _ in self.added if k == i and path is not None]
+        for path in removed:
+            self.gallery.remove(path)
+        self.centers_mm = np.delete(np.asarray(self.centers_mm, float).reshape(-1, 2), i, axis=0)
+        for items in (self.diameters_mm, self.crops, self.idents, self.backgrounds):
+            if i < len(items):
+                del items[i]
+        self.added = [(k - (k > i), path, old) for k, path, old in self.added if k != i]
+        if self.selected is not None:
+            self.selected = None if self.selected == i else self.selected - (self.selected > i)
+        return removed
+
     def undo(self) -> tuple[bool, Path | None]:
         """Take back the last `choose`: (done, removed gallery photo). The
         photo is None when that choice added no file."""

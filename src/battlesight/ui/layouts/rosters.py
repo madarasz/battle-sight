@@ -2,7 +2,7 @@
 
 The control bar has separate sections: View, Commands, Inspector, Reference
 and Debug. The inspector shows the selected operative (name, crop, wounds,
-ring slider, name fix) or the selected hatchway or breach point (open or
+ring slider, name fix, remove a false base) or the selected hatchway or breach point (open or
 closed). Each team list shows the operatives of one team, their wounds and
 how they are identified. The name fix
 is a list in the inspector, so the shell popup is off here.
@@ -62,7 +62,7 @@ class RostersLayout:
     def __init__(self) -> None:
         self.controls: list[tuple[Action, QAbstractButton]] = []
         self.pages: dict[str, QWidget] = {}
-        self.fix_for: int | None = None  # base of the open "Change identification" list
+        self.fix_for: int | None = None  # base of the open "Change ID" list
 
     def build(self, shell: Shell, options: dict[str, Any]) -> QWidget:
         debug_open = options.get("debug_open", False)
@@ -182,10 +182,13 @@ class RostersLayout:
         font.setPointSizeF(font.pointSizeF() * 1.15)
         self.title.setFont(font)
         header.addWidget(self.title, 0)
-        self.change = _no_focus(QPushButton("Change identification"))
+        self.change = _no_focus(QPushButton("Change ID"))
         self.change.setCheckable(True)
         self.change.toggled.connect(self._show_fix)
         header.addWidget(self.change, 0)
+        self.remove = self._control("base.remove")
+        self.remove.setToolTip("Not an operative (terrain, board print): remove this base from the snapshot")
+        header.addWidget(self.remove, 0)
         header.addStretch(1)
         self.close = _no_focus(QToolButton())
         self.close.setText("✕")
@@ -259,6 +262,7 @@ class RostersLayout:
         self.stack.setCurrentWidget(self.pages[page])
         self.close.setVisible(page != "empty")
         self.change.setVisible(page == "operative")
+        self.remove.setVisible(page == "operative")
         if state["selected"] != self.fix_for:  # a new base starts with the name list closed
             self.fix_for = state["selected"]
             self.change.setChecked(False)

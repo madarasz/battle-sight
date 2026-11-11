@@ -163,10 +163,14 @@ itself. Keep the board still for a moment after the move.
    - Yellow name: the app is not sure. Check it.
    - Red `?`: the app does not know this operative.
 4. If a name is wrong, click the base. In the `rosters` layout, click
-   "Change identification" in the inspector, then click the correct name. In
+   "Change ID" in the inspector, then click the correct name. In
    the `inspector` layout, the panel shows the list of names. In the `panel`
    layout, right-click the base: the list opens at the base. The app learns
    from each correction, so it makes fewer errors in the next games.
+   If the app found an operative where there is none (terrain or board
+   print), click it, then click "Remove ID". The base goes away until the
+   next `space`. If you named this base before, the app also removes its
+   photo from the gallery.
 5. Push `Esc` ("Go back to Live") to go back to the live video. The circles
    and the names stay on the live video until the next `space`.
 
@@ -327,8 +331,9 @@ In the `rosters` layout, the inspector shows:
 - For an operative: the team, the name and the base size, for example
   `Raveners - Wrecker (40mm)`, a photo of the base, the "Wounds" controls
   (`-`, the number, the maximum, `+`), the "Distance" slider (ring size, 0 to
-  9 in), the distance to a second base, and the "Change identification"
-  button. The list of names shows only after you click it.
+  9 in), the distance to a second base, the "Change ID" button and the
+  "Remove ID" button. The list of names shows only after you click
+  "Change ID". "Remove ID" removes a base that is not an operative.
 - For a hatchway or a breach point: its name, "Closed" or "Open", and a
   button that opens or closes it.
 
@@ -340,8 +345,8 @@ In the `inspector` layout, the panel shows:
 - With a result: how many operatives have a name, and one row for each base.
   Green is sure, yellow is not sure, red `?` is unknown.
 - After a click on a base: the size of the base, a photo of it, the
-  "Wounds" controls, the ring buttons, the distance to a second base, and the
-  names with their scores. Click the base again, or an empty part of the
+  "Wounds" controls, the ring buttons, the distance to a second base, the
+  names with their scores, and the "Remove ID" button. Click the base again, or an empty part of the
   board, to close this.
 - After a click on a hatchway or a breach point: its name, "Closed" or
   "Open", and a button that opens or closes it.
