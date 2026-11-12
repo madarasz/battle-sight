@@ -6,13 +6,14 @@ from collections.abc import Callable
 from typing import Any
 
 import numpy as np
-from PySide6.QtCore import QPoint, QPointF, QRectF, Qt, Signal
-from PySide6.QtGui import QColor, QFont, QImage, QMouseEvent, QPainter
-from PySide6.QtWidgets import QAbstractButton, QCheckBox, QStyledItemDelegate, QStyleOptionViewItem, QComboBox, QFormLayout, QGridLayout, QHBoxLayout, QLabel, QListWidget, QListWidgetItem, QPushButton, QSlider, QSpinBox, QVBoxLayout, QWidget
+from PySide6.QtCore import QPoint, QPointF, QRectF, QSize, Qt, Signal
+from PySide6.QtGui import QColor, QFont, QIcon, QImage, QMouseEvent, QPainter, QPainterPath, QPixmap
+from PySide6.QtWidgets import QAbstractButton, QApplication, QCheckBox, QStyledItemDelegate, QStyleOptionViewItem, QComboBox, QFormLayout, QGridLayout, QGroupBox, QHBoxLayout, QLabel, QListWidget, QListWidgetItem, QPushButton, QSlider, QSpinBox, QStyle, QToolButton, QVBoxLayout, QWidget
 
-from ..live import ACTIONS, Action
+from ..live import ACTIONS, TEAM_COLORS, Action
+from ..score import CATEGORIES, CATEGORY_MAX, CATEGORY_NAMES, PRIMARIES, SKULLS_PER_TP, TURNING_POINTS
 
-ACTION_GROUPS = {"wounds": "Game", "opening": "Game", "team": "View", "map": "View", "snapshot": "Snapshot", "base": "Snapshot", "names": "Snapshot", "frame": "Snapshot", "ring": "Measure", "measure": "Measure", "view": "View", "reference": "Reference", "app": "Help"}
+ACTION_GROUPS = {"wounds": "Game", "score": "Game", "operative": "Snapshot", "opening": "Game", "team": "View", "map": "View", "snapshot": "Snapshot", "base": "Snapshot", "names": "Snapshot", "frame": "Snapshot", "ring": "Measure", "measure": "Measure", "view": "View", "reference": "Reference", "app": "Help"}
 RING_COLUMNS = 5
 COLORS = {"none": "#8a8a8a", "ok": "#2e9e4f", "done": "#2e9e4f", "warn": "#c98a00", "hint": "#c98a00", "error": "#d03a3a", "info": "#3d8bfd"}
 DRIFT_LEVEL = {"OK": "ok", "NO_REFERENCE": "warn", "MOVED": "warn", "CARD_MOVED": "error", "LOST": "error"}
@@ -366,7 +367,12 @@ NO_TEAM = "-"
 EYE = "\U0001F441"  # identified and confirmed
 
 
-MARK_ROLE = Qt.ItemDataRole.UserRole + 1  # text at the right edge of a team list row
+IDENT_ROLE = Qt.ItemDataRole.UserRole + 1  # identification mark in front of the name in a team list row
+WOUNDS_ROLE = Qt.ItemDataRole.UserRole + 2  # wounds at the right edge of a team list row
+SELECTED_ROLE = Qt.ItemDataRole.UserRole + 3  # True: the operative of the row is selected
+SELECTED_BACK = QColor(128, 128, 128, 90)  # background of the selected row of a team list
+MARK_PAD = 5  # px each side of the identification mark in a team list row
+ROSTER_FONT_SCALE = 1.3  # team choice and operative list of a team side
 
 
 def wounds_text(current: int | None, maximum: int | None) -> str:
@@ -374,8 +380,9 @@ def wounds_text(current: int | None, maximum: int | None) -> str:
     return "" if maximum is None else f"{current}/{maximum}"
 
 
-def roster_row(operative: dict[str, Any]) -> tuple[str, str, str]:
-    """Name, mark (wounds, then eye, percentage or `?`) and level of one operative of a team list."""
+def roster_row(operative: dict[str, Any]) -> tuple[str, str, str, str]:
+    """Name, identification mark (eye, percentage or `?`), wounds and level
+    of one operative of a team list."""
     wounds = wounds_text(operative.get("wounds"), operative.get("max_wounds"))
     if operative["base_index"] is None:
         mark, level = "?", "none"
@@ -384,49 +391,106 @@ def roster_row(operative: dict[str, Any]) -> tuple[str, str, str]:
     else:
         score = operative["score"]
         mark, level = "" if score is None else percent(score), "warn"
-    return operative["name"], f"{wounds}   {mark}" if wounds and mark else wounds or mark, level
+    return operative["name"], mark, wounds, level
+
+
+def _larger_font(widget: QWidget) -> None:
+    font = widget.font()
+    font.setPointSizeF(font.pointSizeF() * ROSTER_FONT_SCALE)
+    widget.setFont(font)
 
 
 class _MarkDelegate(QStyledItemDelegate):
-    """Draws the mark of a row at its right edge, in the colour of the row."""
+    """Draws a team list row: the identification mark in a column in front
+    of the name, the name, and the wounds at the right edge, all in the
+    colour of the row. The mark column is as wide as the widest mark of the
+    list (`marks`), with `MARK_PAD` each side."""
+
+    marks: tuple[str, ...] = ()
+
+    def mark_width(self, metrics) -> int:
+        widest = max((metrics.horizontalAdvance(m) for m in self.marks if m), default=0)
+        return widest + 2 * MARK_PAD if widest else MARK_PAD
 
     def paint(self, painter: QPainter, option: QStyleOptionViewItem, index) -> None:
-        super().paint(painter, option, index)
-        mark = index.data(MARK_ROLE)
-        if not mark:
-            return
+        opt = QStyleOptionViewItem(option)
+        self.initStyleOption(opt, index)
+        name = opt.text
+        opt.text = ""
+        widget = opt.widget
+        if index.data(SELECTED_ROLE):
+            painter.fillRect(opt.rect, SELECTED_BACK)
+        (widget.style() if widget is not None else QApplication.style()).drawControl(QStyle.ControlElement.CE_ItemViewItem, opt, painter, widget)
         painter.save()
+        painter.setFont(opt.font)
         brush = index.data(Qt.ItemDataRole.ForegroundRole)
         if brush is not None:
             painter.setPen(brush.color())
-        painter.drawText(option.rect.adjusted(0, 0, -6, 0), Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter, mark)
+        rect = opt.rect
+        mark_width = self.mark_width(opt.fontMetrics)
+        middle = Qt.AlignmentFlag.AlignVCenter
+        painter.drawText(rect.adjusted(MARK_PAD, 0, mark_width - MARK_PAD - rect.width(), 0), Qt.AlignmentFlag.AlignHCenter | middle, index.data(IDENT_ROLE) or "")
+        wounds = index.data(WOUNDS_ROLE) or ""
+        painter.drawText(rect.adjusted(0, 0, -6, 0), Qt.AlignmentFlag.AlignRight | middle, wounds)
+        name_rect = rect.adjusted(mark_width, 0, -(opt.fontMetrics.horizontalAdvance(wounds) + 12), 0)
+        painter.drawText(name_rect, Qt.AlignmentFlag.AlignLeft | middle, opt.fontMetrics.elidedText(name, Qt.TextElideMode.ElideRight, name_rect.width()))
         painter.restore()
 
 
 class _RosterList(_ActionList):
-    def __init__(self, dispatch: Callable[..., Any], parent: QWidget | None = None):
-        super().__init__(dispatch, parent)
-        self.setItemDelegate(_MarkDelegate(self))
+    """Operatives of one team. An identified operative is in the colour of
+    its side (`color`), the others grey. The selected operative has a grey
+    background. A click on any row selects that operative."""
 
-    def fill_rows(self, shown: Any, rows: list[tuple[str, str, str]]) -> None:
+    def __init__(self, dispatch: Callable[..., Any], color: str | None = None, parent: QWidget | None = None):
+        super().__init__(dispatch, parent)
+        self.color = color
+        self.operatives: list[dict[str, Any]] = []
+        self.delegate = _MarkDelegate(self)
+        self.setItemDelegate(self.delegate)
+
+    def fill_rows(self, operatives: list[dict[str, Any]], rows: list[tuple[str, str, str, str]], selected: str | None = None) -> None:
+        shown = (operatives, selected)
         if shown == self.shown:
             return
-        self.fill(shown, [(name, level) for name, _mark, level in rows])
-        for k, (_name, mark, _level) in enumerate(rows):
-            self.item(k).setData(MARK_ROLE, mark)
+        self.operatives = operatives
+        self.delegate.marks = tuple(mark for _name, mark, _wounds, _level in rows)
+        self.fill(shown, [(name, level) for name, _mark, _wounds, level in rows])
+        for k, (op, (_name, mark, wounds, _level)) in enumerate(zip(operatives, rows)):
+            item = self.item(k)
+            item.setData(IDENT_ROLE, mark)
+            item.setData(WOUNDS_ROLE, wounds)
+            item.setData(SELECTED_ROLE, selected is not None and op.get("label") == selected)
+            if self.color is not None and op["base_index"] is not None:
+                item.setForeground(QColor(self.color))
+
+    def is_selected(self, row: int) -> bool:
+        return bool(self.item(row).data(SELECTED_ROLE))
 
     def mark(self, row: int) -> str:
-        return self.item(row).data(MARK_ROLE)
+        """Identification mark of a row: eye, percentage or `?`."""
+        return self.item(row).data(IDENT_ROLE)
+
+    def wounds(self, row: int) -> str:
+        return self.item(row).data(WOUNDS_ROLE)
 
     def on_row(self, row: int) -> None:
-        index = self.shown[row]["base_index"]
-        if index is not None:
-            self.dispatch("base.select", index=index)
+        self.dispatch("operative.select", label=self.operatives[row]["label"])
+
+
+ADD_OPERATIVE = "Add operative"
+ROSTER_BUTTON = "QPushButton { padding: 3px 4px; }"
+CHOOSER_ROWS = 6  # most rows of the "Add operative" list without a scroll bar
 
 
 class TeamRoster(QWidget):
     """One side of the board: a team choice and the list of its operatives.
-    A click on an identified operative selects its base."""
+    A click on an operative selects it (its base, when it has one).
+
+    Below the list: "Add operative" opens a list of the team's operatives
+    that are not in the team list (the button is then "Cancel"); a click on
+    a name puts it at the end of the team list and closes the chooser.
+    "Remove operative" takes the selected operative out of the list."""
 
     def __init__(self, slot: int, dispatch: Callable[..., Any], parent: QWidget | None = None):
         super().__init__(parent)
@@ -435,14 +499,53 @@ class TeamRoster(QWidget):
         self.shown_choices: Any = None
         column = QVBoxLayout(self)
         column.setContentsMargins(0, 0, 0, 0)
+        column.setSpacing(3)
         self.team = QComboBox()
         self.team.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.team.view().setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.team.setToolTip("Team on this side of the board")
+        _larger_font(self.team)
         self.team.activated.connect(lambda i: self.dispatch("team.set", slot=self.slot, name=None if i == 0 else self.team.itemText(i)))
         column.addWidget(self.team)
-        self.operatives = _RosterList(dispatch)
+        self.operatives = _RosterList(dispatch, team_color(slot))
+        _larger_font(self.operatives)
         column.addWidget(self.operatives, 1)
+        self.chooser = QListWidget()  # operatives that are not in the team list
+        self.chooser.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.chooser.setSelectionMode(QListWidget.SelectionMode.NoSelection)
+        self.chooser.setToolTip("Click an operative to add it to the team list")
+        _larger_font(self.chooser)
+        self.chooser.itemClicked.connect(self._choose)
+        self.chooser.setVisible(False)
+        column.addWidget(self.chooser, 0)
+        self.missing: list[dict[str, Any]] = []
+        buttons = QHBoxLayout()
+        buttons.setContentsMargins(0, 0, 0, 0)
+        buttons.setSpacing(2)
+        self.add = QPushButton(ADD_OPERATIVE)
+        self.add.setToolTip("Add an operative of this team that is not in the list")
+        self.add.clicked.connect(self._toggle_chooser)
+        self.remove = QPushButton("Remove operative")
+        self.remove.setToolTip("Remove the selected operative from the list: identification does not use it")
+        self.remove.clicked.connect(lambda: self.dispatch("roster.remove", slot=self.slot))
+        for button in (self.add, self.remove):
+            button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+            button.setAttribute(Qt.WidgetAttribute.WA_LayoutUsesWidgetRect)  # no extra macOS layout margin around the button
+            button.setStyleSheet(ROSTER_BUTTON)  # small side padding: both labels fit in the team column
+            buttons.addWidget(button)
+        column.addLayout(buttons)
+
+    def _toggle_chooser(self) -> None:
+        self._show_chooser(not self.chooser.isVisible())
+
+    def _show_chooser(self, on: bool) -> None:
+        self.chooser.setVisible(on)
+        self.add.setText("Cancel" if on else ADD_OPERATIVE)
+
+    def _choose(self, item: QListWidgetItem) -> None:
+        label = self.missing[self.chooser.row(item)]["label"]
+        self._show_chooser(False)
+        self.dispatch("roster.add", slot=self.slot, label=label)
 
     def show_state(self, state: dict[str, Any]) -> None:
         slots = state["team_slots"]
@@ -461,7 +564,18 @@ class TeamRoster(QWidget):
             self.team.blockSignals(False)
         roster = state["rosters"][self.slot]
         rows = [] if roster is None else roster["operatives"]
-        self.operatives.fill_rows(rows, [roster_row(r) for r in rows])
+        self.operatives.fill_rows(rows, [roster_row(r) for r in rows], state.get("selected_label"))
+        missing = [] if roster is None else roster["missing"]
+        if missing != self.missing:
+            self.missing = missing
+            self.chooser.clear()
+            self.chooser.addItems([m["name"] for m in missing])
+            rows_shown = min(len(missing), CHOOSER_ROWS)  # as high as its names, up to CHOOSER_ROWS
+            self.chooser.setFixedHeight(rows_shown * max(self.chooser.sizeHintForRow(0), 1) + 2 * self.chooser.frameWidth())
+        if not missing and self.chooser.isVisible():
+            self._show_chooser(False)
+        self.add.setEnabled(bool(missing) or self.chooser.isVisible())
+        self.remove.setEnabled(any(r["label"] == state.get("selected_label") for r in rows))
 
 
 class WoundsControl(QWidget):
@@ -557,3 +671,236 @@ class OpeningControl(QWidget):
         is_open = opening is not None and opening["open"]
         self.state_label.setText(OPEN_STATE[is_open])
         self.button.setText("Close" if is_open else "Open")
+
+
+NO_TAC_OP = "(no Tac Op)"
+PRIMARY_NAMES = {"hidden": "Hidden", "crit": "Crit Op", "tac": "Tac Op", "kill": "Kill Op"}
+SHORT_NAMES = {"crit": "Crit", "tac": "Tac", "kill": "Kill"}
+SKULL_ON = "#e8c547"
+SKULL_OFF = "#5a5a5a"
+SKULL_PX = 16  # icon size of one skull
+SKULL_BUTTON = "QToolButton { border: none; padding: 1px; }"
+
+
+def skull_path(size: float) -> QPainterPath:
+    """Outline of a skull in a `size` square: round cranium, narrower jaw
+    with teeth gaps, two eye holes and a nose hole cut out."""
+    s = size
+    head = QPainterPath()
+    head.addEllipse(QRectF(0.08 * s, 0.02 * s, 0.84 * s, 0.70 * s))
+    jaw = QPainterPath()
+    jaw.addRoundedRect(QRectF(0.26 * s, 0.50 * s, 0.48 * s, 0.46 * s), 0.08 * s, 0.08 * s)
+    shape = head.united(jaw)
+    holes = QPainterPath()
+    holes.addEllipse(QRectF(0.22 * s, 0.32 * s, 0.22 * s, 0.22 * s))
+    holes.addEllipse(QRectF(0.56 * s, 0.32 * s, 0.22 * s, 0.22 * s))
+    nose = QPainterPath(QPointF(0.50 * s, 0.56 * s))
+    nose.lineTo(0.44 * s, 0.68 * s)
+    nose.lineTo(0.56 * s, 0.68 * s)
+    nose.closeSubpath()
+    holes.addPath(nose)
+    for x in (0.40, 0.50, 0.60):  # gaps between the teeth
+        holes.addRect(QRectF((x - 0.015) * s, 0.80 * s, 0.03 * s, 0.17 * s))
+    return shape.subtracted(holes)
+
+
+_skull_icons: dict[str, QIcon] = {}
+
+
+def skull_icon(color: str) -> QIcon:
+    """A filled skull icon of one colour, sharp on high-DPI screens."""
+    if color not in _skull_icons:
+        ratio = 3
+        pixmap = QPixmap(SKULL_PX * ratio, SKULL_PX * ratio)
+        pixmap.fill(Qt.GlobalColor.transparent)
+        painter = QPainter(pixmap)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        painter.fillPath(skull_path(SKULL_PX * ratio), QColor(color))
+        painter.end()
+        pixmap.setDevicePixelRatio(ratio)
+        _skull_icons[color] = QIcon(pixmap)
+    return _skull_icons[color]
+GRID_LINE = "1px solid #8a8a8a"
+
+
+def cell_border(category: str, tp: int | None) -> str:
+    """Style of a Crit or Tac cell: lines between the cells and around the
+    grid, each line drawn once. Kill has no grid."""
+    if tp is None:
+        return ""
+    sides = ["right", "bottom"]
+    if category == CATEGORIES[0]:
+        sides.append("top")
+    if tp == TURNING_POINTS[0]:
+        sides.append("left")
+    return "#cell { " + " ".join(f"border-{s}: {GRID_LINE};" for s in sides) + " }"
+
+
+def total_text(score: dict[str, Any]) -> str:
+    """`14 VP`."""
+    return f"{score['total']} VP"
+
+
+def team_color(slot: int) -> str:
+    """Qt colour (`#rrggbb`) of the team circles of one side (BGR in `live.TEAM_COLORS`)."""
+    b, g, r = TEAM_COLORS[slot]
+    return f"#{r:02x}{g:02x}{b:02x}"
+
+
+def _no_focus_combo(box: QComboBox) -> QComboBox:
+    box.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+    box.view().setFocusPolicy(Qt.FocusPolicy.NoFocus)
+    return box
+
+
+class ScoreCounter(QGroupBox):
+    """Score of one side of the board: command points with - and + on top,
+    Tac Op and Primary choices (the Primary bonus at the end of its row), a skull
+    grid (Crit and Tac per turning point 2 to 4, Kill in one cell), command
+    total in a big font, in the colour of the side's team. A click on a skull fills
+    its cell up to it; a click on the last lit skull turns it off."""
+
+    def __init__(self, slot: int, dispatch: Callable[..., Any], parent: QWidget | None = None):
+        super().__init__(parent)
+        self.slot = slot
+        self.dispatch = dispatch
+        self.shown_tac_ops: list[str] | None = None
+        column = QVBoxLayout(self)
+        column.setContentsMargins(6, 4, 6, 6)
+        column.setSpacing(4)
+
+        choices = QFormLayout()
+        choices.setContentsMargins(0, 0, 0, 0)
+        choices.setVerticalSpacing(2)
+        self.tac_op = _no_focus_combo(QComboBox())
+        self.tac_op.setToolTip("Tac Op of this side, from the archetypes of the team")
+        self.tac_op.activated.connect(lambda i: self.dispatch("score.tac_op", slot=self.slot, name=None if i == 0 else self.tac_op.itemText(i)))
+        choices.addRow("Tac Op", self.tac_op)
+        self.primary = _no_focus_combo(QComboBox())
+        self.primary.addItems([PRIMARY_NAMES[p] for p in PRIMARIES])
+        self.primary.setToolTip("Primary op: adds half of its VP, rounded up. Hidden adds nothing.")
+        self.primary.activated.connect(lambda i: self.dispatch("score.primary", slot=self.slot, value=PRIMARIES[i]))
+        self.bonus = QLabel()
+        self.bonus.setMinimumWidth(24)
+        self.bonus.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        self.bonus.setToolTip("Primary points: half of the VP of the Primary op, rounded up")
+        primary_row = QHBoxLayout()
+        primary_row.setContentsMargins(0, 0, 0, 0)
+        primary_row.addWidget(self.primary, 1)
+        primary_row.addWidget(self.bonus, 0)
+        choices.addRow("Primary", primary_row)
+        column.addLayout(choices)
+
+        grid = QGridLayout()
+        grid.setContentsMargins(0, 0, 0, 0)
+        grid.setHorizontalSpacing(0)
+        grid.setVerticalSpacing(0)
+        for k, tp in enumerate(TURNING_POINTS, start=1):
+            grid.addWidget(QLabel(f"TP{tp}"), 0, k, Qt.AlignmentFlag.AlignHCenter)
+        vp = QLabel("VP")
+        vp.setContentsMargins(4, 0, 0, 0)
+        grid.addWidget(vp, 0, len(TURNING_POINTS) + 1, Qt.AlignmentFlag.AlignRight)
+        self.skulls: dict[tuple[str, int | None], list[QToolButton]] = {}
+        self.points: dict[str, QLabel] = {}
+        for row, category in enumerate(CATEGORIES, start=1):
+            name = QLabel(SHORT_NAMES[category])
+            name.setToolTip(CATEGORY_NAMES[category])
+            name.setContentsMargins(0, 0, 4, 0)
+            grid.addWidget(name, row, 0)
+            if category == "kill":
+                grid.addWidget(self._cell(category, None, CATEGORY_MAX), row, 1, 1, len(TURNING_POINTS), Qt.AlignmentFlag.AlignHCenter)
+            else:
+                for k, tp in enumerate(TURNING_POINTS, start=1):
+                    grid.addWidget(self._cell(category, tp, SKULLS_PER_TP), row, k)
+            self.points[category] = QLabel("0")
+            grid.addWidget(self.points[category], row, len(TURNING_POINTS) + 1, Qt.AlignmentFlag.AlignRight)
+        column.addLayout(grid)
+
+        cp_row = QHBoxLayout()
+        cp_row.setContentsMargins(0, 0, 0, 0)
+        self.cp_minus = QPushButton("-")
+        self.cp_plus = QPushButton("+")
+        self.cp = QLabel()
+        self.cp.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        font = self.cp.font()
+        font.setBold(True)
+        font.setPointSizeF(font.pointSizeF() * 1.6)
+        self.cp.setFont(font)
+        self.cp.setMinimumWidth(32)
+        for button, delta in ((self.cp_minus, -1), (self.cp_plus, 1)):
+            button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+            button.setFixedWidth(32)
+            button.clicked.connect(lambda _checked=False, d=delta: self.dispatch("score.cp", slot=self.slot, delta=d))
+        cp_row.addStretch(1)
+        for widget in (self.cp_minus, self.cp, self.cp_plus):
+            cp_row.addWidget(widget)
+        cp_row.addStretch(1)  # centred in the field column of Tac Op and Primary
+        cp_label = QLabel("CP")
+        cp_label.setToolTip("Command points")
+        label_font = cp_label.font()
+        label_font.setPointSizeF(font.pointSizeF())  # same size as the value
+        cp_label.setFont(label_font)
+        choices.insertRow(0, cp_label, cp_row)  # on top
+
+        self.total = QLabel()
+        font = self.total.font()
+        font.setBold(True)
+        font.setPointSizeF(font.pointSizeF() * 2.2)
+        self.total.setFont(font)
+        self.total.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.total.setToolTip("Crit + Tac + Kill + Primary")
+        self.total.setStyleSheet(f"color: {team_color(slot)}")
+        column.addWidget(self.total)
+
+    def _cell(self, category: str, tp: int | None, count: int) -> QWidget:
+        cell = QWidget()
+        cell.setObjectName("cell")
+        cell.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)  # draw the border
+        cell.setStyleSheet(cell_border(category, tp))
+        row = QHBoxLayout(cell)
+        row.setContentsMargins(2, 0, 2, 0)
+        row.setSpacing(0)
+        row.addStretch(1)
+        buttons = []
+        for skull in range(1, count + 1):
+            button = QToolButton()
+            button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+            button.setStyleSheet(SKULL_BUTTON)
+            button.setIconSize(QSize(SKULL_PX, SKULL_PX))
+            button.setIcon(skull_icon(SKULL_OFF))
+            button.setProperty("lit", False)
+            button.clicked.connect(lambda _checked=False, s=skull: self.dispatch("score.skull", slot=self.slot, category=category, tp=tp, skull=s))
+            row.addWidget(button)
+            buttons.append(button)
+        row.addStretch(1)
+        self.skulls[(category, tp)] = buttons
+        return cell
+
+    def lit(self, category: str, tp: int | None) -> int:
+        """Number of lit skulls of a cell (for tests)."""
+        return sum(bool(b.property("lit")) for b in self.skulls[(category, tp)])
+
+    def show_state(self, state: dict[str, Any]) -> None:
+        score = state["scores"][self.slot]
+        for (category, tp), buttons in self.skulls.items():
+            value = score["cells"][category][0 if tp is None else TURNING_POINTS.index(tp)]
+            for k, button in enumerate(buttons, start=1):
+                lit = k <= value
+                if bool(button.property("lit")) != lit:
+                    button.setProperty("lit", lit)
+                    button.setIcon(skull_icon(SKULL_ON if lit else SKULL_OFF))
+        for category, label in self.points.items():
+            label.setText(str(score["points"][category]))
+        if score["tac_ops"] != self.shown_tac_ops:
+            self.shown_tac_ops = list(score["tac_ops"])
+            self.tac_op.blockSignals(True)
+            self.tac_op.clear()
+            self.tac_op.addItems([NO_TAC_OP, *self.shown_tac_ops])
+            self.tac_op.blockSignals(False)
+        self.tac_op.setEnabled(bool(score["tac_ops"]))
+        self.tac_op.setCurrentIndex(max(0, self.tac_op.findText(score["tac_op"])) if score["tac_op"] is not None else 0)
+        self.primary.setCurrentIndex(PRIMARIES.index(score["primary"]))
+        self.cp.setText(str(score["cp"]))
+        self.cp_minus.setEnabled(score["cp"] > 0)
+        self.bonus.setText(f"+{score['primary_bonus']}")
+        self.total.setText(total_text(score))

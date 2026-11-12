@@ -1,0 +1,13 @@
+# Kill Team Approved Ops 2025 card pack: Tac Ops of each archetype.
+# Archetype names match `archetype` in data/teams/<team>/team.toml.
+# Source: Goonhammer review of the pack (https://www.tabletopbattles.com/goonhammer-reviews-kill-team-approved-ops-2025),
+# written from a preview copy. Check the names against the printed cards.
+
+[tac_ops]
+"Recon" = ["Flank", "Retrieval", "Scout Enemy Movement"]
+"Security" = ["Envoy", "Plant Banner", "Martyrs"]
+"Seek and Destroy" = ["Rout", "Sweep and Clear", "Dominate"]
+"Infiltration" = ["Track Enemy", "Plant Devices", "Steal Intelligence"]
+
+[crit_ops]
+names = ["Secure", "Loot", "Transmission", "Orb", "Stake Claim", "Energy Cells", "Download", "Data", "Reboot"]

@@ -3,11 +3,12 @@
 The control bar has separate sections: View, Commands, Inspector, Reference
 and Debug. The inspector shows the selected operative (name, crop, wounds,
 ring slider, name fix, remove a false base) or the selected hatchway or breach point (open or
-closed). While "Add operative" waits for a click, it shows what to click and
+closed). While "Locate operative" waits for a click, it shows what to click and
 the board under the pointer; the base that this finds opens with its name
 list. While the name list is open, it takes the place of the wounds, ring
 and distance. Each team list shows the operatives of one team, their wounds and
-how they are identified. The name fix
+how they are identified; below it, the score counter of that side (VP
+skulls, Tac Op, Primary, CP and the total). The name fix
 is a list in the inspector, so the shell popup is off here.
 """
 
@@ -19,7 +20,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QAbstractButton, QComboBox, QGridLayout, QGroupBox, QHBoxLayout, QLabel, QPushButton, QStackedWidget, QToolButton, QVBoxLayout, QWidget
 
 from ...live import ACTIONS, Action
-from ..parts import COLORS, CandidateList, MapPicker, OpeningControl, RingSlider, TeamRoster, VideoWidget, WoundsControl, action_control, distance_label, show_action_state
+from ..parts import COLORS, CandidateList, MapPicker, OpeningControl, RingSlider, ScoreCounter, TeamRoster, VideoWidget, WoundsControl, action_control, distance_label, show_action_state
 
 if TYPE_CHECKING:
     from . import Shell
@@ -47,6 +48,16 @@ def operative_title(state: dict[str, Any]) -> str:
     return f"Unknown operative {size}" if state["naming"] else f"Base {size}"
 
 
+def roster_operative_title(state: dict[str, Any]) -> str:
+    """`Team - Operative (40mm)` of the operative selected in a team list
+    without a base; no size when the team file has none."""
+    label = state["selected_operative"]
+    team, _, name = label.partition("/")
+    row = next((r for roster in state["rosters"] if roster is not None for r in roster["operatives"] if r["label"] == label), None)
+    size = None if row is None else row["base_mm"]
+    return f"{team} - {name}" + ("" if size is None else f" ({size:g}mm)")
+
+
 ADD_HINT = "Click the centre of the base of the operative that was not identified. Push Esc to cancel."
 MEASURE_HINT = "Right click a second base to measure to."
 
@@ -56,6 +67,8 @@ def inspector_page(state: dict[str, Any]) -> str:
         return "adding"
     if state["selected"] is not None:
         return "operative"
+    if state["selected_operative"] is not None:
+        return "roster_operative"
     return "opening" if state["selected_opening"] is not None else "empty"
 
 
@@ -84,12 +97,21 @@ class RostersLayout:
         column.addWidget(self._top_bar(debug_open), 0)
         row = QHBoxLayout()
         self.rosters = [TeamRoster(slot, shell.dispatch) for slot in (0, 1)]
-        for roster in self.rosters:
-            roster.setFixedWidth(ROSTER_WIDTH)
+        self.counters = [ScoreCounter(slot, shell.dispatch) for slot in (0, 1)]
+        sides = []
+        for roster, counter in zip(self.rosters, self.counters):
+            side = QWidget()
+            side.setFixedWidth(ROSTER_WIDTH)
+            side_column = QVBoxLayout(side)
+            side_column.setContentsMargins(0, 0, 0, 0)
+            side_column.setSpacing(3)  # little room between the team list buttons and the counter
+            side_column.addWidget(roster, 1)
+            side_column.addWidget(counter, 0)  # below the team list
+            sides.append(side)
         self.video: VideoWidget = shell.new_video()
-        row.addWidget(self.rosters[0], 0)
+        row.addWidget(sides[0], 0)
         row.addWidget(self.video, 1)
-        row.addWidget(self.rosters[1], 0)
+        row.addWidget(sides[1], 0)
         column.addLayout(row, 1)
         shell.show_debug(debug_open)
         return root
@@ -205,7 +227,7 @@ class RostersLayout:
         header.addWidget(self.close, 0, Qt.AlignmentFlag.AlignTop)
         column.addLayout(header)
         self.stack = QStackedWidget()
-        for name, make in (("empty", self._empty_page), ("adding", self._adding_page), ("operative", self._operative_page), ("opening", self._opening_page)):
+        for name, make in (("empty", self._empty_page), ("adding", self._adding_page), ("operative", self._operative_page), ("roster_operative", self._roster_operative_page), ("opening", self._opening_page)):
             self.pages[name] = page = QWidget()
             make(page)
             self.stack.addWidget(page)
@@ -266,6 +288,14 @@ class RostersLayout:
         self.candidates.setVisible(on)
         self.game.setVisible(not on)
 
+    def _roster_operative_page(self, page: QWidget) -> None:
+        """An operative selected in a team list that has no base: only its wounds."""
+        column = QVBoxLayout(page)
+        column.setContentsMargins(0, 0, 0, 0)
+        self.roster_wounds = WoundsControl(self.shell.dispatch)
+        column.addWidget(self.roster_wounds)
+        column.addStretch(1)
+
     def _opening_page(self, page: QWidget) -> None:
         column = QVBoxLayout(page)
         self.opening = OpeningControl(self.shell.dispatch)
@@ -283,13 +313,15 @@ class RostersLayout:
         self.reference_label.setText(f"Reference: {'set' if state['reference_set'] else 'not set'}")
         for roster in self.rosters:
             roster.show_state(state)
+        for counter in self.counters:
+            counter.show_state(state)
         self.video.set_badge(*MODE_BADGE[shown_mode(state)])
         self._show_inspector(state)
 
     def _show_inspector(self, state: dict[str, Any]) -> None:
         page = inspector_page(state)
         self.stack.setCurrentWidget(self.pages[page])
-        self.close.setVisible(page in ("operative", "opening"))
+        self.close.setVisible(page in ("operative", "roster_operative", "opening"))
         self.change.setVisible(page == "operative")
         self.remove.setVisible(page == "operative")
         if state["selected"] != self.fix_for:  # a new base starts with the name list closed
@@ -298,8 +330,11 @@ class RostersLayout:
         if page == "empty":
             self.title.setText("Nothing selected")
         elif page == "adding":
-            self.title.setText("Add operative")
+            self.title.setText("Locate operative")
             self.aim_crop.set_image(self.shell.selected_crop())
+        elif page == "roster_operative":
+            self.title.setText(roster_operative_title(state))
+            self.roster_wounds.show_state(state)
         elif page == "opening":
             self.title.setText(OPENING_NAMES.get(state["selected_opening"]["kind"], state["selected_opening"]["kind"]))
             self.opening.show_state(state)

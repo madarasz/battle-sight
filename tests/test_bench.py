@@ -585,7 +585,7 @@ def test_annotate_load_operatives(tmp_path):
     (team / "Folder only").mkdir(parents=True)
     idt.save_team_file(team, "T", {"Listed": 32.0})
     ops = tool.load_operatives(["T"], tmp_path)
-    assert [(op.label, op.base_mm) for op in ops] == [("T/Folder only", None), ("T/Listed", 32.0)]
+    assert [(op.label, op.base_mm) for op in ops] == [("T/Listed", 32.0), ("T/Folder only", None)]  # file order, then folders
     with pytest.raises(ValueError, match="Nope"):
         tool.load_operatives(["Nope"], tmp_path)
 

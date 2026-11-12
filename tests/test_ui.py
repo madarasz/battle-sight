@@ -1028,9 +1028,9 @@ def test_scores_are_percentages():
 
     assert candidate_text({"label": "orks/Nob", "score": 0.781}) == "orks/Nob   78%"
     row = {"name": "Nob", "base_index": None, "score": None, "confirmed": False}
-    assert roster_row(row) == ("Nob", "?", "none")
-    assert roster_row(dict(row, base_index=1, score=0.78)) == ("Nob", "78%", "warn")
-    name, mark, level = roster_row(dict(row, base_index=1, score=0.78, confirmed=True))
+    assert roster_row(row) == ("Nob", "?", "", "none")
+    assert roster_row(dict(row, base_index=1, score=0.78)) == ("Nob", "78%", "", "warn")
+    name, mark, _wounds, level = roster_row(dict(row, base_index=1, score=0.78, confirmed=True))
     assert name == "Nob" and mark not in ("", "?") and "%" not in mark and level == "ok"
 
 
@@ -1042,7 +1042,7 @@ def test_rosters_shows_mode_badge_team_list_and_commands(idle_rosters, recorded)
     assert not layout.accept.isVisibleTo(idle_rosters) and layout.add_operative.isEnabled()  # also before space
     left, right = layout.rosters
     assert left.team.currentText() == "orks" and right.team.currentText() == "-"
-    assert [left.operatives.item(i).text() for i in range(3)] == ["Burna", "Grot", "Nob"]
+    assert [left.operatives.item(i).text() for i in range(3)] == ["Nob", "Grot", "Burna"]  # team.toml order
     assert [left.operatives.mark(i) for i in range(3)] == ["?", "?", "?"]
     assert right.team.model().item(1).isEnabled() is False  # orks is on the left side
     assert left.team.model().item(1).isEnabled() is True
@@ -1119,7 +1119,7 @@ def test_rosters_add_operative_shows_the_instruction_and_then_the_name_list(idle
     aim = np.full((80, 80, 3), 128, np.uint8)
     idle_rosters._on_frame(replace(snap, state=dict(snap.state, adding=True), crop=aim), 0)
     assert not layout.add_operative.isEnabled() and layout.stack.currentWidget() is layout.pages["adding"]
-    assert layout.title.text() == "Add operative" and layout.aim_crop._image is not None
+    assert layout.title.text() == "Locate operative" and layout.aim_crop._image is not None
     # The found base is selected and its name list is open at once.
     state = dict(frames["base selected"].state, new_base=frames["base selected"].state["selected"])
     idle_rosters._on_frame(replace(frames["base selected"], state=state), 0)
@@ -1215,9 +1215,9 @@ def test_roster_row_shows_the_wounds():
 
     row = {"name": "Nob", "base_index": None, "score": None, "confirmed": False, "wounds": 7, "max_wounds": 12}
     assert wounds_text(7, 12) == "7/12" and wounds_text(None, None) == ""
-    assert roster_row(row) == ("Nob", "7/12   ?", "none")
-    assert roster_row(dict(row, base_index=1, score=0.78)) == ("Nob", "7/12   78%", "warn")
-    assert roster_row(dict(row, wounds=None, max_wounds=None)) == ("Nob", "?", "none")
+    assert roster_row(row) == ("Nob", "?", "7/12", "none")
+    assert roster_row(dict(row, base_index=1, score=0.78)) == ("Nob", "78%", "7/12", "warn")
+    assert roster_row(dict(row, wounds=None, max_wounds=None)) == ("Nob", "?", "", "none")
 
 
 @pytest.fixture
@@ -1239,7 +1239,7 @@ def test_rosters_wounds_control_and_team_list(wounded_rosters):
     left = layout.rosters[0]
     rows = win.state["rosters"][0]["operatives"]
     nob = next(k for k, r in enumerate(rows) if r["name"] == "Nob")
-    wait_until(lambda: left.operatives.mark(nob).startswith("5/5"))
+    wait_until(lambda: left.operatives.wounds(nob) == "5/5")
     row_click(left.operatives, nob)
     wounds = layout.wounds
     wait_until(lambda: wounds.isVisibleTo(win) and wounds.controls.isVisibleTo(win) and wounds.value.value() == 5)
@@ -1248,7 +1248,7 @@ def test_rosters_wounds_control_and_team_list(wounded_rosters):
     wait_until(lambda: win.state["selected_wounds"]["current"] == 4 and wounds.value.value() == 4)
     wounds.value.setValue(2)
     wounds.value.editingFinished.emit()
-    wait_until(lambda: win.state["selected_wounds"]["current"] == 2 and left.operatives.mark(nob).startswith("2/5"))
+    wait_until(lambda: win.state["selected_wounds"]["current"] == 2 and left.operatives.wounds(nob) == "2/5")
     press(win, "wounds.plus")
     wait_until(lambda: win.state["selected_wounds"]["current"] == 3)
     grot = next(k for k, r in enumerate(rows) if r["name"] == "Grot")
@@ -1280,3 +1280,130 @@ def test_rosters_opening_button_opens_and_closes(qapp, tmp_path, named_setup):
         wait_until(lambda: not win.state["openings"][0]["open"])
     finally:
         win.close()
+
+
+# --- score counter ------------------------------------------------------------------
+
+
+def test_team_list_mark_column_fits_the_widest_mark(qapp):
+    from PySide6.QtGui import QFontMetrics
+
+    from battlesight.ui.parts import MARK_PAD, _RosterList
+
+    rows = _RosterList(lambda *a, **k: None)
+    metrics = QFontMetrics(rows.font())
+    rows.fill_rows([{}, {}], [("Nob", "?", "", "none"), ("Grot", "?", "", "none")])
+    narrow = rows.delegate.mark_width(metrics)
+    assert narrow == metrics.horizontalAdvance("?") + 2 * MARK_PAD
+    rows.fill_rows([{}, {"x": 1}], [("Nob", "?", "", "none"), ("Grot", "78%", "", "warn")])
+    assert rows.delegate.mark_width(metrics) == metrics.horizontalAdvance("78%") + 2 * MARK_PAD > narrow
+    rows.fill_rows([], [])
+    assert rows.delegate.mark_width(metrics) == MARK_PAD
+
+
+def test_score_grid_lines_are_drawn_once():
+    from battlesight.ui.parts import cell_border
+
+    assert cell_border("kill", None) == ""
+    assert all(s in cell_border("crit", 2) for s in ("left", "top", "right", "bottom"))
+    tac3 = cell_border("tac", 3)
+    assert "left" not in tac3 and "top" not in tac3 and "right" in tac3 and "bottom" in tac3
+
+
+def test_total_text_and_team_color():
+    from battlesight.ui.parts import team_color, total_text
+
+    assert total_text({"total": 15, "primary_bonus": 3}) == "15 VP"
+    assert team_color(0) == "#e63c3c" and team_color(1) == "#2878e6"  # RED, BLUE of the overlay
+
+
+def test_rosters_score_counter(qapp, tmp_path, named_setup):
+    from battlesight import ident as idt
+    from battlesight import score as sc
+
+    cfg, frame = named_setup
+    team = tmp_path / "gallery" / "orks"
+    idt.save_team_file(team, "orks", idt.load_team_file(team), None, idt.TeamInfo(("Recon",)))
+    win = started_window(tmp_path, cfg, frame, "rosters")
+    try:
+        left, right = win.current_layout.counters
+        assert left.isVisibleTo(win) and right.isVisibleTo(win)
+        wait_until(lambda: left.total.text() == "0 VP" and left.cp.text() == "3")
+        assert [left.tac_op.itemText(i) for i in range(1, left.tac_op.count())] == list(sc.TAC_OPS["Recon"])
+        assert not right.tac_op.isEnabled()  # no team on the right
+        left.skulls[("crit", 3)][1].click()
+        wait_until(lambda: win.state["scores"][0]["cells"]["crit"] == [0, 2, 0] and left.lit("crit", 3) == 2)
+        left.skulls[("crit", 3)][1].click()  # the last lit skull turns off
+        wait_until(lambda: left.lit("crit", 3) == 1 and left.points["crit"].text() == "1")
+        assert len(left.skulls[("kill", None)]) == 6
+        left.skulls[("kill", None)][4].click()
+        wait_until(lambda: left.total.text() == "6 VP")
+        left.primary.activated.emit(sc.PRIMARIES.index("kill"))
+        wait_until(lambda: left.total.text() == "9 VP" and left.bonus.text() == "+3")
+        assert right.bonus.text() == "+0" and "#e63c3c" in left.total.styleSheet() and not left.title()
+        left.tac_op.activated.emit(2)
+        wait_until(lambda: win.state["scores"][0]["tac_op"] == sc.TAC_OPS["Recon"][1])
+        left.cp_minus.click()
+        right.cp_plus.click()
+        wait_until(lambda: left.cp.text() == "2" and right.cp.text() == "4")
+        assert right.total.text() == "0 VP"
+    finally:
+        win.close()
+
+
+def test_rosters_select_an_operative_from_the_team_list(qapp, tmp_path, named_setup):
+    from battlesight import ident as idt
+    from battlesight.ui.parts import COLORS, team_color
+
+    cfg, frame = named_setup
+    team = tmp_path / "gallery" / "orks"
+    idt.save_team_file(team, "orks", idt.load_team_file(team), {"Nob": 5})
+    win = started_window(tmp_path, cfg, frame, "rosters")
+    try:
+        layout = win.current_layout
+        left = layout.rosters[0].operatives
+        wait_until(lambda: left.count() == 3)
+        nob = next(k for k, r in enumerate(win.state["rosters"][0]["operatives"]) if r["name"] == "Nob")
+        assert left.item(nob).foreground().color().name() == COLORS["none"]  # not identified: grey
+        row_click(left, nob)  # no base: name and wounds only
+        wait_until(lambda: layout.stack.currentWidget() is layout.pages["roster_operative"])
+        assert layout.title.text().startswith("orks - Nob (") and layout.title.text().endswith("mm)")
+        assert layout.close.isVisibleTo(win) and not layout.change.isVisibleTo(win) and not layout.remove.isVisibleTo(win)
+        wait_until(lambda: left.is_selected(nob) and layout.roster_wounds.value.value() == 5)
+        assert sum(left.is_selected(k) for k in range(3)) == 1
+        layout.roster_wounds.minus.click()
+        wait_until(lambda: left.wounds(nob) == "4/5")
+        layout.close.click()
+        wait_until(lambda: layout.stack.currentWidget() is layout.pages["empty"] and not left.is_selected(nob))
+
+        open_names(win)
+        wait_until(lambda: left.mark(nob).endswith("%"))
+        assert left.item(nob).foreground().color().name() == team_color(0)  # identified: team colour
+        row_click(left, nob)
+        wait_until(lambda: layout.stack.currentWidget() is layout.pages["operative"] and left.is_selected(nob))
+    finally:
+        win.close()
+
+
+def test_rosters_add_and_remove_operative_buttons(rosters):
+    win = rosters
+    left = win.current_layout.rosters[0]
+    wait_until(lambda: left.operatives.count() == 3)
+    assert not left.add.isEnabled() and not left.remove.isEnabled() and not left.chooser.isVisibleTo(win)
+    row_click(left.operatives, 0)  # Nob
+    wait_until(lambda: left.remove.isEnabled())
+    left.remove.click()
+    wait_until(lambda: left.operatives.count() == 2 and left.add.isEnabled())
+    assert not left.remove.isEnabled()  # the selection went with the operative
+    left.add.click()
+    assert left.chooser.isVisibleTo(win) and left.add.text() == "Cancel" and left.chooser.item(0).text() == "Nob"
+    left.add.click()  # Cancel
+    assert not left.chooser.isVisibleTo(win) and left.add.text() == "Add operative"
+    left.add.click()
+    left.chooser.itemClicked.emit(left.chooser.item(0))
+    assert not left.chooser.isVisibleTo(win) and left.add.text() == "Add operative"
+    wait_until(lambda: left.operatives.count() == 3 and left.operatives.item(2).text() == "Nob" and not left.add.isEnabled())
+
+
+def test_rosters_commands_has_locate_operative(rosters):
+    assert rosters.current_layout.add_operative.text() == "Locate operative"

@@ -1,7 +1,7 @@
 """Battle Sight: augmented reality overlay for Kill Team.
 
     battlesight [--team A [B]] [--source S | --image-source FILE] [--reference FILE]   live app
-    battlesight enroll --team NAME --operative NAME [--base-mm 32] [--wounds 15] [--images PATH...]
+    battlesight enroll --team NAME --operative NAME [--base-mm 32] [--wounds 15] [--archetype ARCH ...] [--faction-counter TEXT] [--non-expendable N|N-M] [--images PATH...]
     battlesight gallery --team A [B]
     battlesight calibrate [--source S | --images PATH...]
     battlesight image-pipeline PATH... [--reference FILE] [--team A [B]] [--out DIR] [--json FILE|-] [--show]
@@ -243,6 +243,12 @@ def cmd_enroll(args: argparse.Namespace) -> int:
         if args.base_mm is not None and args.base_mm not in cfg.bases_diameters_mm:
             raise ValueError(f"--base-mm {args.base_mm:g} is not in [bases] diameters_mm {list(cfg.bases_diameters_mm)}")
         op = gallery.ensure_operative(team, name, args.base_mm, args.wounds)
+        if args.archetype is not None or args.faction_counter is not None or args.non_expendable is not None:
+            count = args.non_expendable
+            count = int(count) if count is not None and count.strip().isdigit() else count
+            info = gallery.set_team_info(team, args.archetype, args.faction_counter, count)
+            ne = "-" if info.non_expendable is None else "-".join(dict.fromkeys(map(str, info.non_expendable)))
+            print(f"{team}: archetype {', '.join(info.archetypes) or '-'}, faction-counter {info.faction_counter or '-'}, non-expendable-operative-count {ne} saved in {idt.TEAM_FILE}")
     except ValueError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
@@ -697,6 +703,9 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--operative", required=True, help="operative name, for example \"Boss Nob\"")
     p.add_argument("--base-mm", type=float, default=None, help="base diameter; only bases of this size are taken (default: from team.toml, else the found base)")
     p.add_argument("--wounds", type=int, default=None, metavar="W", help="maximum wounds of the operative; sets or replaces the value in team.toml at the start")
+    p.add_argument("--archetype", nargs="+", choices=idt.ARCHETYPES, default=None, metavar="ARCH", help=f"archetypes of the team ({', '.join(idt.ARCHETYPES)}); replaces the value in team.toml")
+    p.add_argument("--non-expendable", default=None, metavar="N|N-M", help="count of non-expendable operatives of the team, a number or a range like 4-6; replaces the value in team.toml, an empty text clears it")
+    p.add_argument("--faction-counter", default=None, metavar="TEXT", help="faction counter of the team; replaces the value in team.toml, an empty text clears it")
     p.add_argument("--images", nargs="+", default=None, help="take the crops from image files or folders (one base each) instead of the camera")
     p.add_argument("--reference", default=None, metavar="FILE", help="empty-board photo for the bases stage")
     p.set_defaults(func=cmd_enroll)

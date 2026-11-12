@@ -495,7 +495,7 @@ def detect_bases(
     return (found[: cfg.bases_relaxed_max_found] if relaxed else found), fg
 
 
-ADD_RADIUS_MM = 20.0  # "Add operative": a base centre must lie this near to the click
+ADD_RADIUS_MM = 20.0  # "Locate operative": a base centre must lie this near to the click
 
 
 def find_base_near(

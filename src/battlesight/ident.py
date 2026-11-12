@@ -342,6 +342,78 @@ def check_wounds(value, where: str) -> int:
     return value
 
 
+APPROVED_OPS_FILE = Path(__file__).resolve().parents[2] / "data" / "approved-ops-2025.toml"
+
+
+def load_archetypes(path: Path = APPROVED_OPS_FILE) -> tuple[str, ...]:
+    """Archetype names: the keys of `[tac_ops]` in the approved ops file."""
+    with path.open("rb") as fh:
+        return tuple(tomllib.load(fh)["tac_ops"])
+
+
+ARCHETYPES = load_archetypes()
+
+
+@dataclass
+class TeamInfo:
+    """Team-level values of `team.toml`: killteam archetypes (a team has one
+    or more), an optional faction counter text and an optional count of
+    non-expendable operatives (a number, or a range)."""
+
+    archetypes: tuple[str, ...] = ()
+    faction_counter: str | None = None
+    non_expendable: tuple[int, int] | None = None  # (min, max) count of non-expendable operatives
+
+
+def check_archetypes(values, where: str) -> tuple[str, ...]:
+    """Archetypes: names from ARCHETYPES, no repeats. Else a ValueError."""
+    if isinstance(values, str) or not isinstance(values, (list, tuple)):
+        raise ValueError(f"{where}: archetype must be a list of {list(ARCHETYPES)}, not {values!r}")
+    for v in values:
+        if v not in ARCHETYPES:
+            raise ValueError(f"{where}: archetype {v!r} is not one of {list(ARCHETYPES)}")
+    if len(set(values)) != len(values):
+        raise ValueError(f"{where}: archetype has a repeated value: {list(values)}")
+    return tuple(values)
+
+
+def parse_count_range(value, where: str) -> tuple[int, int]:
+    """A whole number of 1 or more (5) or a range ("4-6" or "4..6"): (min, max).
+    Else a ValueError."""
+    if isinstance(value, bool):
+        raise ValueError(f"{where}: count must be a whole number or a range, not {value!r}")
+    if isinstance(value, int):
+        lo = hi = value
+    elif isinstance(value, str) and (m := re.fullmatch(r"\s*(\d+)\s*(?:-|\.\.)?\s*(\d+)?\s*", value)) and not (
+        m.group(2) is None and re.search(r"-|\.\.", value)
+    ):
+        lo, hi = int(m.group(1)), int(m.group(2) or m.group(1))
+    else:
+        raise ValueError(f"{where}: count must be a whole number or a range like 4-6, not {value!r}")
+    if lo < 1 or hi < lo:
+        raise ValueError(f"{where}: count must be 1 or more and the range must go up, not {value!r}")
+    return lo, hi
+
+
+def read_team_info(team_dir: Path) -> TeamInfo:
+    """`archetype` and `faction-counter` of `team.toml` (empty when missing).
+    A bad value is a ValueError."""
+    path = team_dir / TEAM_FILE
+    if not path.exists():
+        return TeamInfo()
+    with path.open("rb") as fh:
+        raw = tomllib.load(fh)
+    counter = raw.get("faction-counter")
+    if counter is not None and not isinstance(counter, str):
+        raise ValueError(f"{path}: faction-counter must be a string, not {counter!r}")
+    count = raw.get("non-expendable-operative-count")
+    return TeamInfo(
+        check_archetypes(raw.get("archetype", []), str(path)),
+        counter or None,
+        None if count is None else parse_count_range(count, f"{path} non-expendable-operative-count"),
+    )
+
+
 def read_team_file(team_dir: Path) -> dict[str, tuple[float | None, int | None]]:
     """{operative name: (base diameter in mm, maximum wounds)} from
     `team.toml`, None for a value that is not there. A bad wounds value is a
@@ -365,13 +437,15 @@ def load_team_file(team_dir: Path) -> dict[str, float | None]:
 
 
 def team_operatives(team: str, team_dir: Path) -> list[Operative]:
-    """Operatives of a team, sorted: `team.toml` entries and operative
-    folders. Needs no photos and no model."""
+    """Operatives of a team: the `team.toml` entries in file order, then the
+    operative folders that the file does not list, sorted. Needs no photos
+    and no model."""
     listed = read_team_file(team_dir)
-    names = set(listed)
+    folders: set[str] = set()
     if team_dir.is_dir():
-        names |= {q.name for q in team_dir.iterdir() if q.is_dir() and not q.name.startswith(".")}
-    return [Operative(team, name, *listed.get(name, (None, None))) for name in sorted(names)]
+        folders = {q.name for q in team_dir.iterdir() if q.is_dir() and not q.name.startswith(".")}
+    names = [*listed, *sorted(folders - set(listed))]
+    return [Operative(team, name, *listed.get(name, (None, None))) for name in names]
 
 
 def roster_sizes(root: str | Path, teams: Iterable[str]) -> tuple[float, ...] | None:
@@ -384,17 +458,40 @@ def roster_sizes(root: str | Path, teams: Iterable[str]) -> tuple[float, ...] | 
     return tuple(sorted(set(sizes)))  # type: ignore[arg-type]
 
 
-def save_team_file(team_dir: Path, team: str, operatives: dict[str, float | None], wounds: dict[str, int | None] | None = None) -> None:
-    """Write `team.toml`: base size and maximum wounds of each operative."""
+def save_team_file(
+    team_dir: Path,
+    team: str,
+    operatives: dict[str, float | None],
+    wounds: dict[str, int | None] | None = None,
+    info: TeamInfo | None = None,
+) -> None:
+    """Write `team.toml`: team values, then base size and maximum wounds of
+    each operative, in the order of `operatives` (the order of the team
+    lists in the live app). Without `info` the team values of the existing
+    file stay."""
     wounds = wounds or {}
+    if info is None:
+        info = read_team_info(team_dir)
     lines = [
         f"# Battle Sight gallery of team {team!r}. One table per operative.",
+        f"# archetype: killteam archetypes, one or more of {', '.join(ARCHETYPES)}.",
+        "# faction-counter: optional text (a string).",
+        "# non-expendable-operative-count: a whole number (5) or a range as text (\"4-6\").",
         "# base_mm: base diameter (one of [bases] diameters_mm). Only bases of this size can get this name.",
         "# wounds: maximum wounds (W) of the operative, for the health bar of the live app.",
         "# Photos: one folder per operative next to this file, written by `battlesight enroll` and by fixes.",
         "",
     ]
-    for name in sorted(operatives):
+    if info.archetypes:
+        lines.append(f"archetype = {json.dumps(list(info.archetypes))}")
+    if info.faction_counter:
+        lines.append(f"faction-counter = {json.dumps(info.faction_counter)}")
+    if info.non_expendable is not None:
+        lo, hi = info.non_expendable
+        lines.append(f"non-expendable-operative-count = {lo}" if lo == hi else f'non-expendable-operative-count = "{lo}-{hi}"')
+    if info.archetypes or info.faction_counter or info.non_expendable is not None:
+        lines.append("")
+    for name in operatives:
         lines.append(f"[operatives.{json.dumps(name)}]")
         if operatives[name] is not None:
             lines.append(f"base_mm = {operatives[name]:g}")
@@ -421,6 +518,7 @@ class Gallery:
         if len(self.team_dirs) == 0:
             raise ValueError("a gallery needs at least one team folder")
         self.operatives: list[Operative] = []
+        self.team_info: dict[str, TeamInfo] = {}
         self.files: list[Path] = []
         self.file_op: list[int] = []
         self.view_emb = np.zeros((0, 0), np.float32)
@@ -430,6 +528,7 @@ class Gallery:
         self.masked_op = np.zeros(0, int)
         self.masked_file = np.zeros(0, int)
         self.hidden: set[int] = set()  # file indexes that `scores` must not use (the benchmark hides copies of a test photo)
+        self.out_of_play: set[str] = set()  # labels that no base can get (removed from a team list of the live app)
         self.reload()
 
     @classmethod
@@ -486,7 +585,28 @@ class Gallery:
 
     def _save_team(self, team: str) -> None:
         ops = [op for op in self.operatives if op.team == team]
-        save_team_file(self.team_dirs[team], team, {op.name: op.base_mm for op in ops}, {op.name: op.wounds for op in ops})
+        save_team_file(self.team_dirs[team], team, {op.name: op.base_mm for op in ops}, {op.name: op.wounds for op in ops}, self.team_info[team])
+
+    def set_team_info(
+        self, team: str, archetypes: Iterable[str] | None = None, faction_counter: str | None = None, non_expendable: int | str | None = None
+    ) -> TeamInfo:
+        """Set the team values in team.toml; None keeps a value, an empty
+        `faction_counter` or `non_expendable` ("") clears it. Raises
+        ValueError for a bad value."""
+        if team not in self.team_dirs:
+            raise ValueError(f"team {team!r} is not loaded, loaded: {sorted(self.team_dirs)}")
+        old = self.team_info[team]
+        new = TeamInfo(
+            old.archetypes if archetypes is None else check_archetypes(list(archetypes), f"team {team!r}"),
+            old.faction_counter if faction_counter is None else (faction_counter.strip() or None),
+            old.non_expendable
+            if non_expendable is None
+            else (None if non_expendable == "" else parse_count_range(non_expendable, f"team {team!r} non-expendable-operative-count")),
+        )
+        if new != old:
+            self.team_info[team] = new
+            self._save_team(team)
+        return new
 
     # loading and the embedding cache
 
@@ -494,6 +614,7 @@ class Gallery:
         ops: list[Operative] = []
         files: list[Path] = []
         file_op: list[int] = []
+        self.team_info = {team: read_team_info(d) for team, d in self.team_dirs.items()}
         for team, d in self.team_dirs.items():
             for op in team_operatives(team, d):
                 ops.append(op)
@@ -696,8 +817,8 @@ class Gallery:
         return tuple(sorted(set(sizes)))  # type: ignore[arg-type]
 
     def allowed(self, diameter_mm: float | None) -> np.ndarray:
-        """Operatives that can stand on a base of this diameter."""
-        return np.array([op.base_mm is None or diameter_mm is None or op.base_mm == diameter_mm for op in self.operatives], bool)
+        """Operatives that can stand on a base of this diameter and are in play."""
+        return np.array([op.label not in self.out_of_play and (op.base_mm is None or diameter_mm is None or op.base_mm == diameter_mm) for op in self.operatives], bool)
 
 
 def _top_photos(sim: np.ndarray, files: np.ndarray, k: int) -> np.ndarray:

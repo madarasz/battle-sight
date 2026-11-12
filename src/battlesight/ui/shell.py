@@ -333,7 +333,7 @@ class MainWindow(QMainWindow):
             self._pending_click = number, global_pos
 
     def _on_hover(self, at) -> None:
-        """The pointer moved. The movement measurement and "Add operative"
+        """The pointer moved. The movement measurement and "Locate operative"
         (the board under the pointer) use it. One position is with the worker
         at a time; the newest waits."""
         state = self.state

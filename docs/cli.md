@@ -257,7 +257,7 @@ breach point of the map layout within 8 mm (`OPENING_HIT_MM`), live and
 snapshot. One thing is selected at a time: a base or an opening. State
 `selected_opening` = `{index, kind, open}`. `base.deselect` clears both.
 
-Missed bases: `base.add` ("Add operative", no key; `Esc` stops it, the action
+Missed bases: `base.add` ("Locate operative", no key; `Esc` stops it, the action
 is off while `adding` or `busy`) sets `adding`. It needs a name session
 (`_prepare_adding`, busy while it runs; it loads the gallery): a named
 snapshot is used as it is; in the live video the snapshot of the last names
@@ -309,6 +309,32 @@ Game state (`LiveSession`, no window): wounds and openings.
   shows through) with a jamb in the opening colour across each end. An
   outline alone is not enough: a breach point is as thin as the wall.
 
+Score (`score.py`, no window; `LiveSession.scores` = one `score.Score`
+per side, not per team, so a team change keeps it; no save, an app start
+gives the start values):
+
+- Cells: Crit Op and Tac Op have one cell per turning point of
+  `TURNING_POINTS` (2, 3, 4) with `SKULLS_PER_TP` (2) skulls; Kill Op has one
+  cell with `CATEGORY_MAX` (6) skulls (manual now; later from the dead
+  status of operatives). Points of a category = sum of its cells, at most 6.
+- `score.skull(slot, category, tp, skull)`: `category` = `crit` / `tac` /
+  `kill`, `tp` = 2..4 (`None` for `kill`), `skull` = 1..cell size. The cell
+  fills up to that skull; a click on the last lit skull turns it off
+  (`score.skull_value`). A bad value gives an error notice, no change.
+- `score.tac_op(slot, name)`: `None` or a Tac Op of the side's team:
+  `score.tac_ops_for` the team's `archetype` list in `team.toml`, ops from
+  `[tac_ops]` of `data/approved-ops-2025.toml`. A team change clears a Tac Op
+  that the new team does not have.
+- `score.primary(slot, value)`: `hidden` / `crit` / `tac` / `kill`. Bonus =
+  ceil(points of that category / 2); `hidden` = 0.
+- `score.cp(slot, delta)`: command points, start `CP_START` (3), never below 0.
+- State: `scores` = one entry per side: `{cells: {crit: [..3], tac: [..3],
+  kill: [n]}, points: {crit, tac, kill}, tac_op, tac_ops, primary,
+  primary_bonus, cp, total}`, `total` = crit + tac + kill + primary_bonus.
+- UI: `ui/parts.ScoreCounter` below each `TeamRoster` in the `rosters` layout
+  (no title): CP on top, Tac Op, Primary with `+bonus` at the row end, skull
+  grid, total in `team_color(slot)` (the overlay `TEAM_COLORS`).
+
 Teams: `team.set(slot, name)` sets the team of side 0 or 1 (`None` = none).
 The same team on both sides is refused (the team list of the other side
 shows it disabled). A change resets the gallery (it loads
@@ -318,7 +344,30 @@ gallery teams. State: `team_choices` (gallery teams), `team_slots`, and
 `rosters` (per side `null` or `{team, operatives: [{label, name, base_mm,
 base_index, score, confirmed, wounds, max_wounds}]}`, from `team.toml` and the operative folders,
 with the base that has the name in the last snapshot). `base.select(index)`
-selects a base by index (team list rows).
+selects a base by index. `operative.select(label)` (team list rows) selects
+the base with that name (a confirmed one first); without one it selects the
+operative alone: `selected_operative` = label, `selected` stays `None`, the
+wounds actions work on it, and any other selection (`_set_selected`) clears
+it. `selected_label` = label of the selected base or of `selected_operative`.
+The `rosters` team lists draw identified operatives in the team colour of
+their side, the `selected_label` row on a grey background; the inspector
+page `roster_operative` shows only the title and the wounds.
+
+Team list contents: `LiveSession.in_play[slot]` = labels in list order, `None`
+= all operatives of the team (file order; also after `team.set` and at the
+start; not saved). `roster.remove(slot)` removes the selected operative
+(`selected_label`) from the list of that side and clears the selection (a
+hint when the selection is not in that list). `roster.add(slot, label)` puts
+an operative of the side's team that is not in the list at its end (else an
+error notice). Removed operatives are out of play: `Gallery.out_of_play`
+(set at gallery load and at each change) takes them out of `Gallery.allowed`,
+so `assign` and the name list never give their name; the known base sizes
+(`Pipeline.set_roster`) are those of the operatives in play. The names of the
+last snapshot stay until the next `space`. State: each `rosters` entry has
+`missing` = `[{label, name}]`, the team operatives not in the list. UI
+(`ui/parts.TeamRoster`): "Add operative" (enabled with `missing`) opens a list
+of `missing` above the buttons and is "Cancel" while it is open; "Remove
+operative" is enabled when the selected operative is in that list.
 
 Fixes (plan priority 4, "user confirms or fixes with one click"): after
 `space`, right-click a base, then click a name in the list (a popup at the base
@@ -347,7 +396,7 @@ selected. `Esc` clears the selected base.
 | `0` | Remove the ring. |
 | `w` | Measure around walls on or off (`measure.walls`, only with a layout). |
 | `m` | Measure movement on or off (`measure.move`). |
-| mouse pointer on the board | With `measure.move` and a ring: the route to the pointer; with "Add operative": the board under the pointer in the inspector (`board.hover`). |
+| mouse pointer on the board | With `measure.move` and a ring: the route to the pointer; with "Locate operative": the board under the pointer in the inspector (`board.hover`). |
 | `-`, `+` | One wound less or more on the selected named base (`wounds.minus`, `wounds.plus`). |
 | `o` | Open or close the selected hatchway or breach point (`opening.toggle`). |
 | left click on a base | Select it (on the selected base: clear the selection). |
@@ -383,7 +432,7 @@ of the status bar; off at each layout change). It must not import `pipeline`,
 
 `rosters` (Option 3 of `specs/ui.md`): a top bar with the sections View
 (`MapPicker`, view toggles and `measure.walls`), Commands (`snapshot.name`, `names.accept` shown
-only with `unconfirmed > 0`, "Add operative" = `base.add` (the inspector shows the instruction while `adding`), `snapshot.back` shown
+only with `unconfirmed > 0`, "Locate operative" = `base.add` (the inspector shows the instruction while `adding`), `snapshot.back` shown
 only in a snapshot), Inspector (operative: title `Team - Name (40mm)`, crop,
 `WoundsControl`, `RingSlider`, `measure.move`, distance, "Change ID" that shows a
 `CandidateList` (open at once for `new_base`; while open it hides the wounds,
@@ -430,6 +479,8 @@ frame).
 
 ```
 uv run battlesight enroll --team NAME --operative NAME [--base-mm 32] [--wounds W]
+                          [--archetype ARCH ...] [--faction-counter TEXT]
+                          [--non-expendable N|N-M]
                           [--images PATH ...] [--reference FILE]
                           [--gallery-root data/teams]
                           [--source S] [--camera-file FILE] [--config FILE]
@@ -439,7 +490,14 @@ Adds crops of one operative to `data/teams/<team>/<operative>/` and its base
 size to `data/teams/<team>/team.toml` (created when new). `--wounds W` (a
 whole number, 1 or more) sets or replaces the maximum wounds of the operative
 in `team.toml` at the start, before the first crop; a bad value gives exit
-code 2 and no change. Live: push
+code 2 and no change. `--archetype ARCH ...` (one or more of `Infiltration`,
+`"Seek and Destroy"`, `Recon`, `Security`; the keys of `[tac_ops]` in
+`data/approved-ops-2025.toml`; quote a name with spaces) and
+`--faction-counter TEXT` set the team values in `team.toml`: each replaces the
+old value of the team (`--faction-counter ""` clears it).
+`--non-expendable N` or `N-M` (whole numbers, 1 or more, a range goes up) sets
+`non-expendable-operative-count` the same way (`--non-expendable ""` clears it). Other values give
+exit code 2 and no change. Live: push
 `space`. With exactly one base (of `--base-mm` or the size in `team.toml`)
 the crop goes in at once; with more, click the base, or push `Esc` to leave the
 choice without a crop (`Esc` outside the choice quits). Turn and move the model
@@ -770,7 +828,14 @@ identity stay separate: the stage only reads the bases of the `bases` stage.
    without ML, for the tests.
 3. Gallery: `data/teams/<team>/team.toml` (`[operatives."Name"]`,
    `base_mm`, optional `wounds` = maximum wounds for the live game state, not
-   used by the identification), `data/teams/<team>/<operative>/*.png` crops. Each crop is
+   used by the identification; team values before the first table: `archetype`
+   = list of archetype names from `data/approved-ops-2025.toml` (a team
+   has one or more, usually two), optional `faction-counter` = string, optional
+   `non-expendable-operative-count` = whole number (`5`) or range as text (`"4-6"`); read by
+   `ident.read_team_info`, kept by every rewrite of the file). The order of
+   the operative tables is the order of the team lists (`team_operatives`:
+   file order, then operative folders that the file does not list, sorted);
+   a rewrite keeps it and adds a new operative at the end. `data/teams/<team>/<operative>/*.png` crops. Each crop is
    embedded at `rotations` angles. `embeddings.npz` in the team folder caches
    the embeddings by file name and change time, with a key of the model and
    the crop values; a change of these values embeds all crops again. Git

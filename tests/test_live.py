@@ -1510,3 +1510,108 @@ def test_arrow_heads_go_to_the_objective_or_around_the_base():
         tip, back = h[1], 0.5 * (h[0] + h[2])
         assert np.linalg.norm(tip) == pytest.approx(17.0) and np.linalg.norm(back) > np.linalg.norm(tip)  # to the rim
         assert abs(tip[0]) == pytest.approx(abs(tip[1]))  # X fashion
+
+
+# --- score counter -----------------------------------------------------------------
+
+
+def test_score_counter_of_each_side(tmp_path):
+    from battlesight import ident as idt
+    from battlesight import score as sc
+
+    cfg = ident_cfg()
+    frame = paint_board(cfg, GAME)
+    for team, archetypes in (("orks", ["Seek and Destroy", "Security"]), ("elves", ["Recon"])):
+        (tmp_path / "gallery" / team).mkdir(parents=True)
+        idt.save_team_file(tmp_path / "gallery" / team, team, {}, None, idt.TeamInfo(tuple(archetypes)))
+    session = make_session(tmp_path, cfg, frame, teams=("orks",))
+    s = session.state()
+    assert_json_safe(s)
+    left, right = s["scores"]
+    assert left["tac_ops"] == sc.tac_ops_for(["Seek and Destroy", "Security"]) and right["tac_ops"] == []
+    assert left["cp"] == right["cp"] == 3 and left["total"] == 0 and left["primary"] == "hidden"
+
+    session.dispatch("score.skull", slot=0, category="crit", tp=2, skull=2)
+    session.dispatch("score.skull", slot=0, category="kill", tp=None, skull=3)
+    session.dispatch("score.primary", slot=0, value="crit")
+    session.dispatch("score.cp", slot=0, delta=-1)
+    session.dispatch("score.tac_op", slot=0, name="Rout")
+    left = session.state()["scores"][0]
+    assert left["cells"]["crit"] == [2, 0, 0] and left["points"] == {"crit": 2, "tac": 0, "kill": 3}
+    assert left["primary_bonus"] == 1 and left["total"] == 6 and left["cp"] == 2 and left["tac_op"] == "Rout"
+    assert session.state()["scores"][1]["total"] == 0
+
+    session.dispatch("score.tac_op", slot=0, name="Flank")  # a Recon op: not for orks
+    assert "not a Tac Op" in session.state()["notice"]["text"] and session.state()["scores"][0]["tac_op"] == "Rout"
+    session.dispatch("score.skull", slot=0, category="crit", tp=5, skull=1)
+    assert "turning point" in session.state()["notice"]["text"]
+    session.dispatch("score.skull", slot=2, category="crit", tp=2, skull=1)
+    assert "no team slot" in session.state()["notice"]["text"]
+
+    session.dispatch("team.set", slot=0, name="elves")  # the score stays, the Tac Op of orks goes
+    left = session.state()["scores"][0]
+    assert left["total"] == 6 and left["tac_op"] is None and left["tac_ops"] == list(sc.TAC_OPS["Recon"])
+
+
+def test_select_an_operative_from_a_team_list(tmp_path, named):
+    from battlesight import ident as idt
+
+    cfg, frame = named
+    team = tmp_path / "gallery" / "orks"
+    idt.save_team_file(team, "orks", idt.load_team_file(team), {"Nob": 5})
+    session = make_session(tmp_path, cfg, frame, teams=("orks",))
+    settled(session, frame)
+    session.dispatch("operative.select", label="orks/Nob")  # no snapshot: the operative alone
+    s = session.state()
+    assert s["selected"] is None and s["selected_operative"] == "orks/Nob" and s["selected_label"] == "orks/Nob"
+    assert s["selected_wounds"] == {"label": "orks/Nob", "current": 5, "max": 5}
+    assert next(a for a in ACTIONS if a.id == "base.deselect").enabled(s)
+    session.dispatch("wounds.minus")
+    assert session.state()["selected_wounds"]["current"] == 4
+    session.dispatch("base.deselect")
+    assert session.state()["selected_operative"] is None and session.state()["selected_wounds"] is None
+    session.dispatch("operative.select", label="orks/Nobody")
+    assert "not in a team list" in session.state()["notice"]["text"] and session.state()["selected_operative"] is None
+
+    session.dispatch("snapshot.name")
+    s = session.step(frame).state
+    nob = next(b["index"] for b in s["bases"] if b["label"] == "orks/Nob")
+    session.dispatch("operative.select", label="orks/Nob")  # identified: its base
+    s = session.state()
+    assert s["selected"] == nob and s["selected_operative"] is None and s["selected_label"] == "orks/Nob"
+
+
+def test_team_list_remove_and_add_operatives(tmp_path, named):
+    cfg, frame = named
+    session = make_session(tmp_path, cfg, frame, teams=("orks",))
+    settled(session, frame)
+    names = lambda: [r["name"] for r in session.state()["rosters"][0]["operatives"]]  # noqa: E731
+    assert names() == ["Nob", "Grot", "Burna"] and session.state()["rosters"][0]["missing"] == []
+
+    session.dispatch("roster.remove", slot=0)  # nothing selected
+    assert "select an operative" in session.state()["notice"]["text"] and len(names()) == 3
+    session.dispatch("operative.select", label="orks/Nob")
+    session.dispatch("roster.remove", slot=1)  # Nob is not on the right side
+    assert len(names()) == 3
+    session.dispatch("roster.remove", slot=0)
+    s = session.state()
+    assert names() == ["Grot", "Burna"] and s["rosters"][0]["missing"] == [{"label": "orks/Nob", "name": "Nob"}]
+    assert s["selected_label"] is None
+
+    session.dispatch("snapshot.name")  # Nob is out of play: no base gets its name
+    s = session.step(frame).state
+    assert session.gallery.out_of_play == {"orks/Nob"}
+    assert "orks/Nob" not in {b["label"] for b in s["bases"]}
+    assert {b["label"] for b in s["bases"]} >= {"orks/Grot", "orks/Burna"}
+
+    session.dispatch("roster.add", slot=0, label="orks/Grot")  # already in the list
+    assert "cannot be added" in session.state()["notice"]["text"]
+    session.dispatch("roster.add", slot=0, label="orks/Nob")  # back at the end
+    assert names() == ["Grot", "Burna", "Nob"] and session.gallery.out_of_play == set()
+    assert session.state()["rosters"][0]["missing"] == []
+
+    session.dispatch("operative.select", label="orks/Grot")
+    session.dispatch("roster.remove", slot=0)
+    session.dispatch("team.set", slot=0, name=None)
+    session.dispatch("team.set", slot=0, name="orks")  # a team change gives all operatives again
+    assert names() == ["Nob", "Grot", "Burna"]

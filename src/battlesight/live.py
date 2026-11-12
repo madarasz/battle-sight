@@ -29,6 +29,7 @@ import numpy as np
 from . import ident as idt
 from . import measure
 from . import moves
+from . import score as sc
 from . import terrain as ter
 from . import walls
 from .calib import DriftMonitor, DriftReport, DriftStatus, TagDetector, board_corners_px, lens_for_frame
@@ -42,7 +43,7 @@ SNAPSHOT_DIR = Path(__file__).resolve().parents[2] / "data" / "snapshots"
 DEFAULT_REFERENCE = SNAPSHOT_DIR / "empty_board.png"
 DISPLAY_WIDTH = 1600  # image width in the windows; the windows can be resized
 PREVIEW_PAD_MM = 16.0  # board around the base in the crop of the selected base
-AIM_DIAMETER_MM = 40.0  # "Add operative": board under the pointer as if a base of this size was there
+AIM_DIAMETER_MM = 40.0  # "Locate operative": board under the pointer as if a base of this size was there
 OPENING_KINDS = ("hatchway", "breach")
 OPENING_HIT_MM = 8.0  # a click this near to a hatchway or a breach point selects it
 TEAM_SLOTS = 2  # one team list each side of the board
@@ -261,7 +262,7 @@ def _has_selection(state: dict) -> bool:
 
 
 def _has_any_selection(state: dict) -> bool:
-    return state["selected"] is not None or state["selected_opening"] is not None
+    return state["selected"] is not None or state["selected_opening"] is not None or state["selected_operative"] is not None
 
 
 def _in_snapshot(state: dict) -> bool:
@@ -322,14 +323,21 @@ ACTIONS: tuple[Action, ...] = (
     Action("board.select", "Right click the board", args=("x", "y"), enabled=_in_snapshot),
     Action("base.choose", "Set name", args=("label", "index"), enabled=_has_selection),
     Action("base.select", "Select operative", args=("index",)),
+    Action("operative.select", "Select operative of a team", args=("label",)),
+    Action("roster.add", "Add operative", args=("slot", "label")),
+    Action("roster.remove", "Remove operative", args=("slot",)),
     Action("base.deselect", "Clear selection", enabled=_has_any_selection),
     Action("base.remove", "Remove ID", enabled=_has_selection),
-    Action("base.add", "Add operative", enabled=_can_add),
+    Action("base.add", "Locate operative", enabled=_can_add),
     *(Action(f"ring.{n}", f"Ring {n} in", str(n), enabled=_has_selection, checked=partial(lambda n, s: s["ring_in"] == n, n)) for n in range(1, 10)),
     Action("ring.clear", "Clear ring", "0", enabled=lambda s: s["ring_in"] is not None),
     Action("wounds.minus", "Wound -1", "-", enabled=_has_wounds),
     Action("wounds.plus", "Wound +1", "+", enabled=_has_wounds),
     Action("wounds.set", "Set wounds", args=("value",), enabled=_has_wounds),
+    Action("score.skull", "Score skull", args=("slot", "category", "tp", "skull")),
+    Action("score.tac_op", "Tac Op", args=("slot", "name")),
+    Action("score.primary", "Primary", args=("slot", "value")),
+    Action("score.cp", "Command points", args=("slot", "delta")),
     Action("opening.toggle", "Open / close", "o", enabled=lambda s: s["selected_opening"] is not None),
     Action("names.accept", "Accept all identification", "a", enabled=lambda s: s["unconfirmed"] > 0),
     Action("names.undo", "Undo last gallery photo", "u", enabled=lambda s: s["can_undo"]),
@@ -396,9 +404,11 @@ class LiveSession:
         slots = list(self.teams or [])[:TEAM_SLOTS]
         self.team_slots: list[str | None] = slots + [None] * (TEAM_SLOTS - len(slots))
         self._team_ops: dict[str, list[idt.Operative]] = {}  # operatives of each team, read once
-        # Base sizes of the teams, from the team files: also for the b key, before the gallery loads.
-        self.pipe.set_roster(idt.roster_sizes(gallery_root, self.teams or idt.list_teams(gallery_root)))
+        self._team_infos: dict[str, idt.TeamInfo] = {}  # team values of each team file, read once
+        # Team list of each side: labels in list order; None = all operatives of the team file.
+        self.in_play: list[list[str] | None] = [None] * TEAM_SLOTS
         self.gallery: idt.Gallery | None = None
+        self._update_roster()
         self.gallery_tried = False
 
         self.top_down = True
@@ -443,16 +453,19 @@ class LiveSession:
         self.snap: np.ndarray | None = None  # camera frame of the snapshot
         self.session: idt.LabelSession | None = None
         self.selected: int | None = None  # index of the selected base
+        self.selected_operative: str | None = None  # label chosen in a team list that has no base in the snapshot
         self.target: int | None = None  # index of the second base of a distance
         self.ring_in: int | None = None  # ring on the selected base, in inches
-        self.adding = False  # "Add operative": the next click on the board is the centre of a missed base
-        self.new_base: int | None = None  # base that "Add operative" made and the user did not name yet
+        self.adding = False  # "Locate operative": the next click on the board is the centre of a missed base
+        self.new_base: int | None = None  # base that "Locate operative" made and the user did not name yet
         self.right_click: str | None = None  # what the last right click did: "name" (select for names) or "measure"
         self.shown: np.ndarray | None = None  # rendered snapshot
         self.dirty = True
         # Game state. Current wounds of each operative label that is not at its
         # maximum; the names of a new snapshot keep them.
         self.wounds: dict[str, int] = {}
+        # Score of each side of the board (not of a team): it stays when the team changes.
+        self.scores = [sc.Score() for _ in range(TEAM_SLOTS)]
 
         self._handlers: dict[str, Callable[..., None]] = {
             "snapshot.name": lambda: self._snapshot(name=True),
@@ -477,6 +490,9 @@ class LiveSession:
             "board.select": self._select_for_names,
             "base.choose": self._choose,
             "base.select": self._select_index,
+            "operative.select": self._select_operative,
+            "roster.add": self._roster_add,
+            "roster.remove": self._roster_remove,
             "base.deselect": self._deselect,
             "base.remove": self._remove_base,
             "base.add": self._start_adding,
@@ -485,6 +501,10 @@ class LiveSession:
             "wounds.minus": partial(self._add_wounds, -1),
             "wounds.plus": partial(self._add_wounds, 1),
             "wounds.set": self._set_wounds,
+            "score.skull": self._score_skull,
+            "score.tac_op": self._score_tac_op,
+            "score.primary": self._score_primary,
+            "score.cp": self._score_cp,
             "opening.toggle": self._toggle_opening,
             "names.accept": self._accept_all,
             "names.undo": self._undo,
@@ -533,7 +553,7 @@ class LiveSession:
         return LiveFrame(self.image, state, self.win.scale, self._selected_crop())
 
     def _selected_crop(self) -> np.ndarray | None:
-        """While "Add operative" waits for a click: the board under the
+        """While "Locate operative" waits for a click: the board under the
         pointer (`_aim_crop`). Else the selected base with `PREVIEW_PAD_MM` of board around it, cut
         from the centre of its gallery crop (`ident.store_crop`)."""
         if self.adding:
@@ -873,11 +893,14 @@ class LiveSession:
             "team_choices": list(self.team_choices),
             "team_slots": list(self.team_slots),
             "rosters": self._rosters_state(),
+            "scores": [x.to_dict(self._tac_ops_of(slot)) for slot, x in enumerate(self.scores)],
             "reference_set": self.pipe.has_reference,
             "snapshot_ok": None if self.result is None else bool(self.result.ok),
             "naming": s is not None,
             "bases": self._bases_state(),
             "selected": self.selected,
+            "selected_operative": self.selected_operative,
+            "selected_label": self._selected_label(),
             "adding": self.adding,
             "new_base": self.new_base,
             "right_click": self.right_click,
@@ -972,17 +995,31 @@ class LiveSession:
                 self._team_ops[team] = []
         return self._team_ops[team]
 
+    def _team_info(self, team: str) -> idt.TeamInfo:
+        if team not in self._team_infos:
+            try:
+                self._team_infos[team] = idt.read_team_info(Path(self.gallery_root) / team)
+            except (OSError, ValueError) as exc:
+                self.notice.error(f"team {team}: {exc}")
+                self._team_infos[team] = idt.TeamInfo()
+        return self._team_infos[team]
+
+    def _tac_ops_of(self, slot: int) -> list[str]:
+        """Tac Op choices of one side: from the archetypes of its team."""
+        team = self.team_slots[slot]
+        return [] if team is None else sc.tac_ops_for(self._team_info(team).archetypes)
+
     def _rosters_state(self) -> list[dict[str, Any] | None]:
         """The operatives of the team of each side, with the base that has
         their name in the last snapshot."""
         idents = self.session.idents if self.session is not None and self._found() else []
         out: list[dict[str, Any] | None] = []
-        for team in self.team_slots:
+        for slot, team in enumerate(self.team_slots):
             if team is None:
                 out.append(None)
                 continue
             rows = []
-            for op in self._operatives_of(team):
+            for op in self._listed(slot):
                 found = [(i, x) for i, x in enumerate(idents) if x.label == op.label]
                 found.sort(key=lambda ix: not ix[1].confirmed)  # a confirmed name first
                 i, x = found[0] if found else (None, None)
@@ -998,8 +1035,71 @@ class LiveSession:
                         "max_wounds": op.wounds,
                     }
                 )
-            out.append({"team": team, "operatives": rows})
+            listed = {op.label for op in self._listed(slot)}
+            missing = [{"label": op.label, "name": op.name} for op in self._operatives_of(team) if op.label not in listed]
+            out.append({"team": team, "operatives": rows, "missing": missing})
         return out
+
+    # --- team lists -------------------------------------------------------------
+
+    def _listed(self, slot: int) -> list[idt.Operative]:
+        """Operatives in the team list of one side, in list order."""
+        team = self.team_slots[slot]
+        if team is None:
+            return []
+        ops = self._operatives_of(team)
+        if self.in_play[slot] is None:
+            return list(ops)
+        by_label = {op.label: op for op in ops}
+        return [by_label[label] for label in self.in_play[slot] if label in by_label]
+
+    def _out_of_play(self) -> set[str]:
+        """Labels of operatives that were removed from a team list."""
+        out: set[str] = set()
+        for slot, team in enumerate(self.team_slots):
+            if team is not None:
+                listed = {op.label for op in self._listed(slot)}
+                out |= {op.label for op in self._operatives_of(team) if op.label not in listed}
+        return out
+
+    def _update_roster(self) -> None:
+        """Base sizes of the operatives in play (also for the b key, before
+        the gallery loads), and the operatives that identification skips."""
+        if any(t is not None for t in self.team_slots):
+            sizes = [op.base_mm for slot in range(TEAM_SLOTS) for op in self._listed(slot)]
+            self.pipe.set_roster(None if not sizes or any(s is None for s in sizes) else tuple(sorted(set(sizes))))
+        else:
+            self.pipe.set_roster(idt.roster_sizes(self.gallery_root, self.teams or self.team_choices))
+        if self.gallery is not None:
+            self.gallery.out_of_play = self._out_of_play()
+
+    def _roster_add(self, slot: int, label: str) -> None:
+        """Put an operative of the side's team back at the end of its team list."""
+        if not self._valid_slot(slot):
+            return
+        team = self.team_slots[slot]
+        listed = [op.label for op in self._listed(slot)]
+        if team is None or label in listed or not any(op.label == label for op in self._operatives_of(team)):
+            self.notice.error(f"{label} cannot be added to this team list")
+            return
+        self.in_play[slot] = [*listed, label]
+        self._update_roster()
+        self.notice.say(f"{idt.split_label(label)[1]} added: push space to identify the operatives again" if self.result is not None else f"{idt.split_label(label)[1]} added")
+
+    def _roster_remove(self, slot: int) -> None:
+        """Remove the selected operative from the team list of one side:
+        identification does not give its name any more."""
+        if not self._valid_slot(slot):
+            return
+        label = self._selected_label()
+        listed = [op.label for op in self._listed(slot)]
+        if label not in listed:
+            self.notice.say("select an operative of this team list first")
+            return
+        self.in_play[slot] = [x for x in listed if x != label]
+        self._set_selected(None)
+        self._update_roster()
+        self.notice.say(f"{idt.split_label(label)[1]} removed" + (": push space to identify the operatives again" if self.result is not None else ""))
 
     # --- game state -------------------------------------------------------------
 
@@ -1020,8 +1120,11 @@ class LiveSession:
         return min(self.wounds.get(label, maximum), maximum), maximum
 
     def _selected_label(self) -> str | None:
+        """Label of the selected base, else of the operative selected in a team list."""
         s, i = self.session, self.selected
-        if s is None or i is None or i >= len(s.idents):
+        if i is None:
+            return self.selected_operative
+        if s is None or i >= len(s.idents):
             return None
         return s.idents[i].label
 
@@ -1033,6 +1136,54 @@ class LiveSession:
             return None
         current, maximum = self._wounds_of(label)
         return {"label": label, "current": current, "max": maximum}
+
+    def _valid_slot(self, slot: int) -> bool:
+        if isinstance(slot, bool) or slot not in range(TEAM_SLOTS):
+            self.notice.error(f"no team slot {slot!r}")
+            return False
+        return True
+
+    def _score_of(self, slot: int) -> sc.Score | None:
+        return self.scores[slot] if self._valid_slot(slot) else None
+
+    def _score_skull(self, slot: int, category: str, tp: int | None, skull: int) -> None:
+        """A click on a score skull of one side (see `score.skull_value`)."""
+        score = self._score_of(slot)
+        if score is None:
+            return
+        try:
+            score.click_skull(category, tp, skull)
+        except ValueError as exc:
+            self.notice.error(str(exc))
+
+    def _score_tac_op(self, slot: int, name: str | None) -> None:
+        """The Tac Op of one side, or None. Only a Tac Op of the team's archetypes."""
+        score = self._score_of(slot)
+        if score is None:
+            return
+        if name is not None and name not in self._tac_ops_of(slot):
+            self.notice.error(f"{name!r} is not a Tac Op of the archetypes of this team")
+            return
+        score.tac_op = name
+
+    def _score_primary(self, slot: int, value: str) -> None:
+        score = self._score_of(slot)
+        if score is None:
+            return
+        try:
+            score.set_primary(value)
+        except ValueError as exc:
+            self.notice.error(str(exc))
+
+    def _score_cp(self, slot: int, delta: int) -> None:
+        """Add `delta` command points to one side (never less than 0)."""
+        score = self._score_of(slot)
+        if score is None:
+            return
+        if isinstance(delta, bool) or not isinstance(delta, int):
+            self.notice.error(f"delta must be a whole number, not {delta!r}")
+            return
+        score.add_cp(delta)
 
     def _set_wounds(self, value: int, label: str | None = None) -> None:
         """Set the current wounds of an operative (default: the selected
@@ -1095,6 +1246,8 @@ class LiveSession:
         self.gallery = load_gallery(teams, self.gallery_root, self.cfg)
         if self.gallery is None:
             self.notice.error("gallery: cannot load, see the Terminal")
+        else:
+            self.gallery.out_of_play = self._out_of_play()
         self.pipe.set_gallery(self.gallery)
 
     def _snapshot(self, name: bool) -> None:
@@ -1146,7 +1299,7 @@ class LiveSession:
         """A new selected base starts with no ring and no second base. Only
         one thing is selected: a base or an opening."""
         self.selected = index
-        self.target = self.ring_in = self.selected_opening = None
+        self.target = self.ring_in = self.selected_opening = self.selected_operative = None
         if index != self.new_base:
             self.new_base = None
         self.dirty = True
@@ -1164,6 +1317,19 @@ class LiveSession:
             self.notice.error(f"no base {index}")
             return
         self._set_selected(index)
+
+    def _select_operative(self, label: str) -> None:
+        """Select an operative of a team list: its base when the snapshot
+        has its name (a confirmed name first), else the operative alone
+        (name and wounds, no base)."""
+        if not any(op.label == label for slot in range(TEAM_SLOTS) for op in self._listed(slot)):
+            self.notice.error(f"{label} is not in a team list")
+            return
+        idents = self.session.idents if self.session is not None and self._found() else []
+        found = sorted((i for i, x in enumerate(idents) if x.label == label), key=lambda i: not idents[i].confirmed)
+        self._set_selected(found[0] if found else None)
+        if not found:
+            self.selected_operative = label
 
     def _back(self) -> None:
         """Go back to the live video. The bases, names and selection of the
@@ -1287,9 +1453,12 @@ class LiveSession:
             return
         self.team_slots[slot] = name
         self.teams = [t for t in self.team_slots if t] or None
+        if self.scores[slot].tac_op not in self._tac_ops_of(slot):  # not a Tac Op of the new team
+            self.scores[slot].tac_op = None
+        self.in_play[slot] = None  # a new team starts with all its operatives
         self.gallery, self.gallery_tried = None, False
         self.pipe.set_gallery(None)
-        self.pipe.set_roster(idt.roster_sizes(self.gallery_root, self.teams or self.team_choices))
+        self._update_roster()
         self.notice.say("teams changed: push space to identify the operatives again" if self.result is not None else f"teams: {', '.join(self.teams or ['all'])}")
 
     def _take_reference(self) -> None:
@@ -1420,7 +1589,7 @@ class LiveSession:
         self.dirty = True
 
     def _start_adding(self) -> None:
-        """"Add operative": the next click is the centre of a base that the
+        """"Locate operative": the next click is the centre of a base that the
         detector missed. `Esc` stops it."""
         if self.adding:
             return
@@ -1439,7 +1608,7 @@ class LiveSession:
             self.notice.say("click the centre of the base, Esc to cancel")
 
     def _prepare_adding(self) -> bool:
-        """A snapshot with a name session for "Add operative". In the live
+        """A snapshot with a name session for "Locate operative". In the live
         video, the names of the last identification come back with their
         snapshot; with no names yet, a new snapshot of the frame with no bases
         (the user adds each one). A snapshot of bases only (`b`) gets a name

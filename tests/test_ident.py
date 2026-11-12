@@ -904,7 +904,16 @@ def test_team_file_keeps_the_maximum_wounds(tmp_path):
     idt.save_team_file(team, "orks", {"Nob": 40.0, "Grot": 25.0}, {"Nob": 12})
     assert idt.read_team_file(team) == {"Nob": (40.0, 12), "Grot": (25.0, None)}
     assert idt.load_team_file(team) == {"Nob": 40.0, "Grot": 25.0}
-    assert [(op.name, op.wounds) for op in idt.team_operatives("orks", team)] == [("Grot", None), ("Nob", 12)]
+    assert [(op.name, op.wounds) for op in idt.team_operatives("orks", team)] == [("Nob", 12), ("Grot", None)]
+
+
+def test_team_operatives_keep_the_file_order(tmp_path):
+    team = tmp_path / "orks"
+    idt.save_team_file(team, "orks", {"Nob": 40.0, "Grot": 25.0, "Burna": 32.0})
+    for name in ("Zog", "Grot", "Ark"):  # folders: the unlisted ones come last, sorted
+        (team / name).mkdir()
+    assert [op.name for op in idt.team_operatives("orks", team)] == ["Nob", "Grot", "Burna", "Ark", "Zog"]
+    assert list(idt.load_team_file(team)) == ["Nob", "Grot", "Burna"]
 
 
 @pytest.mark.parametrize("value", ["0", "-2", '"ten"', "1.5", "true"])
@@ -944,3 +953,69 @@ def test_cli_enroll_wounds_is_saved_at_the_start(tmp_path, capsys):
     assert "maximum wounds 13" in capsys.readouterr().out
     assert main([*args, "--wounds", "0", "--images", str(shot)]) == 2
     assert idt.read_team_file(root / "orks")["Nob"] == (40.0, 13)
+
+
+def test_team_info_roundtrip_and_keep(tmp_path):
+    team = tmp_path / "orks"
+    idt.save_team_file(team, "orks", {"Nob": 40.0}, {"Nob": 12}, idt.TeamInfo(("Recon", "Security"), "Waaagh"))
+    assert idt.read_team_info(team) == idt.TeamInfo(("Recon", "Security"), "Waaagh")
+    # a rewrite without info keeps the team values
+    idt.save_team_file(team, "orks", {"Nob": 40.0}, {"Nob": 13})
+    assert idt.read_team_info(team) == idt.TeamInfo(("Recon", "Security"), "Waaagh")
+    assert idt.read_team_file(team)["Nob"] == (40.0, 13)
+
+
+def test_team_info_bad_value(tmp_path):
+    team = tmp_path / "orks"
+    team.mkdir()
+    (team / "team.toml").write_text('archetype = ["Bogus"]\n')
+    with pytest.raises(ValueError):
+        idt.read_team_info(team)
+
+
+def test_cli_enroll_team_info_replaces_values(tmp_path, capsys):
+    cfg_file = cli_config(tmp_path)
+    cfg = BoardConfig.load(cfg_file)
+    root = tmp_path / "gallery"
+    shot = tmp_path / "nob.png"
+    cv2.imwrite(str(shot), paint_board(cfg, {"Nob": ((300.0, 300.0), 0.0)}))
+    args = ["enroll", "--team", "orks", "--operative", "Nob", "--gallery-root", str(root), "--config", str(cfg_file), "--images", str(shot)]
+    missing = [*args[:-2], "--images", str(tmp_path / "missing.png")]  # no photo added: exit 2, values still saved
+    assert main([*args, "--archetype", "Seek and Destroy", "Security", "--faction-counter", "Waaagh"]) == 0
+    assert idt.read_team_info(root / "orks") == idt.TeamInfo(("Seek and Destroy", "Security"), "Waaagh")
+    assert main([*missing, "--archetype", "Recon"]) == 2  # replaces the list, keeps the counter
+    assert idt.read_team_info(root / "orks") == idt.TeamInfo(("Recon",), "Waaagh")
+    assert main([*missing, "--faction-counter", ""]) == 2  # clears the counter
+    assert idt.read_team_info(root / "orks") == idt.TeamInfo(("Recon",), None)
+    assert idt.read_team_file(root / "orks")["Nob"][0] == 40.0
+    with pytest.raises(SystemExit):
+        main([*missing, "--archetype", "Bogus"])
+
+
+def test_parse_count_range():
+    assert idt.parse_count_range(5, "x") == (5, 5)
+    assert idt.parse_count_range("5", "x") == (5, 5)
+    assert idt.parse_count_range("4-6", "x") == (4, 6)
+    assert idt.parse_count_range("4..6", "x") == (4, 6)
+    for bad in (0, "0", "6-4", "4-", "-4", "a", "", True, 2.5, [4]):
+        with pytest.raises(ValueError):
+            idt.parse_count_range(bad, "x")
+
+
+def test_non_expendable_roundtrip_and_cli(tmp_path):
+    team = tmp_path / "orks"
+    idt.save_team_file(team, "orks", {"Nob": 40.0}, None, idt.TeamInfo(non_expendable=(4, 6)))
+    assert 'non-expendable-operative-count = "4-6"' in (team / "team.toml").read_text()
+    assert idt.read_team_info(team).non_expendable == (4, 6)
+    idt.save_team_file(team, "orks", {"Nob": 40.0}, None, idt.TeamInfo(non_expendable=(5, 5)))
+    assert "non-expendable-operative-count = 5\n" in (team / "team.toml").read_text()
+    cfg_file = cli_config(tmp_path)
+    root = tmp_path / "gallery"
+    args = ["enroll", "--team", "orks", "--operative", "Nob", "--gallery-root", str(root), "--config", str(cfg_file), "--images", str(tmp_path / "missing.png")]
+    assert main([*args, "--non-expendable", "4-6"]) == 2  # no photo: exit 2, value saved
+    assert idt.read_team_info(root / "orks").non_expendable == (4, 6)
+    assert main([*args, "--non-expendable", "5"]) == 2
+    assert idt.read_team_info(root / "orks").non_expendable == (5, 5)
+    assert main([*args, "--non-expendable", ""]) == 2
+    assert idt.read_team_info(root / "orks").non_expendable is None
+    assert main([*args, "--non-expendable", "9-3"]) == 2

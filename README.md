@@ -15,7 +15,14 @@ range rings and the distances between operatives.
 6. ✅ Terrain layouts: walls, hatchways, objectives and drop zones of each layout card
 7. ✅ Team layout: operative list inspector
 8. ✅ Game state: operative health, open/closed status of hatchways and breach points
-9. ⏳ Tokens: find tokens, list operatives in range
+9. ✅ Measurement around walls, movement measurement
+10. ✅ Minimap, Control marks (contesting objective, melee engagement)
+11. ✅ Scoreboard, turn number, CP counter, faction ability counter, show CritOp
+12. ✅ Edit roster: Add / Remove operative from the list
+13. 🚧 Support multiple identical models
+14. 🚧 Operative states: injured, dead, borrowed, poisioned, etc.
+optional 🚧 Tokens: find tokens, list operatives in range
+optional 🚧 Turn counter (where to put it?)
 
 ✅ done · ⏳ next · 🚧 not started
 
@@ -74,17 +81,24 @@ The top-right corner of the video shows the mode:
 ### Team lists
 
 In the `rosters` layout, choose the team of each player in the lists at the
-sides of the video. The operatives of the team show below the list, with a
-mark at the right end of each line:
+sides of the video. The operatives of the team show below the list. The
+wounds show at the right end of each line, for example `12/15`. A mark in
+front of each name shows the identification:
 
-- Wounds, for example `12/15`.
 - Eye: the name is confirmed.
 - Percentage, for example `78%`: the app found this operative, but nobody
   confirmed the name.
 - `?`: the app did not find this operative.
 
-Click an operative to show it in the inspector. After you change a team,
-click "Identify operatives" again.
+An identified operative shows in the colour of its team. Click an operative
+to select it: its line gets a grey background and the inspector shows it. For
+an operative that the app did not find, the inspector shows only its name
+and wounds. After you change a team, click "Identify operatives" again.
+
+The team list starts with all operatives of the team. To remove an operative
+that does not play, select it and click "Remove operative". The app then does
+not give its name to a base. To add it again, click "Add operative" and
+click its name. Click "Identify operatives" again after a change.
 
 ## Use the app
 
@@ -119,7 +133,7 @@ Code) and ask it to record the map.
    app learns from each correction.
 5. If the app found an operative where there is none, click it and click
    "Remove ID".
-6. If an operative has no base on the video, click "Add operative", then
+6. If an operative has no base on the video, click "Locate operative", then
    click the centre of its base. The inspector shows the board under the
    pointer. The app finds the base and shows a list of names. Choose the
    correct name. Click "Cancel" to stop. You can also do this before
@@ -158,6 +172,12 @@ inches of each part.
 - **Wounds.** Click an operative that has a name. Click `-` or `+` in the
   inspector, or type a number in the "Wounds" box and push Return. A health bar above the operative shows its
   wounds, and the team list shows them as `12/15`.
+- **Score.** Choose the Tac Op
+  and the Primary. Click the skulls to give victory points for Crit Op and
+  Tac Op in each turning point, and for Kill Op. Click the last lit skull to
+  remove a point. Click `-` or `+` at the top to change the command points
+  (CP). The Primary points show at the end of the Primary line. The total
+  shows at the bottom, in the team colour. The counters start again at each app start.
 - **Hatchways and breach points.** All start closed. Click one, then click
   "Open" or "Close" in the inspector. The measurements follow.
 - **Control marks** (View check box, on at the start). Yellow crossed swords
