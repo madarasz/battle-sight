@@ -72,16 +72,17 @@ saved camera. The commands have no options for the image size or the frame
 rate: change them only with `tools/list_cameras.py` (below), or edit the
 `[camera]` table of `data/camera.toml` in a text editor.
 
-There are two ways to connect a phone. Use Camo if it works on your Mac.
-Use a Wi-Fi stream if Camo cannot install its camera (for example, on a
-company-managed Mac).
+There are three ways to connect a phone. Use Camo if it works on your Mac.
+With an Android phone, use scrcpy if Camo cannot install its camera (for
+example, on a company-managed Mac). Use a Wi-Fi stream if you cannot connect
+a USB cable.
 
-| | A. Camo (USB) | B. Wi-Fi stream |
-|---|---|---|
-| Saved source | camera number, for example `1` | stream URL, for example `http://192.168.1.20:8080/video` |
-| Needs | Camo Camera system extension on the Mac | phone and Mac on the same network |
-| Image size | requested by the app (saved) | set in the phone app |
-| Lag and image quality | low lag, little compression | more lag, more compression |
+| | A. Camo (USB) | B. Wi-Fi stream | C. scrcpy (Android, USB) |
+|---|---|---|---|
+| Saved source | camera number, for example `1` | stream URL, for example `http://192.168.1.20:8080/video` | `scrcpy` |
+| Needs | Camo Camera system extension on the Mac | phone and Mac on the same network | scrcpy on the Mac, USB debugging on the phone |
+| Image size | requested by the app (saved) | set in the phone app | requested by the app (saved) |
+| Lag and image quality | low lag, little compression | more lag, more compression | low lag, little compression |
 
 ### A. Camo (USB)
 
@@ -149,6 +150,60 @@ The phone can get a new address after a restart. Then do step 5 again with
 the new address. To keep the address, set a DHCP reservation for the phone
 in the router settings.
 
+### C. scrcpy (Android phone, USB)
+
+The app gets the phone camera video through the USB cable. You do not start
+scrcpy yourself, and you do not install an app on the phone: Battle Sight
+starts the scrcpy part on the phone when it starts. No camera extension is
+necessary on the Mac.
+
+1. Install scrcpy on the Mac. This also installs `adb`:
+
+   ```bash
+   brew install scrcpy
+   ```
+
+2. Turn on USB debugging on the phone:
+   1. Open Settings > About phone. Tap "Build number" 7 times (on Xiaomi:
+      "OS version"). The phone shows that you are a developer now.
+   2. Open Settings > Developer options (on Xiaomi: Additional settings >
+      Developer options). Turn on "USB debugging".
+3. Connect the phone with a USB cable. Unlock the phone. When the phone asks
+   "Allow USB debugging?", select "Always allow from this computer" and tap
+   "Allow".
+4. Check the connection:
+
+   ```bash
+   adb devices
+   ```
+
+   The list must show one line that ends with `device`. If it ends with
+   `unauthorized`, unlock the phone and do step 3 again.
+5. Close other apps on the phone that use the camera (IP Webcam, Camo, the
+   camera app) and the scrcpy window on the Mac. Only one app at a time can
+   use the phone camera.
+6. Find the image sizes of the main (back) camera:
+
+   ```bash
+   scrcpy --video-source=camera --list-camera-sizes
+   ```
+
+   Use a size from the list of the `back` camera. 3840x2160 gives the best
+   accuracy, 1920x1080 is faster.
+7. Check and save the camera with this size:
+
+   ```bash
+   uv run tools/list_cameras.py --scrcpy --width 3840 --height 2160
+   ```
+
+   The script starts the camera on the phone (this takes some seconds),
+   shows the image size and the measured frame rate, and saves the source
+   `scrcpy`. If more than one phone is connected, add the serial number from
+   `adb devices`, for example `--scrcpy VKXKWWPZOFYHB6MN`.
+
+Keep the phone unlocked and connected while you use the app. Use a USB port
+that gives power: the camera uses a lot of battery.
+
 ### Built-in camera (first test only)
 
 The built-in camera cannot look down on the board, but you can use it to
@@ -168,15 +223,16 @@ The first output line tells which settings file the app uses. When the
 banner shows green "4 corners OK", the setup is correct.
 
 To use another camera for one run, add `--source`, for example
-`uv run battlesight --source 0`. To change the saved camera, its image size,
-or its frame rate, run `tools/list_cameras.py --use` (with `--width`,
-`--height`, `--fps`) or `--url` again. To only check a camera and not save
+`uv run battlesight --source 0` or `uv run battlesight --source scrcpy`. To
+change the saved camera, its image size, or its frame rate, run
+`tools/list_cameras.py --use` or `--scrcpy` (with `--width`, `--height`,
+`--fps`) or `--url` again. To only check a camera and not save
 it, add `--no-save`.
 
 The window can be resized: drag its edge.
 
-Calibrate the lens again (step 6) when you change between Camo and the
-stream, or change the image size.
+Calibrate the lens again (step 6) when you change between Camo, the
+stream and scrcpy, or change the image size.
 
 ## 5. Set your board and map
 
@@ -539,6 +595,22 @@ smaller size. Save the correct index again with `--use`.
 4. Check the full URL with the path, for example `/video`. The address
    alone (`http://192.168.1.20:8080`) is the web page of the phone app, not
    the stream.
+
+### scrcpy does not start
+
+`cannot open camera source 'scrcpy'` and a second line with the cause:
+
+- `no devices/emulators found` or `device ... not found`: the Mac does not see
+  the phone. Use a USB data cable (some cables only charge), and check
+  `adb devices`. See [C. scrcpy](#c-scrcpy-android-phone-usb), steps 2 to 4.
+- `unauthorized`: unlock the phone and allow USB debugging.
+- `more than one device`: save the phone with its serial number,
+  `uv run tools/list_cameras.py --scrcpy SERIAL`.
+- `adb not found` or `scrcpy-server not found`: install scrcpy
+  (`brew install scrcpy`).
+- `the phone sent no video`: another app uses the camera, or the phone does
+  not give this image size. Close the camera apps on the phone, and use a
+  size from `scrcpy --video-source=camera --list-camera-sizes`.
 
 ### The stream lags or the image breaks up
 

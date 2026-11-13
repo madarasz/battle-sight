@@ -38,9 +38,9 @@ The camera values are not command options. They are in `data/camera.toml`
 
 | Value | Where to change it |
 |---|---|
-| Source (device index or stream URL) | `tools/list_cameras.py --use INDEX` or `--url URL`. For one run: `--source`. |
-| Frame size | `tools/list_cameras.py --use INDEX --width W --height H`. A stream gets its size from the phone app. |
-| Frame rate | `tools/list_cameras.py --use INDEX --fps N`. |
+| Source (device index, stream URL, or `scrcpy[:SERIAL]`) | `tools/list_cameras.py --use INDEX`, `--url URL`, or `--scrcpy [SERIAL]`. For one run: `--source`. |
+| Frame size | `tools/list_cameras.py --use INDEX --width W --height H` (or `--scrcpy --width W --height H`: the camera size asked from the phone). A stream gets its size from the phone app. |
+| Frame rate | `tools/list_cameras.py --use INDEX --fps N` (or `--scrcpy --fps N`). |
 | Lens | `battlesight calibrate` (`[lens]`), or `focal_35mm` by hand for the nominal lens. |
 
 You can also edit the `[camera]` table in the file with a text editor. The
@@ -61,7 +61,7 @@ uv run battlesight [--team NAME [NAME2]] [--gallery-root data/teams]
 | `--team` | all teams in `--gallery-root` | One or two team folders (two teams play). Labels are `<team>/<operative>`. More than two names: exit 2. Fills the two team lists of the window at start; the user can change them while the app runs (`team.set`). |
 | `--gallery-root` | `data/teams` | Folder with one folder per team. |
 | `--reference` | `data/snapshots/empty_board.png`. With `--image-source`: none. | Empty-board reference. Loaded at start when the file exists. The `e` key writes it. Git ignores the file (`data/snapshots/*.png`). |
-| `--source` | from the camera file, else `0` | Camera index (Camo, built-in camera) or network stream URL (`http://...`, `rtsp://...`), for this run only. A stream is read on a background thread that keeps only the newest frame. See [setup.md](setup.md), step 4. |
+| `--source` | from the camera file, else `0` | Camera index (Camo, built-in camera), network stream URL (`http://...`, `rtsp://...`), or `scrcpy` / `scrcpy:SERIAL` (Android phone camera over USB, see "scrcpy source" below), for this run only. A stream and `scrcpy` are read on a background thread that keeps only the newest frame. See [setup.md](setup.md), step 4. |
 | `--image-source` | none | One image file to use instead of the camera, for debugging and tests. See "Image source" below. Not with `--source`, and not with a command. An image that the app cannot read: exit 2. |
 | `--camera-file` | `data/camera.toml` | Saved camera settings. A missing file is not an error: the built-in defaults apply (camera 0, 1920 x 1080, nominal 24 mm lens). |
 | `--config` | `data/board.toml` | Board and tag config. |
@@ -1430,15 +1430,17 @@ The edit logic is the `Annotator` class (no window calls). `tests/test_bench.py`
 uv run tools/list_cameras.py [--max 6] [--width 3840] [--height 2160]
 uv run tools/list_cameras.py --use INDEX [--width 3840] [--height 2160] [--fps N]
 uv run tools/list_cameras.py --url URL
+uv run tools/list_cameras.py --scrcpy [SERIAL] [--width 3840] [--height 2160] [--fps N]
 ```
 
 | Option | Default | Meaning |
 |---|---|---|
 | (none) | | List the device indices `0` to `--max - 1`: default size, size after the request, frame rate. Saves nothing. |
 | `--use` | none | Check this device index at `--width` x `--height` and save it. When the camera gives another size, the script saves the size it gives. |
-| `--url` | none | Check this stream (30 frames, measured frame rate) and save the URL. Width and height are not saved for a stream. |
-| `--width`, `--height` | `3840`, `2160` | Frame size to request from a device. |
-| `--fps` | none | Frame rate to save with `--use`. |
+| `--url` | none | Check this stream (frame size, frame rate measured over 2 s after 1 s warm-up) and save the URL. Width and height are not saved for a stream. |
+| `--scrcpy` | none | Check the Android phone camera over USB at `--width` x `--height` and save the source `scrcpy` (or `scrcpy:SERIAL`), with the requested size and `--fps`. SERIAL from `adb devices`, only when more than one device is connected. |
+| `--width`, `--height` | `3840`, `2160` | Frame size to request from a device, or camera size to ask the phone for with `--scrcpy`. |
+| `--fps` | none | Frame rate to save with `--use` or `--scrcpy`. |
 | `--no-save` | off | Only check. Do not write the camera file. |
 | `--camera-file` | `data/camera.toml` | Camera settings file to write. |
 
@@ -1456,9 +1458,9 @@ file, the app uses the built-in defaults: camera 0, 1920 x 1080, nominal
 
 ```toml
 [camera]                     # tools/list_cameras.py writes it
-source = 1                   # device index, or a URL string such as "http://192.168.1.20:8080/video"
-width = 3840                 # devices only
-height = 2160                # devices only
+source = 1                   # device index, a URL string such as "http://192.168.1.20:8080/video", or "scrcpy" / "scrcpy:SERIAL"
+width = 3840                 # devices and scrcpy (camera size asked from the phone) only
+height = 2160                # devices and scrcpy only
 fps = 30.0                   # optional
 focal_35mm = 24.0            # nominal lens: 35 mm equivalent focal length
 
@@ -1475,6 +1477,42 @@ date = "2026-11-03 14:20:11"
 live commands and `image-pipeline` read the lens from it (`--camera-file`). The board
 config (`data/board.toml`) must not have a `[camera]` table: the app stops
 with an error that tells you to move it.
+
+
+## scrcpy source
+
+Source `scrcpy` (or `scrcpy:SERIAL`) reads an Android phone camera over USB
+with no extra app on the phone and no window on the Mac.
+`src/battlesight/scrcpy.py` (`ScrcpyServer`) does what the scrcpy client does,
+without the decoder and window:
+
+1. Finds `adb` (`ADB`, else `PATH`) and the `scrcpy-server` file
+   (`SCRCPY_SERVER_PATH`, else `../share/scrcpy/scrcpy-server` next to the
+   `scrcpy` program, else the Homebrew and `/usr` places). The server version
+   comes from the file itself: the server starts only with its own version.
+2. `adb push` to `/data/local/tmp/scrcpy-server.jar`, `adb forward tcp:0
+   localabstract:scrcpy_<scid>` (free local port, random `scid`).
+3. `adb shell app_process ... com.genymobile.scrcpy.Server <version>` with
+   `tunnel_forward=true audio=false control=false video_source=camera
+   camera_facing=back video_codec=h264 video_bit_rate=20000000
+   raw_stream=true camera_size=WxH [camera_fps=N]`. `raw_stream` sends plain
+   Annex B H.264: no device name, codec or frame headers.
+4. `Camera` opens `tcp://127.0.0.1:<port>` with FFmpeg
+   (`OPENCV_FFMPEG_CAPTURE_OPTIONS` gets `input_format;h264` for this open).
+   The forward accepts a connection before the server listens and then closes
+   it, so the open is tried again (every 0.2 s, up to 10 s) until a frame
+   arrives or the server stops. The start takes about 3 to 4 s.
+5. `LatestFrameReader` reads it, as for a stream. `Camera.release` first
+   stops the server (`pkill -f scid=<scid>` on the phone, `adb forward
+   --remove`), so a blocked read returns at once and a restart finds the
+   camera free.
+
+An open that fails puts the reason in `Camera.error` (adb message with a hint,
+or the server error lines); the live app and `list_cameras.py` print it. The
+phone can take a camera size that is not in its list
+(`scrcpy --video-source=camera --list-camera-sizes`) and send a near size.
+Tested with scrcpy 5.0.1 on a Xiaomi 13T: 1920x1080 and 3840x2160 at about
+28 fps. Unit tests: `tests/test_scrcpy.py` (no phone).
 
 ## Add a command
 

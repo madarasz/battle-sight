@@ -29,7 +29,8 @@ optional 🚧 Turn counter (where to put it?)
 ## Setup
 
 You need a Mac, a camera above the board (the built-in camera for a test, or
-a phone through Camo), a printer, and scissors.
+a phone through Camo, a Wi-Fi stream, or scrcpy over USB), a printer, and
+scissors.
 
 [docs/setup.md](docs/setup.md) gives all steps:
 
@@ -268,7 +269,7 @@ or the selected hatchway or breach point (name, status, "Open"/"Close").
 - **The camera does not start.** Make sure that the Terminal app has camera
   permission (System Settings > Privacy & Security > Camera). Find the
   correct camera number with `uv run tools/list_cameras.py`. If Camo does
-  not show, or you use a Wi-Fi stream, see
+  not show, or you use a Wi-Fi stream or scrcpy, see
   [docs/setup.md](docs/setup.md), Troubleshooting.
 - **A base is not found.** The app must see at least half of the black edge
   of the base. Move the camera nearer to the top of the board, or turn the

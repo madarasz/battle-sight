@@ -3,8 +3,9 @@
     uv run tools/list_cameras.py [--max 6] [--width 3840 --height 2160]   list device indices
     uv run tools/list_cameras.py --use 1 [--width 3840 --height 2160]     check index 1 and save it
     uv run tools/list_cameras.py --url http://PHONE-IP:8080/video         check a stream and save it
+    uv run tools/list_cameras.py --scrcpy [SERIAL] --width 1920 --height 1080   Android phone over USB
 
---use and --url write the [camera] table of data/camera.toml (--camera-file to change).
+--use, --url and --scrcpy write the [camera] table of data/camera.toml (--camera-file to change).
 The other values in the file (focal_35mm, the [lens] calibration) stay. The live commands
 (battlesight, enroll, calibrate) then use the saved values. --source overrides the source
 for one run. --no-save only checks.
@@ -73,28 +74,56 @@ def use_index(args) -> int:
     return _save(args, source=args.use, width=got[0], height=got[1], fps=args.fps)
 
 
-def use_url(args, frames: int = 30) -> int:
+def use_url(args) -> int:
     cam = Camera(args.url)
     if not cam.open():
         print(f"cannot open {args.url}. Check the URL in a browser, the Wi-Fi, the VPN, and Local Network access.")
         return 1
+    if _measure(cam, args.url) is None:
+        return 1
+    return _save(args, source=args.url)
+
+
+def use_scrcpy(args) -> int:
+    source = f"scrcpy:{args.scrcpy}" if args.scrcpy else "scrcpy"
+    cam = Camera(source, args.width, args.height, args.fps)
+    if not cam.open():
+        print(f"cannot open {source}: {cam.error}")
+        return 1
+    if _measure(cam, source) is None:
+        return 1
+    # Save the camera size that the phone accepted, not the frame size: the frame can be turned.
+    return _save(args, source=source, width=args.width, height=args.height, fps=args.fps)
+
+
+def _measure(cam: Camera, name: str, warmup: float = 1.0, span: float = 2.0):
+    """Read an open camera for some seconds and print the size and rate. The frame size, or None.
+    The first second is not counted: a stream can give its start-up frames in a burst."""
     t0 = time.perf_counter()
     got = 0
     shape = None
-    for _ in range(frames * 3):
+    start = None
+    while time.perf_counter() - t0 < warmup + span + 3.0:
         frame = cam.read()
-        if frame is not None:
+        now = time.perf_counter()
+        if frame is None:
+            continue
+        shape = frame.shape[1::-1]
+        if now - t0 < warmup:
+            continue
+        if start is None:
+            start = now
+        else:
             got += 1
-            shape = frame.shape[1::-1]
-            if got == frames:
-                break
-    dt = time.perf_counter() - t0
+        if now - start >= span:
+            break
     cam.release()
-    if not got:
-        print(f"{args.url}: opened, but no frames arrived")
-        return 1
-    print(f"{args.url}: {shape[0]}x{shape[1]}, {got / dt:.1f} fps measured over {got} frames")
-    return _save(args, source=args.url)
+    if shape is None:
+        print(f"{name}: opened, but no frames arrived")
+        return None
+    rate = got / (time.perf_counter() - start) if start is not None and got else 0.0
+    print(f"{name}: {shape[0]}x{shape[1]}, {rate:.1f} fps measured")
+    return shape
 
 
 def _save(args, **camera) -> int:
@@ -104,7 +133,7 @@ def _save(args, **camera) -> int:
     old = CameraSettings.load(args.camera_file)
     settings = old.override(**camera)
     settings.save(args.camera_file)
-    print(f"saved to {args.camera_file}. Now run: uv run battlesight corners")
+    print(f"saved to {args.camera_file}. Now run: uv run battlesight")
     if old.lens is not None and old.source != settings.source:
         print(
             f"note: the file keeps the lens calibration from {old.lens_date or 'before'} "
@@ -119,15 +148,18 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--max", type=int, default=6, help="device indices to try when listing")
     ap.add_argument("--width", type=int, default=3840, help="frame width to request from a device")
     ap.add_argument("--height", type=int, default=2160, help="frame height to request from a device")
-    ap.add_argument("--fps", type=float, default=None, help="frame rate to save with --use")
+    ap.add_argument("--fps", type=float, default=None, help="frame rate to save with --use or --scrcpy")
     pick = ap.add_mutually_exclusive_group()
     pick.add_argument("--use", type=int, metavar="INDEX", help="check this device index and save it")
     pick.add_argument("--url", help="check this network stream and save it")
+    pick.add_argument("--scrcpy", nargs="?", const="", metavar="SERIAL", help="check an Android phone camera over USB (scrcpy server) and save it; SERIAL from 'adb devices' when more than one is connected")
     ap.add_argument("--no-save", action="store_true", help="only check, do not write the camera file")
     ap.add_argument("--camera-file", default=str(DEFAULT_CAMERA_FILE), help="camera settings file to write")
     args = ap.parse_args(argv)
     if args.url:
         return use_url(args)
+    if args.scrcpy is not None:
+        return use_scrcpy(args)
     if args.use is not None:
         return use_index(args)
     return list_indices(args)

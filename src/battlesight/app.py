@@ -57,7 +57,7 @@ MAX_TEAMS = 2  # two teams play
 
 
 def _add_camera_args(p: argparse.ArgumentParser) -> None:
-    p.add_argument("--source", default=None, help="camera index, or stream URL such as http://PHONE-IP:8080/video, for this run (default: saved in --camera-file, else 0)")
+    p.add_argument("--source", default=None, help="camera index, stream URL such as http://PHONE-IP:8080/video, or scrcpy[:SERIAL] (Android phone over USB), for this run (default: saved in --camera-file, else 0)")
     p.add_argument("--camera-file", default=str(DEFAULT_CAMERA_FILE), help="camera settings and lens calibration (tools/list_cameras.py, calibrate)")
     p.add_argument("--config", default=str(DEFAULT_CONFIG), help="board TOML config")
 
@@ -88,6 +88,8 @@ def _open_camera(args: argparse.Namespace) -> Camera | None:
     cam = Camera(args.source, args.width, args.height, args.fps)
     if not cam.open():
         print(f"cannot open camera source {args.source!r}. See docs/setup.md, Troubleshooting.", file=sys.stderr)
+        if cam.error:
+            print(cam.error, file=sys.stderr)
         return None
     w, h = cam.size
     asked = "size set by the stream" if cam.stream else f"requested {args.width}x{args.height}"

@@ -1,9 +1,12 @@
 """Camera capture with resolution request and automatic reconnect.
 
-Two kinds of source:
+Three kinds of source:
 - a device index (Camo, Continuity Camera, built-in camera) through AVFoundation on macOS,
 - a network stream URL (http MJPEG, rtsp) through FFmpeg, read on a background thread that
-  keeps only the newest frame, so slow processing does not build up lag.
+  keeps only the newest frame, so slow processing does not build up lag,
+- `scrcpy` or `scrcpy:SERIAL`: an Android phone camera over USB (`scrcpy.ScrcpyServer`),
+  plain H.264 on a local TCP port, read like a stream. Width, height and fps are the
+  camera size and rate that the phone is asked for.
 
 `CameraSettings` is everything about the camera in data/camera.toml: the source that
 `tools/list_cameras.py` saved (the live commands use it as their defaults), the nominal
@@ -25,14 +28,17 @@ import cv2
 import numpy as np
 
 from .calib import Lens
+from .scrcpy import ScrcpyError, ScrcpyServer, is_scrcpy
 
 DEFAULT_CAMERA_FILE = Path(__file__).resolve().parents[2] / "data" / "camera.toml"
 STREAM_OPEN_TIMEOUT_MS = 5000
 STREAM_READ_TIMEOUT_S = 1.0
+SCRCPY_CONNECT_S = 10.0  # the camera of the phone can need some seconds to start
+SCRCPY_FFMPEG_OPTIONS = "input_format;h264"  # raw H.264 without a container
 
 
 def parse_source(text: str) -> int | str:
-    """'0' -> 0 (device index). Anything else is a URL or file path."""
+    """'0' -> 0 (device index). Anything else is a URL, `scrcpy[:SERIAL]`, or a file path."""
     return int(text) if text.isdigit() else text
 
 
@@ -213,20 +219,29 @@ class Camera:
         self._cap: cv2.VideoCapture | None = None
         self._reader: LatestFrameReader | None = None
         self._failures = 0
+        self._server: ScrcpyServer | None = None
         self.reconnects = 0
+        self.error: str | None = None  # why the last open failed, for the user
 
     @property
     def stream(self) -> bool:
+        """A network URL: the sender sets the size and rate."""
         return is_stream(self.source)
+
+    @property
+    def scrcpy(self) -> bool:
+        return is_scrcpy(self.source)
 
     def _backend(self) -> int:
         if isinstance(self.source, int) and sys.platform == "darwin":
             return cv2.CAP_AVFOUNDATION
-        if self.stream:
+        if self.stream or self.scrcpy:
             return cv2.CAP_FFMPEG
         return cv2.CAP_ANY
 
     def _open_capture(self) -> cv2.VideoCapture:
+        if self.scrcpy:
+            return self._open_scrcpy()
         if not self.stream:
             return cv2.VideoCapture(self.source, self._backend())
         # RTSP over TCP: UDP drops packets on Wi-Fi and gives torn frames. A user value wins.
@@ -237,13 +252,52 @@ class Camera:
         ]
         return cv2.VideoCapture(self.source, self._backend(), params)
 
+    def _open_scrcpy(self) -> cv2.VideoCapture:
+        """Start the server on the phone and open its H.264 port. The forwarded port
+        accepts a connection before the server listens and then closes it, so try again
+        until the server takes it or stops."""
+        server = self._server = ScrcpyServer(str(self.source), self.width, self.height, self.fps)
+        url = server.start()
+        params = [
+            cv2.CAP_PROP_OPEN_TIMEOUT_MSEC, STREAM_OPEN_TIMEOUT_MS,
+            cv2.CAP_PROP_READ_TIMEOUT_MSEC, STREAM_OPEN_TIMEOUT_MS,
+        ]
+        old = os.environ.get("OPENCV_FFMPEG_CAPTURE_OPTIONS")
+        os.environ["OPENCV_FFMPEG_CAPTURE_OPTIONS"] = SCRCPY_FFMPEG_OPTIONS if not old else f"{old}|{SCRCPY_FFMPEG_OPTIONS}"
+        try:
+            deadline = time.monotonic() + SCRCPY_CONNECT_S
+            while True:
+                cap = cv2.VideoCapture(url, cv2.CAP_FFMPEG, params)
+                # The open can pass on the adb end alone: a frame shows that the server sends.
+                if cap.isOpened() and cap.get(cv2.CAP_PROP_FRAME_WIDTH) > 0 and cap.read()[0]:
+                    break
+                cap.release()
+                if not server.running or time.monotonic() > deadline:
+                    break
+                time.sleep(0.2)
+        finally:
+            if old is None:
+                os.environ.pop("OPENCV_FFMPEG_CAPTURE_OPTIONS", None)
+            else:
+                os.environ["OPENCV_FFMPEG_CAPTURE_OPTIONS"] = old
+        if not cap.isOpened():
+            time.sleep(0.3)  # let the log reader get the last server lines
+            raise ScrcpyError("the phone sent no video. " + (server.problem() or "No server output."))
+        return cap
+
     def open(self) -> bool:
         self.release()
-        cap = self._open_capture()
+        self.error = None
+        try:
+            cap = self._open_capture()
+        except ScrcpyError as exc:
+            self.error = str(exc)
+            self.release()
+            return False
         if not cap.isOpened():
             return False
-        if self.stream:
-            # The phone app sets the stream size and rate. Requests have no effect here.
+        if self.stream or self.scrcpy:
+            # The sender sets the size and rate (for scrcpy: at the server start).
             self._cap = cap
             self._reader = LatestFrameReader(cap)
             self._failures = 0
@@ -303,6 +357,10 @@ class Camera:
         return None
 
     def release(self) -> None:
+        if self._server is not None:
+            # First: the server end closes the socket, so a blocked read returns at once.
+            self._server.stop()
+            self._server = None
         if self._reader is not None:
             self._reader.stop()
             self._reader = None
