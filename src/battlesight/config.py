@@ -70,6 +70,9 @@ class BoardConfig:
     ident_mask_threshold: float = 25.0
     ident_mask_min_base: float = 0.25
     ident_mask_max_fraction: float = 0.6
+    # Copies of one operative type (live app): pairing of copies to bases by last position.
+    copies_swap_margin_mm: float = 25.0  # a swap that costs less than this, with a different state, makes both names unsure
+    copies_new_cost_mm: float = 150.0  # pairing cost of a copy without a known position
     # Terrain footprints on the board (terrain.py, map files in data/maps/).
     terrain_wall_mm: float = 4.0  # wall thickness
     terrain_pillar_mm: float = 13.0  # pillar square side
@@ -99,7 +102,7 @@ class BoardConfig:
             raw = tomllib.load(fh)
         board, tags, drift = raw["board"], raw["tags"], raw.get("drift", {})
         grid, rect, bases = raw.get("grid", {}), raw.get("rectify", {}), raw.get("bases", {})
-        ident, terrain = raw.get("ident", {}), raw.get("terrain", {})
+        ident, terrain, copies = raw.get("ident", {}), raw.get("terrain", {}), raw.get("copies", {})
         if "camera" in raw:
             raise ValueError("[camera] moved from the board config to data/camera.toml (focal_35mm, lens calibration)")
         d = {f.name: f.default for f in dataclasses.fields(cls)}  # a key that the file leaves out gets the default above
@@ -142,6 +145,7 @@ class BoardConfig:
             **table("rectify", rect),
             **table("bases", bases, skip=("bases_diameters_mm",)),
             **table("ident", ident),
+            **table("copies", copies),
             **table("terrain", terrain, skip=("terrain_light_mm",)),
             terrain_light_mm=_light_sizes(terrain.get("light_mm"), d["terrain_light_mm"]),
         )

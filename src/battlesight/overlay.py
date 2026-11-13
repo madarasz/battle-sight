@@ -92,6 +92,17 @@ def draw_text_banner(frame: np.ndarray, text: str, color: tuple[int, int, int], 
         cv2.putText(frame, extra, (frame.shape[1] - tw - int(16 * s), y0 + int(30 * s)), cv2.FONT_HERSHEY_SIMPLEX, 0.6 * s, WHITE, 1, cv2.LINE_AA)
 
 
+def draw_crosshair(frame: np.ndarray, at: tuple[float, float], color: tuple[int, int, int] = YELLOW) -> None:
+    """A "+" at the pixel `at` (a pointer for "click the centre"), with a dark
+    outline and a gap at the centre, so the point under it stays visible."""
+    s = _scale(frame)
+    x, y = int(round(at[0])), int(round(at[1]))
+    arm, gap = int(22 * s), int(5 * s)
+    for c, w in ((BLACK, max(3, round(4 * s))), (color, max(1, round(2 * s)))):
+        for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+            cv2.line(frame, (x + dx * gap, y + dy * gap), (x + dx * arm, y + dy * arm), c, w, cv2.LINE_AA)
+
+
 def fit_to_width(frame: np.ndarray, width: int) -> np.ndarray:
     if frame.shape[1] <= width:
         return frame
@@ -192,6 +203,14 @@ def _label(frame: np.ndarray, text: str, org: tuple[int, int], color, s: float, 
 INSIDE_NAME_SIZE = 1.6  # font size factor of the names on the minimap
 
 
+def _shown_name(label: str) -> str:
+    """Operative name of a label for the board: "Boy 2" for the copy label
+    `team/Boy#2` (see `ident.display_name`)."""
+    name = label.partition("/")[2] or label
+    base, sep, k = name.partition("#")
+    return f"{base} {k}" if sep else name
+
+
 def ident_color(x) -> tuple[int, int, int]:
     """Green: sure or confirmed name. Yellow: unsure name. Red: unknown."""
     if x.label is None:
@@ -219,7 +238,7 @@ def draw_idents(frame: np.ndarray, bases, idents, to_px, scores: bool = True, te
         ring = c.center_mm + r * np.c_[np.cos(a), np.sin(a)]
         pts = np.rint(to_px(ring)).astype(np.int32).reshape(-1, 1, 2)
         cv2.polylines(frame, [pts], True, ring_color, thick, cv2.LINE_AA)
-        name = "?" if x.label is None else x.label.partition("/")[2] or x.label
+        name = "?" if x.label is None else _shown_name(x.label)
         if scores and x.label is not None and not x.confirmed:
             name += f" {x.score:.2f}"
         at = c.center_mm if inside else c.center_mm + (0.0, r + 2.0)

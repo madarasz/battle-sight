@@ -364,10 +364,48 @@ error notice). Removed operatives are out of play: `Gallery.out_of_play`
 so `assign` and the name list never give their name; the known base sizes
 (`Pipeline.set_roster`) are those of the operatives in play. The names of the
 last snapshot stay until the next `space`. State: each `rosters` entry has
-`missing` = `[{label, name}]`, the team operatives not in the list. UI
+`missing` = `[{label, name, max, copies_in_play}]`, the team operatives that
+can go in the list (not in it, or fewer copies than `max`). UI
 (`ui/parts.TeamRoster`): "Add operative" (enabled with `missing`) opens a list
 of `missing` above the buttons and is "Cancel" while it is open; "Remove
 operative" is enabled when the selected operative is in that list.
+
+Copies (`specs/operative-copies.md`): an operative with `max = N` (N > 1) in
+`team.toml` can be in a team list N times. Each copy has a copy label
+`<team>/<operative>#<k>` (`ident.copy_label`, `type_of`, `copy_number`,
+`display_name` = "Boy 2"); an operative with `max = 1` keeps its type label.
+`in_play` holds copy labels; at the start each type has one copy (`#1`).
+`roster.add(slot, label)` with a type label adds the lowest free copy (up to
+`max`, else an error notice), with a copy label that copy. `roster.remove`
+of a copy drops its wounds and position: it comes back with all wounds.
+Wounds, selection and target use copy labels. Identification: the gallery
+stays per type; `Gallery.copies` (type label -> copies in play, set with
+`out_of_play`; a type that is not there: its `max`) gives `assign` one column
+per copy (`Gallery.columns`), so a type goes to at most that many bases; the
+margin compares with other types only. Then `LiveSession._pair_copies` gives
+each base of the type one copy: Hungarian on the distance from the base to
+the last known centre of each copy (`LiveSession.positions`, not saved;
+`[copies] new_cost_mm` for a copy without one). Copies without a position
+get their numbers by distance from the top-left board corner. When a swap of
+two copies (or of a copy with a copy that has no base) costs less than
+`[copies] swap_margin_mm` and the copies have different current wounds,
+both names are unsure. Positions change for the sure bases, for a name
+choice, and for "Locate operative". `base.choose(label)` with a type label
+gives the base its copy, else a copy without a base, else the first copy; a
+copy label that another base of the same type holds swaps the two bases (both
+confirmed). Name photos go to the type folder. State: `bases` entries and
+`rosters` rows have `type_label`, `copy` (number or `null`) and `name`
+(display name); `candidates` list each copy in play with `name`, `copy`,
+`wounds`, `max_wounds`; `selected_wounds` has `name`. The `image-pipeline`
+report and the `ident` stage give type labels only; the benchmarks compare
+type labels.
+
+`[copies]` in `data/board.toml`:
+
+| Key | Default | Meaning |
+|---|---|---|
+| `swap_margin_mm` | 25 | A swap of two copies that costs less than this, with different wounds, makes both names unsure. |
+| `new_cost_mm` | 150 | Pairing cost of a copy without a known position. |
 
 Fixes (plan priority 4, "user confirms or fixes with one click"): after
 `space`, right-click a base, then click a name in the list (a popup at the base
@@ -478,9 +516,9 @@ frame).
 ## `enroll`: gallery photos of one operative
 
 ```
-uv run battlesight enroll --team NAME --operative NAME [--base-mm 32] [--wounds W]
+uv run battlesight enroll --team NAME --operative NAME [--base-mm 32] [--wounds W] [--expendable | --not-expendable]
                           [--archetype ARCH ...] [--faction-counter TEXT]
-                          [--non-expendable N|N-M]
+                          [--operative-count N|N-M]
                           [--images PATH ...] [--reference FILE]
                           [--gallery-root data/teams]
                           [--source S] [--camera-file FILE] [--config FILE]
@@ -490,13 +528,15 @@ Adds crops of one operative to `data/teams/<team>/<operative>/` and its base
 size to `data/teams/<team>/team.toml` (created when new). `--wounds W` (a
 whole number, 1 or more) sets or replaces the maximum wounds of the operative
 in `team.toml` at the start, before the first crop; a bad value gives exit
-code 2 and no change. `--archetype ARCH ...` (one or more of `Infiltration`,
+code 2 and no change. `--expendable` sets `expendable = true` for the
+operative in `team.toml` (`--not-expendable` removes it; without either option
+the value stays). `--archetype ARCH ...` (one or more of `Infiltration`,
 `"Seek and Destroy"`, `Recon`, `Security`; the keys of `[tac_ops]` in
 `data/approved-ops-2025.toml`; quote a name with spaces) and
 `--faction-counter TEXT` set the team values in `team.toml`: each replaces the
 old value of the team (`--faction-counter ""` clears it).
-`--non-expendable N` or `N-M` (whole numbers, 1 or more, a range goes up) sets
-`non-expendable-operative-count` the same way (`--non-expendable ""` clears it). Other values give
+`--operative-count N` or `N-M` (whole numbers, 1 or more, a range goes up) sets
+`operative-count` the same way (`--operative-count ""` clears it). Other values give
 exit code 2 and no change. Live: push
 `space`. With exactly one base (of `--base-mm` or the size in `team.toml`)
 the crop goes in at once; with more, click the base, or push `Esc` to leave the
@@ -506,8 +546,11 @@ parallax changes the look near the edges). A crop with the same pixels as a
 gallery photo of the operative is not saved (`ident.DuplicatePhoto`,
 `ident.same_photo`): the banner tells the user to turn and move the model. Two
 camera frames are never the same, so this stops only a second grab of one
-image (`--images`, or a name fix on `--image-source`). `u` undoes the last crop, `v`
-changes the view, `q` quits. `e` uses the current frame as the empty-board
+image (`--images`, or a name fix on `--image-source`). The live video is
+top-down (adjusted perspective) when the board fits: `live.BoardTracker`, the
+same tag detection, drift monitor and board fit as the live app, so the view
+stays at the saved position while one or two cards are covered. `u` undoes the last crop, `v`
+changes the view (top-down or camera), `q` quits. `e` uses the current frame as the empty-board
 reference and writes it to `--reference` (default
 `data/snapshots/empty_board.png`, the file that the live app also uses). The
 frame must pass `corners` and `rectify`, else the app keeps the old reference
@@ -521,20 +564,22 @@ the score, the two most frequent misses (`app.leave_one_out_text`) and the
 operatives that need more photos (`app.weak_text`). All misses and one `weak:`
 line for each such operative go to the Terminal (see `gallery`). The banner shows the camera frame size and the measured frame rate of the window.
 
-Zoom: `+` (or `=`) and `-` change a digital zoom around the mouse pointer, `0`
-removes it (`live.ZoomView`). It does not add camera detail, because the crop
-still comes from the full frame. While zoomed, the window shows the camera
-view (`v` has no effect) and `space` searches only base centres inside the
-shown rectangle (`pipeline.BasesSearch.area_px`).
+Locate: `l` waits for a click on the centre of the base (a yellow `+` at the
+pointer, `overlay.draw_crosshair`; an OpenCV window cannot change the mouse
+cursor). The click runs the "Locate operative" search of the live app
+(`pipeline.find_base_near`: relaxed search, base size of the operative when
+known, centre within `ADD_RADIUS_MM` of the click) on the current frame, with
+the board fit of the live view (`BoardTracker`, so a covered card does no
+harm). A found base adds its crop at once (`u` undoes it); with none, the
+mode stays on for another click. `Esc` or `space` stops it.
 
 `space` first runs the normal search, with only the base size of the operative
 when `team.toml` has one. The size is then known, so this search keeps the
 radius of that size ("Base detection", known sizes). When that finds no base, a
 second search runs (`BasesSearch.relaxed`): the same fixed-radius fit, the
 thresholds are `bases.relaxed_*`, and the empty-board reference is not used. It is a guess, so it never adds a crop by itself: the user clicks a
-yellow circle. Without zoom it searches the full board and the true base is
-less often in the shown circles. On the test photos, with a search area around
-each base: 15 of 16 bases found, 14 in the first 5 (normal search: 10).
+yellow circle. It searches the full board, so the true base is less often in
+the shown circles: then push `Esc` and use `l`.
 
 When a corner card is not seen, a red strip
 names the missing cards (`app.corner_warning`, `app._CornerCheck`).
@@ -827,11 +872,13 @@ identity stay separate: the stage only reads the bases of the `bases` stage.
    for 10 bases on an M4 Pro. `model = "color-hist"` is a colour histogram
    without ML, for the tests.
 3. Gallery: `data/teams/<team>/team.toml` (`[operatives."Name"]`,
-   `base_mm`, optional `wounds` = maximum wounds for the live game state, not
-   used by the identification; team values before the first table: `archetype`
+   `base_mm`, optional `expendable = true` (default false, `Operative.expendable`), optional `wounds` = maximum wounds for the live game state, not
+   used by the identification; optional `max` = copies that a team can
+   field (whole number, 1 or more, default 1, `Operative.max`,
+   `ident.read_copies`; an operative name must not hold `#`); team values before the first table: `archetype`
    = list of archetype names from `data/approved-ops-2025.toml` (a team
    has one or more, usually two), optional `faction-counter` = string, optional
-   `non-expendable-operative-count` = whole number (`5`) or range as text (`"4-6"`); read by
+   `operative-count` = whole number (`5`) or range as text (`"4-6"`); read by
    `ident.read_team_info`, kept by every rewrite of the file). The order of
    the operative tables is the order of the team lists (`team_operatives`:
    file order, then operative folders that the file does not list, sorted);

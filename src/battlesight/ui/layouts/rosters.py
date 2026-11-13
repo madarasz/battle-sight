@@ -43,7 +43,7 @@ def operative_title(state: dict[str, Any]) -> str:
     base = state["bases"][state["selected"]]
     size = f"({base['diameter_mm']:g}mm)"
     if base["label"] is not None:
-        team, _, name = base["label"].partition("/")
+        team, name = base["label"].partition("/")[0], base["name"]
         return f"{team} - {name} {size}" if name else f"{team} {size}"
     return f"Unknown operative {size}" if state["naming"] else f"Base {size}"
 
@@ -55,6 +55,7 @@ def roster_operative_title(state: dict[str, Any]) -> str:
     team, _, name = label.partition("/")
     row = next((r for roster in state["rosters"] if roster is not None for r in roster["operatives"] if r["label"] == label), None)
     size = None if row is None else row["base_mm"]
+    name = name if row is None else row["name"]
     return f"{team} - {name}" + ("" if size is None else f" ({size:g}mm)")
 
 

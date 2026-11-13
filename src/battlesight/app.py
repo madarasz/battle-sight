@@ -1,7 +1,7 @@
 """Battle Sight: augmented reality overlay for Kill Team.
 
     battlesight [--team A [B]] [--source S | --image-source FILE] [--reference FILE]   live app
-    battlesight enroll --team NAME --operative NAME [--base-mm 32] [--wounds 15] [--archetype ARCH ...] [--faction-counter TEXT] [--non-expendable N|N-M] [--images PATH...]
+    battlesight enroll --team NAME --operative NAME [--base-mm 32] [--wounds 15] [--expendable | --not-expendable] [--archetype ARCH ...] [--faction-counter TEXT] [--operative-count N|N-M] [--images PATH...]
     battlesight gallery --team A [B]
     battlesight calibrate [--source S | --images PATH...]
     battlesight image-pipeline PATH... [--reference FILE] [--team A [B]] [--out DIR] [--json FILE|-] [--show]
@@ -47,9 +47,10 @@ from .bench import is_reference
 from .calib import CharucoFinder, TagDetector, calibrate_lens
 from .camera import DEFAULT_CAMERA_FILE, Camera, CameraSettings, ImageSource, parse_source
 from .config import CORNER_NAMES, DEFAULT_CONFIG, BoardConfig
-from .live import DEFAULT_REFERENCE, DISPLAY_WIDTH, BoardWindow, FpsMeter, LiveSession, Notice, ZoomView, failed_stage, load_gallery, load_reference
-from .overlay import GREEN, RED, YELLOW, draw_bases, draw_text_banner, fit_to_width
-from .pipeline import SCHEMA_VERSION, BasesSearch, Pipeline
+from .live import DEFAULT_REFERENCE, DISPLAY_WIDTH, BoardTracker, BoardWindow, FpsMeter, LiveSession, Notice, failed_stage, load_gallery, load_reference
+from .overlay import GREEN, RED, YELLOW, draw_bases, draw_crosshair, draw_text_banner, fit_to_width
+from .pipeline import SCHEMA_VERSION, BasesSearch, Pipeline, base_crops, bases_image, find_base_near
+from .rectify import warp_board
 
 IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png", ".bmp", ".tif", ".tiff", ".webp"}
 MAX_TEAMS = 2  # two teams play
@@ -129,8 +130,11 @@ class _CornerCheck:
         self.count = 0
         self.warning: str | None = None
 
-    def update(self, frame) -> str | None:
-        if self.count % self.every == 0:
+    def update(self, frame, obs: dict | None = None) -> str | None:
+        """Check `frame`, or the tags `obs` found on it already (each frame)."""
+        if obs is not None:
+            self.warning = corner_warning(self.cfg, obs)
+        elif self.count % self.every == 0:
             self.warning = corner_warning(self.cfg, self.detector.detect(frame))
         self.count += 1
         return self.warning
@@ -242,17 +246,19 @@ def cmd_enroll(args: argparse.Namespace) -> int:
         name = idt.check_name(args.operative, "operative")
         if args.base_mm is not None and args.base_mm not in cfg.bases_diameters_mm:
             raise ValueError(f"--base-mm {args.base_mm:g} is not in [bases] diameters_mm {list(cfg.bases_diameters_mm)}")
-        op = gallery.ensure_operative(team, name, args.base_mm, args.wounds)
-        if args.archetype is not None or args.faction_counter is not None or args.non_expendable is not None:
-            count = args.non_expendable
+        op = gallery.ensure_operative(team, name, args.base_mm, args.wounds, args.expendable)
+        if args.archetype is not None or args.faction_counter is not None or args.operative_count is not None:
+            count = args.operative_count
             count = int(count) if count is not None and count.strip().isdigit() else count
             info = gallery.set_team_info(team, args.archetype, args.faction_counter, count)
-            ne = "-" if info.non_expendable is None else "-".join(dict.fromkeys(map(str, info.non_expendable)))
-            print(f"{team}: archetype {', '.join(info.archetypes) or '-'}, faction-counter {info.faction_counter or '-'}, non-expendable-operative-count {ne} saved in {idt.TEAM_FILE}")
+            ne = "-" if info.operative_count is None else "-".join(dict.fromkeys(map(str, info.operative_count)))
+            print(f"{team}: archetype {', '.join(info.archetypes) or '-'}, faction-counter {info.faction_counter or '-'}, operative-count {ne} saved in {idt.TEAM_FILE}")
     except ValueError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
     label = op.label
+    if args.expendable is not None:
+        print(f"{label}: expendable {'yes' if op.expendable else 'no'} saved in {idt.TEAM_FILE}")
     if args.wounds is not None:
         print(f"{label}: maximum wounds {op.wounds} saved in {idt.TEAM_FILE}")
     pipe = Pipeline(cfg, "ident", args.camera)
@@ -296,41 +302,41 @@ def cmd_enroll(args: argparse.Namespace) -> int:
     cam = _open_camera(args)
     if cam is None:
         return 2
-    print(f"enroll {label}: space grab, click the base when there are more (Esc back when the right base has no circle), u undo, e take the empty-board reference, t test the gallery, + - zoom at the pointer (space searches the zoomed area only), 0 no zoom, v view, q quit. Turn and move the model between grabs.")
+    print(f"enroll {label}: space grab, click the base when there are more (Esc back when the right base has no circle), u undo, e take the empty-board reference, t test the gallery, l locate: click the centre of the base (Esc stops), v view, q quit. Turn and move the model between grabs.")
     window = "Battle Sight - enroll"
     cv2.namedWindow(window, cv2.WINDOW_NORMAL)
     win = BoardWindow(cfg, DISPLAY_WIDTH)
-    zoom = ZoomView(DISPLAY_WIDTH)
-    win.zoom = zoom
-    state = {"result": None, "snap": None, "added": [], "click": None, "test": None, "relaxed": False, "pointer": None, "top_down": win.top_down}
+    # locate: the next click on the live view is the centre of the base (l key)
+    state = {"result": None, "snap": None, "added": [], "click": None, "test": None, "relaxed": False, "pointer": None, "top_down": win.top_down, "locate": False, "locate_at": None}
 
     def on_mouse(event, x, y, flags, _):
         if event == cv2.EVENT_MOUSEMOVE:
             state["pointer"] = (x, y)
-        if event == cv2.EVENT_LBUTTONDOWN and state["result"] is not None:
-            state["click"] = win.to_mm(x, y)
+        if event == cv2.EVENT_LBUTTONDOWN:
+            if state["locate"]:
+                state["locate_at"] = (x, y)
+            elif state["result"] is not None:
+                state["click"] = win.to_mm(x, y)
 
     cv2.setMouseCallback(window, on_mouse)
     check = _CornerCheck(cfg)
+    board = BoardTracker(cfg, args.camera)  # perspective of the live view, as in the live app
     notice = Notice()
     meter = FpsMeter()
 
     def find(snap, relaxed: bool):
         size = None if op.base_mm is None else (op.base_mm,)
-        return pipe.analyze(snap, source="camera", search=BasesSearch(zoom.area(), size, relaxed))
-
-    def anchor():
-        """Frame point under the pointer, None when the top-down view is on the screen."""
-        if state["pointer"] is None or (state["result"] is not None and win.top_down):
-            return None
-        return zoom.to_frame(state["pointer"][0] / win.scale, state["pointer"][1] / win.scale)
+        return pipe.analyze(snap, source="camera", search=BasesSearch(None, size, relaxed))
 
     def add(i: int) -> None:
-        nonlocal op
         r = state["result"]
         c = r.scratch["bases"][i]
+        add_crop(r.scratch["base_crops"][i], c.diameter_mm, _enroll_background(r, i))
+
+    def add_crop(crop, diameter_mm: float, background) -> None:
+        nonlocal op
         try:
-            path = gallery.add(label, r.scratch["base_crops"][i], c.diameter_mm, _enroll_background(r, i))
+            path = gallery.add(label, crop, diameter_mm, background)
         except idt.DuplicatePhoto:
             state["result"] = None
             notice.error(f"the gallery has this photo already: turn and move {op.name}, then push space")
@@ -347,7 +353,38 @@ def cmd_enroll(args: argparse.Namespace) -> int:
         if state["result"] is None:
             return False
         state["result"], state["snap"], state["click"] = None, None, None
-        notice.say("no photo added: move the model or zoom, then push space")
+        notice.say("no photo added: move the model or push l, then push space")
+        return True
+
+    def locate(frame, x: float, y: float) -> None:
+        """Search the base around the clicked point of the live view (the
+        "Locate operative" search of the live app) and add its crop. The
+        held board fit of the live view maps the click, so a covered card
+        does no harm."""
+        view = board.view
+        if view is None:
+            notice.error("board not found: all 4 corner cards must be seen once")
+            return
+        px = np.array([[x / win.scale, y / win.scale]])
+        at = (px / cfg.rectify_px_per_mm - cfg.rectify_margin_mm)[0] if win.top_down else view.px_to_mm(px)[0]
+        img = bases_image(frame, view, cfg)
+        sizes = None if op.base_mm is None else (op.base_mm,)
+        circle = find_base_near(img, cfg, at, sizes)
+        if circle is None:
+            notice.error("no base found there: click the centre of the base, Esc to stop")  # locate stays on
+            return
+        state["locate"] = False
+        ref = pipe.cache.get("bases_reference")
+        background = None if ref is None else base_crops(ref, [circle], cfg)[0]
+        print(f"located a {circle.diameter_mm:g} mm base at {np.round(circle.center_mm, 1).tolist()} mm")
+        add_crop(base_crops(img, [circle], cfg)[0], circle.diameter_mm, background)
+
+    def stop_locate() -> bool:
+        """Esc while locate waits for a click. False when it does not wait."""
+        if not state["locate"]:
+            return False
+        state["locate"], state["locate_at"] = False, None
+        notice.say("locate stopped")
         return True
 
     while True:
@@ -355,23 +392,27 @@ def cmd_enroll(args: argparse.Namespace) -> int:
         if frame is None:
             meter.reset()
             key = cv2.waitKey(100) & 0xFF
-            if key == ord("q") or (key == 27 and not leave_pick()):
+            if key == ord("q") or (key == 27 and not stop_locate() and not leave_pick()):
                 break
             continue
         meter.tick(time.monotonic())
-        zoom.set_frame_size(frame.shape[1], frame.shape[0])
+        board.update(frame)
         key = cv2.waitKey(1) & 0xFF
-        if key == ord("q") or (key == 27 and not leave_pick()):
+        if key == ord("q") or (key == 27 and not stop_locate() and not leave_pick()):
             break
         if key == ord("v"):
             state["top_down"] = not state["top_down"]
-        if key in (ord("+"), ord("=")):
-            zoom.step(1, anchor())
-        if key in (ord("-"), ord("_")):
-            zoom.step(-1, anchor())
-        if key == ord("0"):
-            zoom.reset()
-        win.top_down = state["top_down"] and not zoom.active  # zoom shows the camera view
+        if state["result"] is None:
+            win.top_down = state["top_down"] and board.view is not None  # the live view
+        else:
+            win.top_down = state["top_down"]  # the snapshot of the base choice
+        if key == ord("l"):
+            leave_pick()
+            state["locate"], state["locate_at"] = True, None
+            notice.say(f"click the centre of the base of {op.name}, Esc to stop")
+        if state["locate_at"] is not None:
+            (x, y), state["locate_at"] = state["locate_at"], None
+            locate(frame, x, y)
         if key == ord("u"):
             if state["added"]:
                 path = state["added"].pop()
@@ -394,6 +435,7 @@ def cmd_enroll(args: argparse.Namespace) -> int:
             advice = weak_text(weak_operatives(misses, gallery.counts()))
             state["test"] = (leave_one_out_text(right, total, misses) + (f". {advice[0].upper()}{advice[1:]}" if advice else ""), GREEN if total and not misses else YELLOW)
         if key == ord(" "):
+            stop_locate()
             snap = frame.copy()
             result = find(snap, False)
             state["relaxed"] = result.ok and not _enroll_candidates(result, op.base_mm)
@@ -416,8 +458,6 @@ def cmd_enroll(args: argparse.Namespace) -> int:
                     notice.say(f"{len(cand)} bases: click the base of {op.name}")
         r = state["result"]
         video = f"{frame.shape[1]}x{frame.shape[0]} {'--' if meter.fps is None else f'{meter.fps:.0f}'} fps"
-        if zoom.active:
-            video += f" zoom {zoom.factor:.1f}x"
         if r is not None and state["click"] is not None:
             p_mm, state["click"] = state["click"], None
             found = r.scratch["bases"]
@@ -432,18 +472,22 @@ def cmd_enroll(args: argparse.Namespace) -> int:
         if r is not None and state["result"] is not None:
             img = win.base_image(state["snap"], r)
             draw_bases(img, [r.scratch["bases"][i] for i in _enroll_candidates(r, op.base_mm)], win.to_px, YELLOW)
-            if not win.top_down:
-                img = zoom.image(img)
             ask = f"not sure: click the base of {op.name}" if state["relaxed"] else f"click the base of {op.name}"
             draw_text_banner(img, ask, YELLOW, f"{video}, {gallery.counts()[label]} photos, Esc back")
         else:
-            img = zoom.image(frame).copy()
-            if pipe.has_reference:
+            img = warp_board(frame, board.view, cfg) if win.top_down else frame.copy()
+            if state["locate"]:
+                draw_text_banner(img, f"locate {op.name}: click the centre of its base", YELLOW, f"{video}, {gallery.counts()[label]} photos, Esc stop")
+            elif pipe.has_reference:
                 draw_text_banner(img, f"enroll {op.name}: push space", GREEN, f"{video}, {gallery.counts()[label]} photos, aim for 10 to 20")
             else:
                 draw_text_banner(img, f"enroll {op.name}: no background saved, push e on the empty board", YELLOW, f"{video}, {gallery.counts()[label]} photos, aim for 10 to 20")
-        check.update(frame)
-        cv2.imshow(window, check.draw(win.fit(img), notice, state["test"]))
+        check.update(frame, board.obs)
+        shown = check.draw(win.fit(img), notice, state["test"])
+        if state["locate"] and state["pointer"] is not None:
+            shown = shown.copy()
+            draw_crosshair(shown, state["pointer"])  # an OpenCV window cannot change the mouse cursor
+        cv2.imshow(window, shown)
     cam.release()
     cv2.destroyAllWindows()
     return 0
@@ -703,8 +747,10 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--operative", required=True, help="operative name, for example \"Boss Nob\"")
     p.add_argument("--base-mm", type=float, default=None, help="base diameter; only bases of this size are taken (default: from team.toml, else the found base)")
     p.add_argument("--wounds", type=int, default=None, metavar="W", help="maximum wounds of the operative; sets or replaces the value in team.toml at the start")
+    p.add_argument("--expendable", dest="expendable", action="store_const", const=True, default=None, help="mark the operative as expendable; sets or replaces the value in team.toml at the start")
+    p.add_argument("--not-expendable", dest="expendable", action="store_const", const=False, help="clear the expendable mark of the operative")
     p.add_argument("--archetype", nargs="+", choices=idt.ARCHETYPES, default=None, metavar="ARCH", help=f"archetypes of the team ({', '.join(idt.ARCHETYPES)}); replaces the value in team.toml")
-    p.add_argument("--non-expendable", default=None, metavar="N|N-M", help="count of non-expendable operatives of the team, a number or a range like 4-6; replaces the value in team.toml, an empty text clears it")
+    p.add_argument("--operative-count", default=None, metavar="N|N-M", help="count of operatives of the team, a number or a range like 4-6; replaces the value in team.toml, an empty text clears it")
     p.add_argument("--faction-counter", default=None, metavar="TEXT", help="faction counter of the team; replaces the value in team.toml, an empty text clears it")
     p.add_argument("--images", nargs="+", default=None, help="take the crops from image files or folders (one base each) instead of the camera")
     p.add_argument("--reference", default=None, metavar="FILE", help="empty-board photo for the bases stage")

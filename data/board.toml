@@ -81,6 +81,12 @@ mask_threshold = 25.0    # Lab colour distance from the empty board that counts 
 mask_min_base = 0.25     # under this changed part of the base disc the empty-board photo is wrong: no mask for this crop
 mask_max_fraction = 0.6  # over this part of the crop circle the mask is wrong (light change, old photo): no mask for this crop
 
+[copies]
+# Operatives that a team fields more than once (max in team.toml): the live
+# app tells the copies apart by their last board position.
+swap_margin_mm = 25.0    # a swap of two copies that costs less than this (and the copies have a different state) makes both names unsure
+new_cost_mm = 150.0      # pairing cost of a copy that has no known position yet
+
 [terrain]
 # Terrain footprints where they touch the board (map files in data/maps/).
 wall_mm = 4.0              # wall thickness

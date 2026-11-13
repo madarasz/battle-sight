@@ -299,7 +299,9 @@ game camera. Read [Good gallery photos](#good-gallery-photos) first.
    the wounds, start the command with the new value and push `q`.
 
 3. Push `space`. The app finds the base and keeps a photo of it. The banner
-   shows the number of photos.
+   shows the number of photos. The video shows the board from the top, as in
+   the main app. Your hand can cover one or two corner cards: the view does
+   not change. Push `v` to see the camera view.
 4. Turn the model a little and move it to another place on the board. Push
    `space` again. Do this 10 to 20 times. Use places near the center and
    near the edges, because the model looks different there.
@@ -320,14 +322,14 @@ board and in other directions. The result
 stays until you add or remove a photo. The right side of the info bar shows
 the video resolution and the frame rate (FPS).
 
-To zoom in, put the mouse pointer on the operative and push `+`. To zoom out,
-push `-`. To remove the zoom, push `0`. When you zoom in, `space` looks for a
-base only in the part of the board that you see.
+If the app does not find the base, push `l`. A yellow `+` follows the mouse
+pointer. Click the centre of the base of the operative. The app looks for the
+base near the click and keeps a photo of it. To stop, push `Esc`.
 
 If `space` finds no base, the app tries again with a wider search. The info
 bar then shows "not sure" and yellow circles. Click a yellow circle only if it
-fits the base of the operative. If no circle fits, push `Esc`, zoom in on the
-operative or move it, and push `space` again.
+fits the base of the operative. If no circle fits, push `Esc`, then push `l`
+and click the centre of the base.
 
 ### Good gallery photos
 
@@ -396,6 +398,16 @@ also edit the wounds in this file:
 [operatives."Boss Nob"]
 base_mm = 40
 wounds = 12
+```
+
+When a team can have the same operative more than once (for example three
+Boys), write the largest number with `max`. All copies use the same photos:
+
+```toml
+[operatives."Boy"]
+base_mm = 32
+wounds = 10
+max = 3
 ```
 
 An operative gets a name only on a base of this size. In a game, the app looks only for the base sizes of the teams

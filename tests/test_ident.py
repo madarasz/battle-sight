@@ -432,6 +432,45 @@ def enroll_loop(monkeypatch, app, frame, steps):
     return frames
 
 
+def test_enroll_live_view_is_top_down_and_held_while_two_cards_are_covered(tmp_path, monkeypatch):
+    import battlesight.app as app
+    from battlesight.live import DISPLAY_WIDTH
+    from battlesight.overlay import fit_to_width
+
+    from .test_live import _cover_tags
+
+    cfg_file = cli_config(tmp_path)
+    cfg = BoardConfig.load(cfg_file)
+    frame = paint_board(cfg, {"Nob": FIRST["Nob"]})
+    covered = _cover_tags(cfg, frame, (0, 2))
+    settle = cfg.settle_frames + 2
+    hold = cfg.lost_after_frames + 2  # past the LOST report: the view is held
+    frames = iter([frame] * settle + [covered] * hold + [frame, frame])
+    shapes = []
+
+    class FakeCamera:
+        def read(self):
+            return next(frames).copy()
+
+        def release(self):
+            pass
+
+    keys = iter([-1] * (settle + hold) + [ord("v"), ord("q")])
+    monkeypatch.setattr(app, "_open_camera", lambda _args: FakeCamera())
+    monkeypatch.setattr(cv2, "namedWindow", lambda *a: None)
+    monkeypatch.setattr(cv2, "setMouseCallback", lambda *a: None)
+    monkeypatch.setattr(cv2, "destroyAllWindows", lambda: None)
+    monkeypatch.setattr(cv2, "imshow", lambda _w, img: shapes.append(img.shape))
+    monkeypatch.setattr(cv2, "waitKey", lambda _ms: next(keys))
+    code = main(["enroll", "--team", "orks", "--operative", "Nob", "--gallery-root", str(tmp_path / "gallery"), "--config", str(cfg_file), "--reference", str(tmp_path / "none.png")])
+    assert code == 0
+    camera = fit_to_width(frame, DISPLAY_WIDTH).shape
+    top_down = shapes[0]
+    assert top_down != camera  # all 4 cards seen: adjusted perspective at once
+    assert set(shapes[settle : settle + hold]) == {top_down}  # two cards covered: the saved position stays
+    assert shapes[settle + hold] == camera  # v: the camera view
+
+
 def test_enroll_relaxed_search_needs_a_click(tmp_path, monkeypatch):
     import battlesight.app as app
 
@@ -465,27 +504,37 @@ def test_enroll_esc_leaves_the_base_choice_then_quits(tmp_path, monkeypatch):
     assert not list((root / "orks" / "Nob").glob("*.png"))
 
 
-def test_enroll_zoom_key_shows_factor_and_limits_search(tmp_path, monkeypatch):
+def test_enroll_locate_key_finds_the_base_at_the_click(tmp_path, monkeypatch):
     import battlesight.app as app
 
     cfg_file = cli_config(tmp_path)
     cfg = BoardConfig.load(cfg_file)
     root = tmp_path / "gallery"
-    frame = paint_board(cfg, {"Nob": FIRST["Nob"]})
-    seen = []
-    real = app.Pipeline.analyze
-
-    def spy(self, *a, **k):
-        seen.append(k.get("search"))
-        return real(self, *a, **k)
-
-    monkeypatch.setattr(app.Pipeline, "analyze", spy)
-    frames = enroll_loop(monkeypatch, app, frame, [ord("+"), -1, ord(" "), -1, ord("0"), -1, ord("q")])
+    centre = (300.0, 300.0)
+    frame, _ = render_board(cfg, px_per_mm=2.0, bases=(Base(centre, 40.0, model_deg=0.0, model_span_deg=225.0),))
+    s, m = cfg.rectify_px_per_mm, cfg.rectify_margin_mm
+    click = (int((centre[0] + m) * s), int((centre[1] + m) * s))
+    miss = (int((centre[0] + 150 + m) * s), click[1])  # empty board: locate stays on
+    frames = enroll_loop(monkeypatch, app, frame, [-1, ord("l"), miss, click, -1, ord("q")])
     code = main(["enroll", "--team", "orks", "--operative", "Nob", "--base-mm", "40", "--gallery-root", str(root), "--config", str(cfg_file), "--reference", str(tmp_path / "none.png")])
     assert code == 0
-    assert "zoom 1.4x" in frames[1][0][1]
-    assert "zoom" not in frames[-1][0][1]
-    assert seen[0].area_px is not None and seen[0].diameters_mm == (40.0,)
+    assert frames[1][0][0] == "locate Nob: click the centre of its base" and "Esc stop" in frames[1][0][1]
+    assert frames[2][0][0].startswith("locate Nob") and frames[2][1][0].startswith("no base found there")
+    assert frames[3][0][0].startswith("enroll Nob") and ", 1 photos" in frames[3][0][1]
+    assert len(list((root / "orks" / "Nob").glob("*.png"))) == 1  # the click added it
+
+
+def test_enroll_esc_stops_locate_then_quits(tmp_path, monkeypatch):
+    import battlesight.app as app
+
+    cfg_file = cli_config(tmp_path)
+    frame, _ = render_board(BoardConfig.load(cfg_file), px_per_mm=2.0)
+    frames = enroll_loop(monkeypatch, app, frame, [ord("l"), 27, -1, 27])
+    code = main(["enroll", "--team", "orks", "--operative", "Nob", "--gallery-root", str(tmp_path / "gallery"), "--config", str(cfg_file), "--reference", str(tmp_path / "none.png")])
+    assert code == 0
+    assert len(frames) == 3  # the first Esc stops locate, the second one quits
+    assert frames[0][0][0].startswith("locate Nob") and frames[1][0][0].startswith("enroll Nob")
+    assert frames[1][1][0] == "locate stopped"
 
 
 def test_gallery_keeps_background_out_of_photos_and_removes_it(tmp_path):
@@ -1002,20 +1051,102 @@ def test_parse_count_range():
             idt.parse_count_range(bad, "x")
 
 
-def test_non_expendable_roundtrip_and_cli(tmp_path):
+def test_operative_count_roundtrip_and_cli(tmp_path):
     team = tmp_path / "orks"
-    idt.save_team_file(team, "orks", {"Nob": 40.0}, None, idt.TeamInfo(non_expendable=(4, 6)))
-    assert 'non-expendable-operative-count = "4-6"' in (team / "team.toml").read_text()
-    assert idt.read_team_info(team).non_expendable == (4, 6)
-    idt.save_team_file(team, "orks", {"Nob": 40.0}, None, idt.TeamInfo(non_expendable=(5, 5)))
-    assert "non-expendable-operative-count = 5\n" in (team / "team.toml").read_text()
+    idt.save_team_file(team, "orks", {"Nob": 40.0}, None, idt.TeamInfo(operative_count=(4, 6)))
+    assert 'operative-count = "4-6"' in (team / "team.toml").read_text()
+    assert idt.read_team_info(team).operative_count == (4, 6)
+    idt.save_team_file(team, "orks", {"Nob": 40.0}, None, idt.TeamInfo(operative_count=(5, 5)))
+    assert "operative-count = 5\n" in (team / "team.toml").read_text()
     cfg_file = cli_config(tmp_path)
     root = tmp_path / "gallery"
     args = ["enroll", "--team", "orks", "--operative", "Nob", "--gallery-root", str(root), "--config", str(cfg_file), "--images", str(tmp_path / "missing.png")]
-    assert main([*args, "--non-expendable", "4-6"]) == 2  # no photo: exit 2, value saved
-    assert idt.read_team_info(root / "orks").non_expendable == (4, 6)
-    assert main([*args, "--non-expendable", "5"]) == 2
-    assert idt.read_team_info(root / "orks").non_expendable == (5, 5)
-    assert main([*args, "--non-expendable", ""]) == 2
-    assert idt.read_team_info(root / "orks").non_expendable is None
-    assert main([*args, "--non-expendable", "9-3"]) == 2
+    assert main([*args, "--operative-count", "4-6"]) == 2  # no photo: exit 2, value saved
+    assert idt.read_team_info(root / "orks").operative_count == (4, 6)
+    assert main([*args, "--operative-count", "5"]) == 2
+    assert idt.read_team_info(root / "orks").operative_count == (5, 5)
+    assert main([*args, "--operative-count", ""]) == 2
+    assert idt.read_team_info(root / "orks").operative_count is None
+    assert main([*args, "--operative-count", "9-3"]) == 2
+
+
+def test_expendable_roundtrip_keep_and_cli(tmp_path):
+    team = tmp_path / "orks"
+    idt.save_team_file(team, "orks", {"Nob": 40.0, "Grot": 25.0}, {"Nob": 12}, None, ["Grot"])
+    assert "expendable = true" in (team / "team.toml").read_text()
+    assert idt.read_expendable(team) == {"Grot"}
+    ops = {o.name: o.expendable for o in idt.team_operatives("orks", team)}
+    assert ops == {"Grot": True, "Nob": False}
+    idt.save_team_file(team, "orks", {"Nob": 40.0, "Grot": 25.0})  # no value given: the file keeps it
+    assert idt.read_expendable(team) == {"Grot"}
+    (team / "team.toml").write_text('[operatives."Grot"]\nexpendable = "yes"\n')
+    with pytest.raises(ValueError, match="expendable"):
+        idt.read_expendable(team)
+
+    cfg_file = cli_config(tmp_path)
+    root = tmp_path / "gallery"
+    args = ["enroll", "--team", "orks", "--operative", "Grot", "--gallery-root", str(root), "--config", str(cfg_file), "--images", str(tmp_path / "missing.png")]
+    assert main([*args, "--expendable"]) == 2  # no photo: exit 2, value saved
+    assert idt.read_expendable(root / "orks") == {"Grot"}
+    assert main([*args, "--wounds", "5"]) == 2  # no option: the value stays
+    assert idt.read_expendable(root / "orks") == {"Grot"}
+    assert main([*args, "--not-expendable"]) == 2
+    assert idt.read_expendable(root / "orks") == set()
+
+
+# --- copies of one operative -------------------------------------------------------
+
+
+def test_copy_labels():
+    assert idt.copy_label("orks/Boy", 2) == "orks/Boy#2"
+    assert idt.type_of("orks/Boy#2") == "orks/Boy" and idt.type_of("orks/Boy") == "orks/Boy"
+    assert idt.copy_number("orks/Boy#2") == 2 and idt.copy_number("orks/Boy") is None
+    assert idt.display_name("orks/Boy#2") == "Boy 2" and idt.display_name("orks/Nob") == "Nob"
+    op = idt.Operative("orks", "Boy", 32.0, 10, max=3, copy=2)
+    assert op.label == "orks/Boy#2" and op.type_label == "orks/Boy" and op.display == "Boy 2"
+    assert idt.Operative("orks", "Nob").label == "orks/Nob"
+    with pytest.raises(ValueError, match="#"):
+        idt.check_name("Boy#1", "operative")
+
+
+def test_team_file_max_copies(tmp_path):
+    team = tmp_path / "orks"
+    idt.save_team_file(team, "orks", {"Nob": 40.0, "Boy": 32.0}, {"Boy": 10}, None, None, {"Boy": 3, "Nob": 1})
+    text = (team / idt.TEAM_FILE).read_text()
+    assert "max = 3" in text and text.count("max =") == 1 and "# max:" in text
+    assert idt.read_copies(team) == {"Boy": 3}
+    ops = {op.name: op for op in idt.team_operatives("orks", team)}
+    assert ops["Boy"].max == 3 and ops["Nob"].max == 1
+    idt.save_team_file(team, "orks", {"Nob": 40.0, "Boy": 32.0}, {"Boy": 11})  # no copies given: the file keeps them
+    assert idt.read_copies(team) == {"Boy": 3}
+    for bad in ("0", "1.5", "true", '"2"'):
+        (team / idt.TEAM_FILE).write_text(f'[operatives."Boy"]\nmax = {bad}\n')
+        with pytest.raises(ValueError, match="max"):
+            idt.read_copies(team)
+    (team / idt.TEAM_FILE).write_text('[operatives."Boy#1"]\nbase_mm = 32\n')
+    with pytest.raises(ValueError, match="#"):
+        idt.read_team_file(team)
+
+
+def test_gallery_keeps_max_when_it_writes_the_team_file(tmp_path):
+    cfg = ident_cfg()
+    team = tmp_path / "gallery" / "orks"
+    idt.save_team_file(team, "orks", {"Boy": 32.0}, None, None, None, {"Boy": 4})
+    g = make_gallery(tmp_path, cfg)
+    g.ensure_operative("orks", "Nob", 40.0)  # a new operative writes the file again
+    assert idt.read_copies(team) == {"Boy": 4}
+    assert g.columns() == [0, 0, 0, 0, 1]
+    g.copies = {"orks/Boy": 2}
+    assert g.columns() == [0, 0, 1]
+
+
+def test_assign_copy_columns_margin_against_other_types():
+    labels = ["t/Boy", "t/Boy", "t/Nob"]
+    scores = np.array([[0.9, 0.9, 0.6], [0.8, 0.8, 0.75], [0.7, 0.7, 0.2]])
+    allowed = np.ones_like(scores, bool)
+    out = idt.assign(scores, allowed, labels, min_score=0.5, min_margin=0.1)
+    got = [x.label for x in out]
+    assert got.count("t/Boy") == 2 and got.count("t/Nob") == 1  # two copies: at most two bases
+    first = out[0]
+    assert first.label == "t/Boy" and first.margin == pytest.approx(0.3) and first.sure  # not 0 against its own copy
+    assert [lab for lab, _ in first.candidates] == ["t/Boy", "t/Nob"]  # each label once

@@ -59,7 +59,7 @@ CROP_SUFFIXES = {".png", ".jpg", ".jpeg"}
 BACKGROUND_DIR = "bg"  # subfolder of an operative folder: the gallery scan skips folders
 MASK_CLOSE_MM = 3.0  # gaps up to this size in the foreground are closed
 MASK_OTHER_MARGIN_MM = 2.0  # removed around another found base
-_BAD_NAME = re.compile(r"[/\\:]|^\.|^$")
+_BAD_NAME = re.compile(r"[/\\:#]|^\.|^$")
 
 
 @dataclass(frozen=True)
@@ -295,7 +295,7 @@ def same_photo(a: np.ndarray, b: np.ndarray) -> bool:
 def check_name(name: str, what: str = "name") -> str:
     name = name.strip()
     if _BAD_NAME.search(name):
-        raise ValueError(f"{what} {name!r}: must not be empty, start with '.', or hold / \\ :")
+        raise ValueError(f"{what} {name!r}: must not be empty, start with '.', or hold / \\ : #")
     return name
 
 
@@ -319,20 +319,64 @@ def label_of(team: str, operative: str) -> str:
 
 
 def split_label(label: str) -> tuple[str, str]:
+    """(team, operative name) of a type label or a copy label (the copy
+    number stays on the name: use `type_of` first for the plain name)."""
     team, _, op = label.partition("/")
     return team, op
 
 
+COPY_SEP = "#"  # separates the copy number in a copy label: <team>/<operative>#<k>
+
+
+def copy_label(type_label: str, k: int) -> str:
+    """Label of copy k (1, 2, ...) of an operative that a team can field more than once."""
+    return f"{type_label}{COPY_SEP}{k:d}"
+
+
+def type_of(label: str) -> str:
+    """Type label of a copy label; a type label returns itself."""
+    return label.partition(COPY_SEP)[0]
+
+
+def copy_number(label: str) -> int | None:
+    """Copy number of a copy label, None for a type label."""
+    _, sep, k = label.partition(COPY_SEP)
+    return int(k) if sep and k.isdigit() else None
+
+
+def display_name(label: str) -> str:
+    """Name for the screen: "Boy 2" for a copy label, "Boy" for a type label."""
+    name = split_label(type_of(label))[1]
+    k = copy_number(label)
+    return name if k is None else f"{name} {k}"
+
+
 @dataclass
 class Operative:
+    """An operative type of a team file. `max` = copies that a team can field
+    (`max` in team.toml, default 1). The live app makes one Operative for each
+    copy in play with `copy` set; a gallery operative has no `copy`."""
+
     team: str
     name: str
     base_mm: float | None = None
     wounds: int | None = None  # maximum wounds (W), None when team.toml has no value
+    expendable: bool = False  # `expendable = true` in team.toml
+    max: int = 1  # copies that a team can field
+    copy: int | None = None  # copy number of one copy in play (only with max > 1)
+
+    @property
+    def type_label(self) -> str:
+        return label_of(self.team, self.name)
 
     @property
     def label(self) -> str:
-        return label_of(self.team, self.name)
+        """Copy label for a copy, else the type label."""
+        return self.type_label if self.copy is None else copy_label(self.type_label, self.copy)
+
+    @property
+    def display(self) -> str:
+        return display_name(self.label)
 
 
 def check_wounds(value, where: str) -> int:
@@ -358,11 +402,18 @@ ARCHETYPES = load_archetypes()
 class TeamInfo:
     """Team-level values of `team.toml`: killteam archetypes (a team has one
     or more), an optional faction counter text and an optional count of
-    non-expendable operatives (a number, or a range)."""
+    operatives (a number, or a range)."""
 
     archetypes: tuple[str, ...] = ()
     faction_counter: str | None = None
-    non_expendable: tuple[int, int] | None = None  # (min, max) count of non-expendable operatives
+    operative_count: tuple[int, int] | None = None  # (min, max) count of operatives
+
+
+def check_max(value, where: str) -> int:
+    """A maximum count of copies: a whole number of 1 or more. Else a ValueError."""
+    if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+        raise ValueError(f"{where}: max must be a whole number of 1 or more, not {value!r}")
+    return value
 
 
 def check_archetypes(values, where: str) -> tuple[str, ...]:
@@ -406,11 +457,11 @@ def read_team_info(team_dir: Path) -> TeamInfo:
     counter = raw.get("faction-counter")
     if counter is not None and not isinstance(counter, str):
         raise ValueError(f"{path}: faction-counter must be a string, not {counter!r}")
-    count = raw.get("non-expendable-operative-count")
+    count = raw.get("operative-count")
     return TeamInfo(
         check_archetypes(raw.get("archetype", []), str(path)),
         counter or None,
-        None if count is None else parse_count_range(count, f"{path} non-expendable-operative-count"),
+        None if count is None else parse_count_range(count, f"{path} operative-count"),
     )
 
 
@@ -425,9 +476,44 @@ def read_team_file(team_dir: Path) -> dict[str, tuple[float | None, int | None]]
         raw = tomllib.load(fh)
     out: dict[str, tuple[float | None, int | None]] = {}
     for name, v in raw.get("operatives", {}).items():
+        if COPY_SEP in str(name):
+            raise ValueError(f"{path} {name}: an operative name must not hold {COPY_SEP!r}")
         v = v if isinstance(v, dict) else {}
         base, wounds = v.get("base_mm"), v.get("wounds")
         out[str(name)] = (None if base is None else float(base), None if wounds is None else check_wounds(wounds, f"{path} {name}"))
+    return out
+
+
+def read_expendable(team_dir: Path) -> set[str]:
+    """Names of the operatives with `expendable = true` in `team.toml`. A value
+    that is not true or false is a ValueError."""
+    path = team_dir / TEAM_FILE
+    if not path.exists():
+        return set()
+    with path.open("rb") as fh:
+        raw = tomllib.load(fh)
+    out = set()
+    for name, v in raw.get("operatives", {}).items():
+        flag = v.get("expendable", False) if isinstance(v, dict) else False
+        if not isinstance(flag, bool):
+            raise ValueError(f"{path} {name}: expendable must be true or false, not {flag!r}")
+        if flag:
+            out.add(str(name))
+    return out
+
+
+def read_copies(team_dir: Path) -> dict[str, int]:
+    """{operative name: max} of the operatives with `max` in `team.toml` (the
+    others can be fielded once). A bad value is a ValueError."""
+    path = team_dir / TEAM_FILE
+    if not path.exists():
+        return {}
+    with path.open("rb") as fh:
+        raw = tomllib.load(fh)
+    out = {}
+    for name, v in raw.get("operatives", {}).items():
+        if isinstance(v, dict) and "max" in v:
+            out[str(name)] = check_max(v["max"], f"{path} {name}")
     return out
 
 
@@ -441,11 +527,13 @@ def team_operatives(team: str, team_dir: Path) -> list[Operative]:
     operative folders that the file does not list, sorted. Needs no photos
     and no model."""
     listed = read_team_file(team_dir)
+    expendable = read_expendable(team_dir)
+    copies = read_copies(team_dir)
     folders: set[str] = set()
     if team_dir.is_dir():
         folders = {q.name for q in team_dir.iterdir() if q.is_dir() and not q.name.startswith(".")}
     names = [*listed, *sorted(folders - set(listed))]
-    return [Operative(team, name, *listed.get(name, (None, None))) for name in names]
+    return [Operative(team, name, *listed.get(name, (None, None)), name in expendable, copies.get(name, 1)) for name in names]
 
 
 def roster_sizes(root: str | Path, teams: Iterable[str]) -> tuple[float, ...] | None:
@@ -464,21 +552,28 @@ def save_team_file(
     operatives: dict[str, float | None],
     wounds: dict[str, int | None] | None = None,
     info: TeamInfo | None = None,
+    expendable: Iterable[str] | None = None,
+    copies: dict[str, int] | None = None,
 ) -> None:
-    """Write `team.toml`: team values, then base size and maximum wounds of
-    each operative, in the order of `operatives` (the order of the team
-    lists in the live app). Without `info` the team values of the existing
-    file stay."""
+    """Write `team.toml`: team values, then base size, maximum wounds,
+    `expendable` and `max` (copies, only above 1) of each operative, in the
+    order of `operatives` (the order of the team lists in the live app).
+    Without `info`, `expendable` or `copies` the values of the existing file
+    stay."""
     wounds = wounds or {}
     if info is None:
         info = read_team_info(team_dir)
+    expendable = read_expendable(team_dir) if expendable is None else set(expendable)
+    copies = read_copies(team_dir) if copies is None else copies
     lines = [
         f"# Battle Sight gallery of team {team!r}. One table per operative.",
         f"# archetype: killteam archetypes, one or more of {', '.join(ARCHETYPES)}.",
         "# faction-counter: optional text (a string).",
-        "# non-expendable-operative-count: a whole number (5) or a range as text (\"4-6\").",
+        "# operative-count: a whole number (5) or a range as text (\"4-6\").",
         "# base_mm: base diameter (one of [bases] diameters_mm). Only bases of this size can get this name.",
         "# wounds: maximum wounds (W) of the operative, for the health bar of the live app.",
+        "# expendable: true for an expendable operative (optional, default false).",
+        "# max: copies of the operative that the team can field (optional, default 1).",
         "# Photos: one folder per operative next to this file, written by `battlesight enroll` and by fixes.",
         "",
     ]
@@ -486,10 +581,10 @@ def save_team_file(
         lines.append(f"archetype = {json.dumps(list(info.archetypes))}")
     if info.faction_counter:
         lines.append(f"faction-counter = {json.dumps(info.faction_counter)}")
-    if info.non_expendable is not None:
-        lo, hi = info.non_expendable
-        lines.append(f"non-expendable-operative-count = {lo}" if lo == hi else f'non-expendable-operative-count = "{lo}-{hi}"')
-    if info.archetypes or info.faction_counter or info.non_expendable is not None:
+    if info.operative_count is not None:
+        lo, hi = info.operative_count
+        lines.append(f"operative-count = {lo}" if lo == hi else f'operative-count = "{lo}-{hi}"')
+    if info.archetypes or info.faction_counter or info.operative_count is not None:
         lines.append("")
     for name in operatives:
         lines.append(f"[operatives.{json.dumps(name)}]")
@@ -497,6 +592,10 @@ def save_team_file(
             lines.append(f"base_mm = {operatives[name]:g}")
         if wounds.get(name) is not None:
             lines.append(f"wounds = {wounds[name]:d}")
+        if name in expendable:
+            lines.append("expendable = true")
+        if copies.get(name, 1) > 1:
+            lines.append(f"max = {copies[name]:d}")
         lines.append("")
     team_dir.mkdir(parents=True, exist_ok=True)
     (team_dir / TEAM_FILE).write_text("\n".join(lines))
@@ -529,6 +628,7 @@ class Gallery:
         self.masked_file = np.zeros(0, int)
         self.hidden: set[int] = set()  # file indexes that `scores` must not use (the benchmark hides copies of a test photo)
         self.out_of_play: set[str] = set()  # labels that no base can get (removed from a team list of the live app)
+        self.copies: dict[str, int] = {}  # type label -> copies in play (live app); a type not here: its `max`
         self.reload()
 
     @classmethod
@@ -547,6 +647,12 @@ class Gallery:
     def labels(self) -> list[str]:
         return [op.label for op in self.operatives]
 
+    def columns(self) -> list[int]:
+        """Operative index of each column of the name assignment: one column
+        for each copy in play (`copies`, else the operative's `max`), so a
+        type goes to at most that many bases."""
+        return [k for k, op in enumerate(self.operatives) for _ in range(max(1, self.copies.get(op.label, op.max)))]
+
     def counts(self) -> dict[str, int]:
         c = {op.label: 0 for op in self.operatives}
         for i in self.file_op:
@@ -556,10 +662,11 @@ class Gallery:
     def __len__(self) -> int:
         return len(self.files)
 
-    def ensure_operative(self, team: str, name: str, base_mm: float | None, wounds: int | None = None) -> Operative:
+    def ensure_operative(self, team: str, name: str, base_mm: float | None, wounds: int | None = None, expendable: bool | None = None) -> Operative:
         """The operative, created (and written to team.toml) when new. Raises
         ValueError when it exists with another base size. `wounds` (maximum
-        wounds) sets or replaces the value in team.toml."""
+        wounds) and `expendable` set or replace the value in team.toml (None
+        keeps it)."""
         if team not in self.team_dirs:
             raise ValueError(f"team {team!r} is not loaded, loaded: {sorted(self.team_dirs)}")
         name = check_name(name, "operative")
@@ -575,23 +682,25 @@ class Gallery:
                 op.base_mm, changed = base_mm, True
             if wounds is not None and op.wounds != wounds:
                 op.wounds, changed = wounds, True
+            if expendable is not None and op.expendable != expendable:
+                op.expendable, changed = expendable, True
             if changed:
                 self._save_team(team)
             return op
-        op = Operative(team, name, base_mm, wounds)
+        op = Operative(team, name, base_mm, wounds, bool(expendable))
         self.operatives.append(op)
         self._save_team(team)
         return op
 
     def _save_team(self, team: str) -> None:
         ops = [op for op in self.operatives if op.team == team]
-        save_team_file(self.team_dirs[team], team, {op.name: op.base_mm for op in ops}, {op.name: op.wounds for op in ops}, self.team_info[team])
+        save_team_file(self.team_dirs[team], team, {op.name: op.base_mm for op in ops}, {op.name: op.wounds for op in ops}, self.team_info[team], [op.name for op in ops if op.expendable], {op.name: op.max for op in ops})
 
     def set_team_info(
-        self, team: str, archetypes: Iterable[str] | None = None, faction_counter: str | None = None, non_expendable: int | str | None = None
+        self, team: str, archetypes: Iterable[str] | None = None, faction_counter: str | None = None, operative_count: int | str | None = None
     ) -> TeamInfo:
         """Set the team values in team.toml; None keeps a value, an empty
-        `faction_counter` or `non_expendable` ("") clears it. Raises
+        `faction_counter` or `operative_count` ("") clears it. Raises
         ValueError for a bad value."""
         if team not in self.team_dirs:
             raise ValueError(f"team {team!r} is not loaded, loaded: {sorted(self.team_dirs)}")
@@ -599,9 +708,9 @@ class Gallery:
         new = TeamInfo(
             old.archetypes if archetypes is None else check_archetypes(list(archetypes), f"team {team!r}"),
             old.faction_counter if faction_counter is None else (faction_counter.strip() or None),
-            old.non_expendable
-            if non_expendable is None
-            else (None if non_expendable == "" else parse_count_range(non_expendable, f"team {team!r} non-expendable-operative-count")),
+            old.operative_count
+            if operative_count is None
+            else (None if operative_count == "" else parse_count_range(operative_count, f"team {team!r} operative-count")),
         )
         if new != old:
             self.team_info[team] = new
@@ -885,7 +994,9 @@ def assign(scores: np.ndarray, allowed: np.ndarray, labels: list[str], min_score
     mask. With `unique` each operative goes to at most one base (Hungarian).
     `margin` is the assigned score minus the best other allowed score; it is
     negative when the assignment took the second choice, and below
-    `min_margin` the label counts as unsure (shown in yellow)."""
+    `min_margin` the label counts as unsure (shown in yellow). `labels` can
+    repeat a label (one column for each copy of an operative): the margin
+    compares with other labels only, and the candidates name each label once."""
     from scipy.optimize import linear_sum_assignment
 
     n, m = scores.shape
@@ -904,14 +1015,18 @@ def assign(scores: np.ndarray, allowed: np.ndarray, labels: list[str], min_score
             pick = np.where(np.isfinite(s[np.arange(n), best]), best, -1)
     out = []
     for i in range(n):
-        order = [j for j in np.argsort(-s[i]) if np.isfinite(s[i, j])]
-        cands = [(labels[j], float(s[i, j])) for j in order]
+        order = [j for j in np.argsort(-s[i], kind="stable") if np.isfinite(s[i, j])]
+        cands, seen = [], set()
+        for j in order:  # columns of copies of one operative: one entry
+            if labels[j] not in seen:
+                seen.add(labels[j])
+                cands.append((labels[j], float(s[i, j])))
         j = int(pick[i])
         if j < 0 or s[i, j] < min_score:
             best = cands[0][1] if cands else -np.inf
             out.append(Ident(None, best, -np.inf, cands))
             continue
-        other = max((s[i, k] for k in order if k != j), default=-np.inf)
+        other = max((s[i, k] for k in order if labels[k] != labels[j]), default=-np.inf)
         margin = float(s[i, j] - other) if np.isfinite(other) else float("inf")
         out.append(Ident(labels[j], float(s[i, j]), margin, cands, sure=margin >= min_margin))
     return out
@@ -943,7 +1058,9 @@ def identify(
     scores[~masked] = gallery.scores(emb[~masked])
     scores[masked] = gallery.scores(emb[masked], masked=True)
     allowed = np.stack([gallery.allowed(d) for d in diameters_mm]) if gallery.operatives else np.zeros((len(crops), 0), bool)
-    out = assign(scores, allowed, gallery.labels(), p.min_score, p.min_margin)
+    cols = gallery.columns()
+    labels = gallery.labels()
+    out = assign(scores[:, cols], allowed[:, cols], [labels[k] for k in cols], p.min_score, p.min_margin)
     for x, m in zip(out, masked):
         x.masked = bool(m)
     return out
@@ -989,20 +1106,24 @@ class LabelSession:
 
     def choose(self, label: str, i: int | None = None) -> Path | None:
         """Set the name of base i (default: the selected base) and add its crop
-        to the gallery. A label that another base holds moves to this base;
-        the other base becomes unknown. Returns the new gallery photo, or None
-        when the gallery has this photo already (the name is set, no file)."""
+        to the gallery (the photo of a copy label goes to its type). A label
+        that another base holds moves to this base; the other base becomes
+        unknown, or, for a copy label when this base had another copy of the
+        same type, gets that copy (a swap). Returns the new gallery photo, or
+        None when the gallery has this photo already (the name is set, no file)."""
         i = self.selected if i is None else i
         if i is None:
             raise ValueError("no base selected")
         try:
-            path = self.gallery.add(label, self.crops[i], self.diameters_mm[i], self.backgrounds[i] if self.backgrounds else None)
+            path = self.gallery.add(type_of(label), self.crops[i], self.diameters_mm[i], self.backgrounds[i] if self.backgrounds else None)
         except DuplicatePhoto:
             path = None
         self.added.append((i, path, self.idents[i]))
+        mine = self.idents[i].label
+        swap = mine if mine is not None and mine != label and copy_number(label) is not None and type_of(mine) == type_of(label) else None
         for k, x in enumerate(self.idents):
             if k != i and x.label == label:
-                self.idents[k] = Ident(None, x.score, -np.inf, x.candidates)
+                self.idents[k] = Ident(swap, x.score, x.margin if swap else -np.inf, x.candidates, sure=swap is not None, confirmed=swap is not None)
         old = self.idents[i]
         self.idents[i] = Ident(label, old.score, old.margin, old.candidates, sure=True, confirmed=True)
         self.selected = None
@@ -1097,7 +1218,7 @@ def score_truth(truth: IdentTruth, centers_mm: np.ndarray, idents: list[Ident]) 
             missed.append(label)
             continue
         used.add(i)
-        if idents[i].label == label:
+        if idents[i].label is not None and type_of(idents[i].label) == label:  # a copy counts as its type
             right += 1
         else:
             wrong.append((label, idents[i].label))

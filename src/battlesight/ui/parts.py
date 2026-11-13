@@ -70,8 +70,11 @@ def percent(score: float) -> str:
 
 
 def candidate_text(candidate: dict[str, Any]) -> str:
-    score = candidate["score"]
-    return candidate["label"] if score is None else f"{candidate['label']}   {percent(score)}"
+    label, score = candidate["label"], candidate["score"]
+    name = f"{label.partition('/')[0]}/{candidate['name']}" if candidate.get("name") else label
+    if candidate.get("copy") is not None and candidate.get("max_wounds") is not None:  # a copy: its wounds tell it apart
+        name = f"{name} ({candidate['wounds']}/{candidate['max_wounds']})"
+    return name if score is None else f"{name}   {percent(score)}"
 
 
 def distance_text(distance: dict[str, Any]) -> str:
@@ -195,7 +198,7 @@ class OperativeList(_ActionList):
             return size, None
         if base["label"] is None:
             return f"?   {size}", "error"
-        name = base["label"].rsplit("/", 1)[-1]
+        name = base["name"]
         mark = "  (confirmed)" if base["confirmed"] else "" if base["score"] is None else f"   {percent(base['score'])}"
         return f"{name}{mark}", "ok" if base["sure"] or base["confirmed"] else "warn"
 
@@ -394,6 +397,14 @@ def roster_row(operative: dict[str, Any]) -> tuple[str, str, str, str]:
     return operative["name"], mark, wounds, level
 
 
+def missing_text(operative: dict[str, Any]) -> str:
+    """A row of the "Add operative" list: the name, and for an operative
+    that a team fields more than once the copies in the list, `Boy (1/3)`."""
+    if operative.get("max", 1) > 1:
+        return f"{operative['name']} ({operative['copies_in_play']}/{operative['max']})"
+    return operative["name"]
+
+
 def _larger_font(widget: QWidget) -> None:
     font = widget.font()
     font.setPointSizeF(font.pointSizeF() * ROSTER_FONT_SCALE)
@@ -569,7 +580,7 @@ class TeamRoster(QWidget):
         if missing != self.missing:
             self.missing = missing
             self.chooser.clear()
-            self.chooser.addItems([m["name"] for m in missing])
+            self.chooser.addItems([missing_text(m) for m in missing])
             rows_shown = min(len(missing), CHOOSER_ROWS)  # as high as its names, up to CHOOSER_ROWS
             self.chooser.setFixedHeight(rows_shown * max(self.chooser.sizeHintForRow(0), 1) + 2 * self.chooser.frameWidth())
         if not missing and self.chooser.isVisible():
@@ -635,7 +646,7 @@ class WoundsControl(QWidget):
         self.controls.setVisible(has_max)
         self.warning.setVisible(not has_max)
         if not has_max:
-            name = w["label"].rsplit("/", 1)[-1]
+            name = w["name"]
             self.warning.setText(f"{name} has no maximum wounds set.")
             return
         self.minus.setEnabled(w["current"] > 0)

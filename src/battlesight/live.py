@@ -103,80 +103,39 @@ class FpsMeter:
         self.last = now
 
 
-class ZoomView:
-    """Digital zoom of the camera image: a rectangle of the frame, shown at
-    the display size. No window calls."""
+class BoardTracker:
+    """Board fit of live frames, shared by the live app and the enroll window.
+    Finds the corner tags of each frame and follows them with a
+    `DriftMonitor`. A still board uses the saved position, so the view does
+    not jitter. The view also stays when a player covers one or two cards
+    (`DriftReport.held`). No window calls."""
 
-    STEP = 2.0**0.5
-    MAX = 8.0
+    def __init__(self, cfg: BoardConfig, camera: CameraSettings, frame_size: tuple[int, int] | None = None):
+        self.cfg = cfg
+        self.camera = camera
+        self.detector = TagDetector(cfg)
+        self.monitor = DriftMonitor(cfg)
+        self._lens_size = frame_size
+        self.lens = None if frame_size is None else lens_for_frame(camera, frame_size)
+        self.obs: dict = {}
+        self.report: DriftReport | None = None
+        self.view = None  # rectify.BoardView of the last frame, None without a board fit
 
-    def __init__(self, display_width: int):
-        self.display_width = display_width
-        self.factor = 1.0
-        self.size: tuple[int, int] | None = None  # frame (w, h)
-        self.center = np.zeros(2)
-        self.out: tuple[int, int] | None = None  # shown image (w, h)
-
-    @property
-    def active(self) -> bool:
-        return self.factor > 1.0
-
-    def _rect(self) -> tuple[int, int, int, int]:
-        w, h = self.size
-        half = np.array([w, h], float) / (2.0 * self.factor)
-        c = np.clip(self.center, half, np.array([w, h], float) - half)
-        x0, y0 = np.rint(c - half).astype(int)
-        x1, y1 = np.rint(c + half).astype(int)
-        return int(x0), int(y0), int(x1), int(y1)
-
-    def area(self) -> tuple[int, int, int, int] | None:
-        """The shown rectangle of the frame (x0, y0, x1, y1), None without zoom."""
-        return self._rect() if self.active and self.size is not None else None
-
-    def step(self, direction: int, anchor: Sequence[float] | None = None) -> None:
-        """One step in (+1) or out (-1). The frame point `anchor` stays where it is."""
-        if self.size is None:
-            return
-        new = float(np.clip(self.factor * self.STEP**direction, 1.0, self.MAX))
-        new = 1.0 if new < 1.01 else new
-        if anchor is not None and new != self.factor:
-            a = np.asarray(anchor, float)
-            self.center = a + (self.center - a) * self.factor / new
-        self.factor = new
-        w, h = self.size
-        half = np.array([w, h], float) / (2.0 * new)
-        self.center = np.clip(self.center, half, np.array([w, h], float) - half)
-
-    def reset(self) -> None:
-        self.factor = 1.0
-        self.out = None
-        if self.size is not None:
-            self.center = np.array(self.size, float) / 2.0
-
-    def set_frame_size(self, w: int, h: int) -> None:
-        if self.size != (w, h):
-            self.size = (w, h)
-            self.center = np.array([w, h], float) / 2.0
-
-    def image(self, frame: np.ndarray) -> np.ndarray:
-        """The shown part of `frame`. The frame itself without zoom."""
-        h, w = frame.shape[:2]
-        self.set_frame_size(w, h)
-        if not self.active:
-            self.out = None
-            return frame
-        x0, y0, x1, y1 = self._rect()
-        out_w = min(w, self.display_width)
-        self.out = (out_w, max(1, round(h * out_w / w)))
-        crop = frame[y0:y1, x0:x1]
-        return cv2.resize(crop, self.out, interpolation=cv2.INTER_AREA if x1 - x0 > out_w else cv2.INTER_LINEAR)
-
-    def to_frame(self, x: float, y: float) -> tuple[float, float]:
-        """Pixel of the shown image -> pixel of the frame."""
-        if not self.active or self.out is None:
-            return x, y
-        x0, y0, x1, y1 = self._rect()
-        return x0 + x * (x1 - x0) / self.out[0], y0 + y * (y1 - y0) / self.out[1]
+    def update(self, frame: np.ndarray) -> DriftReport:
+        """Find the tags of `frame` and fit the board view. Returns the drift report."""
+        size = (frame.shape[1], frame.shape[0])
+        if self.lens is None or self._lens_size != size:
+            self.lens, self._lens_size = lens_for_frame(self.camera, size), size
+        self.obs = self.detector.detect(frame)
+        self.report = report = self.monitor.update(self.obs)
+        tags = self.monitor.reference if report.ok or report.held else self.obs
+        self.view = None
+        if tags and all(i in tags for i in self.cfg.tag_ids):
+            try:
+                self.view = fit_view(self.cfg, tags, self.lens)
+            except ValueError as exc:
+                print(f"rectify: {exc}", file=sys.stderr)
+        return report
 
 
 class BoardWindow:
@@ -189,7 +148,6 @@ class BoardWindow:
         self.top_down = True
         self.scale = 1.0
         self.view = None  # rectify.BoardView of the snapshot
-        self.zoom: ZoomView | None = None  # zoom of the camera view
 
     def base_image(self, frame, result) -> np.ndarray:
         self.view = result.scratch.get("view")
@@ -207,8 +165,6 @@ class BoardWindow:
             return (px / self.cfg.rectify_px_per_mm - self.cfg.rectify_margin_mm)[0]
         if self.view is None:
             return None
-        if self.zoom is not None:
-            px = np.array([self.zoom.to_frame(px[0, 0], px[0, 1])])
         return self.view.px_to_mm(px)[0]
 
     def fit(self, img: np.ndarray) -> np.ndarray:
@@ -387,14 +343,15 @@ class LiveSession:
         maps_root: Path | str = ter.DEFAULT_MAPS_ROOT,
     ):
         self.cfg = cfg
-        self.lens = lens_for_frame(camera, frame_size)
+        self.board = BoardTracker(cfg, camera, frame_size)
+        self.lens = self.board.lens
         self.pipe = Pipeline(cfg, None, camera)
         self.reference_path = None if reference_path is None else Path(reference_path)  # None: no load, no save
         self.snapshot_dir = Path(snapshot_dir)
         if self.reference_path is not None:
             load_reference(self.pipe, self.reference_path)
-        self.detector = TagDetector(cfg)
-        self.monitor = DriftMonitor(cfg)
+        self.detector = self.board.detector
+        self.monitor = self.board.monitor
         self.win = BoardWindow(cfg, display_width)
         self.clock = clock
         self.notice = Notice(clock=clock)
@@ -405,8 +362,12 @@ class LiveSession:
         self.team_slots: list[str | None] = slots + [None] * (TEAM_SLOTS - len(slots))
         self._team_ops: dict[str, list[idt.Operative]] = {}  # operatives of each team, read once
         self._team_infos: dict[str, idt.TeamInfo] = {}  # team values of each team file, read once
-        # Team list of each side: labels in list order; None = all operatives of the team file.
+        # Team list of each side: labels (copy labels for an operative with `max` > 1)
+        # in list order; None = one copy of each operative of the team file.
         self.in_play: list[list[str] | None] = [None] * TEAM_SLOTS
+        # Last known board centre (mm) of each copy of an operative with `max` > 1:
+        # identification tells the copies apart by it.
+        self.positions: dict[str, np.ndarray] = {}
         self.gallery: idt.Gallery | None = None
         self._update_roster()
         self.gallery_tried = False
@@ -445,7 +406,7 @@ class LiveSession:
         self.view = None  # rectify.BoardView of the last frame
         self.last_status = None
         self.image: np.ndarray | None = None
-        self.detect_ms: float | None = None  # tag detection of the last frame
+        self.detect_ms: float | None = None  # tag detection and board fit of the last frame
         self.meter = FpsMeter()
 
         self.result = None  # FrameResult of the last snapshot, or None
@@ -524,23 +485,14 @@ class LiveSession:
         self.frame = frame
         started = self.clock()
         self.meter.tick(started)
-        self.obs = self.detector.detect(frame)
+        report = self.board.update(frame)
         self.detect_ms = (self.clock() - started) * 1000.0
-        self.report = report = self.monitor.update(self.obs)
+        self.obs, self.report, self.view, self.lens = self.board.obs, report, self.board.view, self.board.lens
         if report.relocked:
             self.notice.ok("board moved: new position saved")
         if report.status is not self.last_status:
             print(report.summary())
             self.last_status = report.status
-        # A still board uses the saved position, so the view does not jitter.
-        # It also stays when a player covers one or two cards (`held`).
-        tags = self.monitor.reference if report.ok or report.held else self.obs
-        self.view = None
-        if tags and all(i in tags for i in self.cfg.tag_ids):
-            try:
-                self.view = fit_view(self.cfg, tags, self.lens)
-            except ValueError as exc:
-                print(f"rectify: {exc}", file=sys.stderr)
         if self._minimap_on():
             self.image = self._render_minimap()
         else:
@@ -969,6 +921,9 @@ class LiveSession:
                 "index": i,
                 "diameter_mm": float(c.diameter_mm),
                 "label": None if x is None else x.label,
+                "type_label": None if x is None or x.label is None else idt.type_of(x.label),
+                "copy": None if x is None or x.label is None else idt.copy_number(x.label),
+                "name": None if x is None or x.label is None else idt.display_name(x.label),
                 "score": None if x is None else _num(x.score),
                 "sure": x is not None and bool(x.sure),
                 "confirmed": x is not None and bool(x.confirmed),
@@ -984,7 +939,14 @@ class LiveSession:
         if s is None or i is None:
             return []
         scores = dict(s.idents[i].candidates)
-        return [{"label": label, "score": _num(scores.get(label))} for label in s.menu(i)]
+        out = []
+        for label in s.menu(i):
+            op = self._type_op(label)
+            labels = self._copies_of(label) if op is not None and op.max > 1 else [label]
+            for lab in labels:  # each copy in play of an operative that a team fields more than once
+                current, maximum = self._wounds_of(lab)
+                out.append({"label": lab, "name": idt.display_name(lab), "copy": idt.copy_number(lab), "score": _num(scores.get(label)), "wounds": current, "max_wounds": maximum})
+        return out
 
     def _operatives_of(self, team: str) -> list[idt.Operative]:
         if team not in self._team_ops:
@@ -1026,7 +988,9 @@ class LiveSession:
                 rows.append(
                     {
                         "label": op.label,
-                        "name": op.name,
+                        "type_label": op.type_label,
+                        "copy": op.copy,
+                        "name": op.display,
                         "base_mm": op.base_mm,
                         "base_index": i,
                         "score": None if x is None else _num(x.score),
@@ -1035,30 +999,66 @@ class LiveSession:
                         "max_wounds": op.wounds,
                     }
                 )
-            listed = {op.label for op in self._listed(slot)}
-            missing = [{"label": op.label, "name": op.name} for op in self._operatives_of(team) if op.label not in listed]
+            in_play = self._copies_in_play()
+            # Operatives that can go in the list: not in it, or with fewer copies than their `max`.
+            missing = [{"label": op.label, "name": op.name, "max": op.max, "copies_in_play": in_play.get(op.label, 0)} for op in self._operatives_of(team) if in_play.get(op.label, 0) < op.max]
             out.append({"team": team, "operatives": rows, "missing": missing})
         return out
 
     # --- team lists -------------------------------------------------------------
 
     def _listed(self, slot: int) -> list[idt.Operative]:
-        """Operatives in the team list of one side, in list order."""
+        """Operatives in the team list of one side, in list order: one entry
+        for each copy (`copy` set) of an operative with `max` > 1."""
         team = self.team_slots[slot]
         if team is None:
             return []
         ops = self._operatives_of(team)
         if self.in_play[slot] is None:
-            return list(ops)
+            return [replace(op, copy=1) if op.max > 1 else op for op in ops]
         by_label = {op.label: op for op in ops}
-        return [by_label[label] for label in self.in_play[slot] if label in by_label]
+        out = []
+        for label in self.in_play[slot]:
+            op, k = by_label.get(idt.type_of(label)), idt.copy_number(label)
+            if op is not None and (k is None) == (op.max == 1) and (k is None or k <= op.max):
+                out.append(op if k is None else replace(op, copy=k))
+        return out
+
+    def _type_op(self, label: str | None) -> idt.Operative | None:
+        """The team file operative of a type label or a copy label."""
+        if label is None:
+            return None
+        t = idt.type_of(label)
+        team = idt.split_label(t)[0]
+        if team not in self.team_choices:
+            return None
+        return next((o for o in self._operatives_of(team) if o.label == t), None)
+
+    def _copies_of(self, type_label: str) -> list[str]:
+        """Labels of the copies in play of an operative type: from the team
+        list of its side, else (the team is on no side) all `max` copies."""
+        op = self._type_op(type_label)
+        if op is None:
+            return []
+        if op.team in self.team_slots:
+            slot = self.team_slots.index(op.team)
+            return [o.label for o in self._listed(slot) if o.type_label == op.label]
+        return [idt.copy_label(op.label, k) for k in range(1, op.max + 1)] if op.max > 1 else [op.label]
+
+    def _copies_in_play(self) -> dict[str, int]:
+        """Type label -> copies in the team lists (teams on a side only)."""
+        out: dict[str, int] = {}
+        for slot in range(TEAM_SLOTS):
+            for op in self._listed(slot):
+                out[op.type_label] = out.get(op.type_label, 0) + 1
+        return out
 
     def _out_of_play(self) -> set[str]:
-        """Labels of operatives that were removed from a team list."""
+        """Labels of operatives that were removed from a team list (no copy in play)."""
         out: set[str] = set()
         for slot, team in enumerate(self.team_slots):
             if team is not None:
-                listed = {op.label for op in self._listed(slot)}
+                listed = {op.type_label for op in self._listed(slot)}
                 out |= {op.label for op in self._operatives_of(team) if op.label not in listed}
         return out
 
@@ -1072,19 +1072,34 @@ class LiveSession:
             self.pipe.set_roster(idt.roster_sizes(self.gallery_root, self.teams or self.team_choices))
         if self.gallery is not None:
             self.gallery.out_of_play = self._out_of_play()
+            self.gallery.copies = self._copies_in_play()
 
     def _roster_add(self, slot: int, label: str) -> None:
-        """Put an operative of the side's team back at the end of its team list."""
+        """Put an operative of the side's team at the end of its team list.
+        For an operative with `max` > 1, a type label adds its lowest free
+        copy; a copy label adds that copy."""
         if not self._valid_slot(slot):
             return
         team = self.team_slots[slot]
         listed = [op.label for op in self._listed(slot)]
-        if team is None or label in listed or not any(op.label == label for op in self._operatives_of(team)):
+        op = self._type_op(label) if team is not None else None
+        k = idt.copy_number(label)
+        if op is None or op.team != team or (op.max == 1 and k is not None) or (k is not None and k > op.max):
             self.notice.error(f"{label} cannot be added to this team list")
+            return
+        if op.max > 1:
+            free = [idt.copy_label(op.label, n) for n in range(1, op.max + 1) if idt.copy_label(op.label, n) not in listed]
+            if k is None and not free:
+                self.notice.error(f"{op.name}: all {op.max} copies are in the team list")
+                return
+            label = free[0] if k is None else label
+        if label in listed:
+            self.notice.error(f"{idt.display_name(label)} cannot be added to this team list: it is in it already")
             return
         self.in_play[slot] = [*listed, label]
         self._update_roster()
-        self.notice.say(f"{idt.split_label(label)[1]} added: push space to identify the operatives again" if self.result is not None else f"{idt.split_label(label)[1]} added")
+        name = idt.display_name(label)
+        self.notice.say(f"{name} added: push space to identify the operatives again" if self.result is not None else f"{name} added")
 
     def _roster_remove(self, slot: int) -> None:
         """Remove the selected operative from the team list of one side:
@@ -1097,18 +1112,18 @@ class LiveSession:
             self.notice.say("select an operative of this team list first")
             return
         self.in_play[slot] = [x for x in listed if x != label]
+        if idt.copy_number(label) is not None:  # a copy that comes back starts again
+            self.wounds.pop(label, None)
+            self.positions.pop(label, None)
         self._set_selected(None)
         self._update_roster()
-        self.notice.say(f"{idt.split_label(label)[1]} removed" + (": push space to identify the operatives again" if self.result is not None else ""))
+        self.notice.say(f"{idt.display_name(label)} removed" + (": push space to identify the operatives again" if self.result is not None else ""))
 
     # --- game state -------------------------------------------------------------
 
     def _max_wounds(self, label: str | None) -> int | None:
         """Maximum wounds of an operative label, from its team file."""
-        if label is None:
-            return None
-        team, name = idt.split_label(label)
-        op = next((o for o in self._operatives_of(team) if o.name == name), None) if team in self.team_choices else None
+        op = self._type_op(label)
         return None if op is None else op.wounds
 
     def _wounds_of(self, label: str | None) -> tuple[int | None, int | None]:
@@ -1135,7 +1150,7 @@ class LiveSession:
         if label is None:
             return None
         current, maximum = self._wounds_of(label)
-        return {"label": label, "current": current, "max": maximum}
+        return {"label": label, "name": idt.display_name(label), "current": current, "max": maximum}
 
     def _valid_slot(self, slot: int) -> bool:
         if isinstance(slot, bool) or slot not in range(TEAM_SLOTS):
@@ -1192,7 +1207,7 @@ class LiveSession:
         if label is None:
             self.notice.say("select a named operative first")
             return
-        name = idt.split_label(label)[1]
+        name = idt.display_name(label)
         maximum = self._max_wounds(label)
         if maximum is None:
             self.notice.error(f"{name} has no maximum wounds: add wounds to team.toml (battlesight enroll --wounds)")
@@ -1248,6 +1263,7 @@ class LiveSession:
             self.notice.error("gallery: cannot load, see the Terminal")
         else:
             self.gallery.out_of_play = self._out_of_play()
+            self.gallery.copies = self._copies_in_play()
         self.pipe.set_gallery(self.gallery)
 
     def _snapshot(self, name: bool) -> None:
@@ -1273,6 +1289,8 @@ class LiveSession:
         gallery = self.gallery
         if name and gallery is not None and result.ok:
             self.session = self._label_session(result, gallery)
+            if self.session is not None:
+                self._pair_copies()
             for b in result.stages["ident"].data.get("bases", []):
                 print(f"  {b['label'] or 'unknown':30s} {b['diameter_mm']:g} mm at {b['center_mm']} mm, score {b['score']}")
         else:
@@ -1451,6 +1469,9 @@ class LiveSession:
             return
         if self.team_slots[slot] == name:
             return
+        old = self.team_slots[slot]
+        if old is not None:  # the copies of the old team are gone
+            self.positions = {k: v for k, v in self.positions.items() if idt.split_label(k)[0] != old}
         self.team_slots[slot] = name
         self.teams = [t for t in self.team_slots if t] or None
         if self.scores[slot].tac_op not in self._tac_ops_of(slot):  # not a Tac Op of the new team
@@ -1555,9 +1576,17 @@ class LiveSession:
         index = self.selected if index is None else index
         if s is None or index is None:
             return
+        label = self._copy_for(label, index)
+        if label is None:
+            return
+        old = s.idents[index].label
         path = s.choose(label, index)
+        found = self._found()
+        for k, x in enumerate(s.idents):  # the chosen copy and the copy of a swap are where the user says
+            if x.label is not None and idt.copy_number(x.label) is not None and x.label in (label, old) and k < len(found):
+                self.positions[x.label] = np.asarray(found[k].center_mm, float)
         self._set_selected(None)
-        name = idt.split_label(label)[1]
+        name = idt.display_name(label)
         if path is None:
             print(f"named {label}: the gallery has this photo already, no photo added")
             self.notice.ok(f"named {name}, the gallery has this photo already")
@@ -1565,6 +1594,89 @@ class LiveSession:
             print(f"named {label}: added {path}")
             self.notice.ok(f"named {name}, photo added to the gallery")
         self.dirty = True
+
+    def _copy_for(self, label: str, index: int) -> str | None:
+        """The label that a name choice gives base `index`. For a type label of
+        an operative with `max` > 1: the copy that the base has, else a copy
+        in play that has no base, else the first copy (the bases swap). None
+        (with a notice) when no copy is in play."""
+        op = self._type_op(label)
+        if op is None or op.max == 1:
+            return label
+        copies = self._copies_of(op.label)
+        if idt.copy_number(label) is not None:
+            if label not in copies:
+                self.notice.error(f"{idt.display_name(label)} is not in a team list")
+                return None
+            return label
+        if not copies:
+            self.notice.error(f"no {op.name} in the team list: add one first")
+            return None
+        mine = self.session.idents[index].label
+        if mine in copies:
+            return mine
+        held = {x.label for x in self.session.idents}
+        free = [c for c in copies if c not in held]
+        return (free or copies)[0]
+
+    # --- copies ---------------------------------------------------------------------
+
+    def _pair_copies(self) -> None:
+        """Give each base with the type label of an operative with `max` > 1
+        one copy of it: the pairing with the shortest total distance to the
+        last known positions of the copies (`positions`). A swap of two
+        copies that costs less than `copies_swap_margin_mm` makes both names
+        unsure when the copies have a different state. The positions of the
+        sure bases change."""
+        from scipy.optimize import linear_sum_assignment
+
+        s, found = self.session, self._found()
+        by_type: dict[str, list[int]] = {}
+        for i, x in enumerate(s.idents):
+            op = self._type_op(x.label)
+            if op is not None and op.max > 1 and idt.copy_number(x.label) is None:
+                by_type.setdefault(op.label, []).append(i)
+        new_cost, margin = self.cfg.copies_new_cost_mm, self.cfg.copies_swap_margin_mm
+        for t, bases in by_type.items():
+            copies = self._copies_of(t)
+            if not copies:
+                continue
+            centers = np.array([found[i].center_mm for i in bases], float).reshape(-1, 2)
+
+            def dist(b: int, c: str) -> float:
+                p = self.positions.get(c)
+                return new_cost if p is None else float(np.linalg.norm(centers[b] - p))
+
+            cost = np.array([[dist(b, c) for c in copies] for b in range(len(bases))])
+            rows, cols = linear_sum_assignment(cost)
+            pick = dict(zip(rows.tolist(), cols.tolist()))
+            # Copies with no position (first snapshot): lowest number to the base nearest the top-left corner.
+            new = sorted((b for b, c in pick.items() if copies[c] not in self.positions), key=lambda b: float(np.hypot(*centers[b])))
+            for b, c in zip(new, sorted(pick[b] for b in new)):
+                pick[b] = c
+            on_base = {c: b for b, c in pick.items()}
+            state = [self._wounds_of(c)[0] for c in copies]
+            unsure: set[int] = set()
+            for b, c in pick.items():
+                for c2 in range(len(copies)):
+                    if c2 == c or state[c2] == state[c]:
+                        continue
+                    b2 = on_base.get(c2)
+                    extra = dist(b, copies[c2]) - dist(b, copies[c])
+                    if b2 is not None:
+                        extra += dist(b2, copies[c]) - dist(b2, copies[c2])
+                    if extra < margin:
+                        unsure.add(b)
+                        if b2 is not None:
+                            unsure.add(b2)
+            for b, i in enumerate(bases):
+                x = s.idents[i]
+                if b not in pick:  # more bases than copies in play: the name stays the type
+                    continue
+                label = copies[pick[b]]
+                s.idents[i] = idt.Ident(label, x.score, x.margin, x.candidates, sure=x.sure and b not in unsure, confirmed=False, masked=x.masked)
+                if b not in unsure:
+                    self.positions[label] = centers[b].copy()
 
     def _remove_base(self, index: int | None = None) -> None:
         """Remove base `index` (default: the selected base) from the snapshot:
@@ -1670,11 +1782,18 @@ class LiveSession:
         background = None if ref is None else base_crops(ref, [circle], self.cfg)[0]
         if len(gallery):
             ident = idt.identify([crop], [circle.diameter_mm], gallery, [] if background is None else [background], [circle.center_mm])[0]
-            if ident.label is not None and any(x.label == ident.label for x in s.idents):
+            op = self._type_op(ident.label)
+            if op is not None and op.max > 1:  # a copy that has no base, else the user decides
+                held = {x.label for x in s.idents}
+                free = [c for c in self._copies_of(op.label) if c not in held]
+                ident = replace(ident, label=free[0]) if free else idt.Ident(None, ident.score, -np.inf, ident.candidates)
+            elif ident.label is not None and any(x.label == ident.label for x in s.idents):
                 ident = idt.Ident(None, ident.score, -np.inf, ident.candidates)  # the name is on another base: the user decides
         else:
             ident = idt.Ident(None, float("-inf"), float("-inf"))
         index = s.add(circle.center_mm, circle.diameter_mm, crop, ident, background)
+        if ident.label is not None and idt.copy_number(ident.label) is not None:
+            self.positions[ident.label] = np.asarray(circle.center_mm, float)
         scratch = self.result.scratch
         scratch["bases"] = [*found, circle]
         for key, item in (("idents", ident), ("base_crops", crop), ("base_backgrounds", background)):

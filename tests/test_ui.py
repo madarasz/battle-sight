@@ -1407,3 +1407,12 @@ def test_rosters_add_and_remove_operative_buttons(rosters):
 
 def test_rosters_commands_has_locate_operative(rosters):
     assert rosters.current_layout.add_operative.text() == "Locate operative"
+
+
+def test_texts_of_copies():
+    from battlesight.ui.parts import candidate_text, missing_text
+
+    assert missing_text({"label": "orks/Nob", "name": "Nob", "max": 1, "copies_in_play": 0}) == "Nob"
+    assert missing_text({"label": "orks/Grot", "name": "Grot", "max": 3, "copies_in_play": 2}) == "Grot (2/3)"
+    assert candidate_text({"label": "orks/Nob", "name": "Nob", "copy": None, "score": None, "wounds": 5, "max_wounds": 5}) == "orks/Nob"
+    assert candidate_text({"label": "orks/Grot#2", "name": "Grot 2", "copy": 2, "score": 0.5, "wounds": 3, "max_wounds": 5}) == "orks/Grot 2 (3/5)   50%"

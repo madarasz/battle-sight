@@ -128,7 +128,7 @@ def score(
             continue
         used.add(i)
         x = idents[i] if i < len(idents) else None
-        got = None if x is None else x.label
+        got = None if x is None or x.label is None else idt.type_of(x.label)  # copy numbers do not count
         true_mm = sizes.get(label)
         if got == label:
             s.right.append(float(x.score))

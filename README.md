@@ -19,7 +19,7 @@ range rings and the distances between operatives.
 10. ✅ Minimap, Control marks (contesting objective, melee engagement)
 11. ✅ Scoreboard, turn number, CP counter, faction ability counter, show CritOp
 12. ✅ Edit roster: Add / Remove operative from the list
-13. 🚧 Support multiple identical models
+13. ⏳ Support multiple identical models: copies in the team list, told apart by position
 14. 🚧 Operative states: injured, dead, borrowed, poisioned, etc.
 optional 🚧 Tokens: find tokens, list operatives in range
 optional 🚧 Turn counter (where to put it?)
@@ -99,6 +99,12 @@ The team list starts with all operatives of the team. To remove an operative
 that does not play, select it and click "Remove operative". The app then does
 not give its name to a base. To add it again, click "Add operative" and
 click its name. Click "Identify operatives" again after a change.
+
+Some operatives can be in a team more than once, for example `Boy 1` and
+`Boy 2`. To add one more copy, click "Add operative" and click its name. The
+app tells the copies apart by where they were in the last snapshot. When it
+is not sure, the names show as unsure. To swap two copies, right click one
+base and click the correct copy.
 
 ## Use the app
 

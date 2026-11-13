@@ -177,6 +177,29 @@ def test_adjusted_perspective_stays_when_one_or_two_tags_are_covered(tmp_path, i
     assert back.state["drift"]["status"] == "OK" and back.image.shape == full.image.shape
 
 
+def test_board_tracker_holds_the_view_while_two_tags_are_covered():
+    from battlesight.live import BoardTracker
+
+    cfg = ident_cfg()
+    frame, _ = render_board(cfg)
+    board = BoardTracker(cfg, CameraSettings())
+    assert board.view is None and board.lens is None
+    board.update(frame)
+    assert board.view is not None and board.lens is not None  # all 4 tags: a fit before the lock
+    for _ in range(SETTLE):
+        board.update(frame)
+    locked = board.view.H.copy()
+    covered = _cover_tags(cfg, frame, (1, 3))
+    for _ in range(SETTLE):
+        report = board.update(covered)
+        assert len(board.obs) == 2 and np.array_equal(board.view.H, locked)  # the saved position
+    assert report.held
+    three = _cover_tags(cfg, frame, (0, 1, 3))
+    for _ in range(SETTLE):
+        board.update(three)
+    assert board.view is None
+
+
 def test_adjusted_perspective_stops_when_three_tags_are_covered_or_the_board_moved(tmp_path):
     cfg = ident_cfg()
     frame, _ = render_board(cfg)
@@ -598,30 +621,6 @@ def test_image_source_bad_file(tmp_path, capsys):
     assert not ImageSource(tmp_path / "text.png").open()
     assert app.main(["--image-source", str(tmp_path / "missing.png")]) == 2
     assert "cannot read image" in capsys.readouterr().err
-
-
-def test_zoom_view_keeps_the_anchor_and_stays_in_the_frame():
-    from battlesight.live import ZoomView
-
-    frame = np.zeros((1000, 2000, 3), np.uint8)
-    z = ZoomView(1600)
-    assert z.image(frame) is frame and z.area() is None and z.to_frame(5.0, 6.0) == (5.0, 6.0)
-    anchor = (500.0, 250.0)
-    z.step(1, anchor)
-    z.step(1, anchor)
-    assert z.factor == pytest.approx(2.0)
-    x0, y0, x1, y1 = z.area()
-    assert (x1 - x0, y1 - y0) == (1000, 500)
-    shown = z.image(frame)
-    assert shown.shape[:2] == (800, 1600)
-    # The anchor is at the same relative place in the shown image as in the frame.
-    assert z.to_frame(0.25 * 1600, 0.25 * 800) == pytest.approx(anchor, abs=1.0)
-    for _ in range(20):
-        z.step(1, (1999.0, 999.0))
-    x0, y0, x1, y1 = z.area()
-    assert z.factor == pytest.approx(ZoomView.MAX) and x1 <= 2000 and y1 <= 1000 and x0 >= 0 and y0 >= 0
-    z.reset()
-    assert not z.active and z.area() is None and z.image(frame) is frame
 
 
 @pytest.mark.parametrize("argv", [["--image-source", "a.png", "--source", "0"], ["enroll", "--image-source", "a.png", "--team", "t", "--operative", "o"]])
@@ -1136,7 +1135,7 @@ def test_wounds_start_at_the_maximum_and_stay_in_range(tmp_path, named):
     full = session.step(frame).image
     session.dispatch("base.select", index=nob)
     s = session.state()
-    assert s["selected_wounds"] == {"label": "orks/Nob", "current": 5, "max": 5}
+    assert s["selected_wounds"] == {"label": "orks/Nob", "name": "Nob", "current": 5, "max": 5}
     assert ACTIONS_BY_ID["wounds.plus"].enabled(s) and ACTIONS_BY_ID["wounds.set"].enabled(s)
     session.dispatch("wounds.minus")
     session.dispatch("wounds.minus")
@@ -1164,7 +1163,7 @@ def test_wounds_of_an_operative_with_no_maximum_give_a_warning(tmp_path, named):
     session, frame, state = named_session(tmp_path, named)
     session.dispatch("base.select", index=base_of(state, "Grot"))
     s = session.state()
-    assert s["selected_wounds"] == {"label": "orks/Grot", "current": None, "max": None}
+    assert s["selected_wounds"] == {"label": "orks/Grot", "name": "Grot", "current": None, "max": None}
     assert not ACTIONS_BY_ID["wounds.minus"].enabled(s)
     session.dispatch("wounds.minus")
     s = session.state()
@@ -1564,7 +1563,7 @@ def test_select_an_operative_from_a_team_list(tmp_path, named):
     session.dispatch("operative.select", label="orks/Nob")  # no snapshot: the operative alone
     s = session.state()
     assert s["selected"] is None and s["selected_operative"] == "orks/Nob" and s["selected_label"] == "orks/Nob"
-    assert s["selected_wounds"] == {"label": "orks/Nob", "current": 5, "max": 5}
+    assert s["selected_wounds"] == {"label": "orks/Nob", "name": "Nob", "current": 5, "max": 5}
     assert next(a for a in ACTIONS if a.id == "base.deselect").enabled(s)
     session.dispatch("wounds.minus")
     assert session.state()["selected_wounds"]["current"] == 4
@@ -1595,7 +1594,7 @@ def test_team_list_remove_and_add_operatives(tmp_path, named):
     assert len(names()) == 3
     session.dispatch("roster.remove", slot=0)
     s = session.state()
-    assert names() == ["Grot", "Burna"] and s["rosters"][0]["missing"] == [{"label": "orks/Nob", "name": "Nob"}]
+    assert names() == ["Grot", "Burna"] and s["rosters"][0]["missing"] == [{"label": "orks/Nob", "name": "Nob", "max": 1, "copies_in_play": 0}]
     assert s["selected_label"] is None
 
     session.dispatch("snapshot.name")  # Nob is out of play: no base gets its name
@@ -1615,3 +1614,142 @@ def test_team_list_remove_and_add_operatives(tmp_path, named):
     session.dispatch("team.set", slot=0, name=None)
     session.dispatch("team.set", slot=0, name="orks")  # a team change gives all operatives again
     assert names() == ["Nob", "Grot", "Burna"]
+
+
+# --- copies of one operative -------------------------------------------------------
+
+
+def paint_copies(cfg, placed: list[tuple[str, tuple[float, float], float]]):
+    """Board with painted operatives; a name can come more than once (copies)."""
+    from .conftest import Base
+    from .test_ident import PAINT, SIZES
+
+    img, mm2px = render_board(cfg, px_per_mm=2.0, bases=tuple(Base(c, SIZES[n]) for n, c, _ in placed))
+    for name, c, turn in placed:
+        body, detail = PAINT[name]
+        r = 0.5 * SIZES[name]
+        p = mm2px(c)
+        cv2.circle(img, (int(p[0]), int(p[1])), int((r - 3) * 2.0), body, -1, cv2.LINE_AA)
+        a = np.deg2rad(turn)
+        q = mm2px(np.array(c) + 0.4 * r * np.array([np.cos(a), np.sin(a)]))
+        cv2.circle(img, (int(q[0]), int(q[1])), int(0.3 * r * 2.0), detail, -1, cv2.LINE_AA)
+    return img
+
+
+A, B, C = (150.0, 450.0), (500.0, 150.0), (520.0, 300.0)
+OTHERS = [("Nob", (480.0, 620.0), 30.0), ("Burna", (120.0, 150.0), 60.0)]
+
+
+@pytest.fixture
+def grots(tmp_path, named):
+    """The orks gallery with `max = 3` for Grot, and a session with two Grots in the team list."""
+    cfg, _ = named
+    team = tmp_path / "gallery" / "orks"
+    idt.save_team_file(team, "orks", idt.load_team_file(team), {"Grot": 5}, None, None, {"Grot": 3})
+    frame = paint_copies(cfg, [("Grot", A, 0.0), ("Grot", B, 90.0), *OTHERS])
+    session = make_session(tmp_path, cfg, frame, teams=("orks",))
+    settled(session, frame)
+    session.dispatch("roster.add", slot=0, label="orks/Grot")
+    return cfg, session
+
+
+def snap(session, frame) -> dict:
+    settled(session, frame)
+    session.dispatch("snapshot.name")
+    return session.step(frame).state
+
+
+def grot_bases(session, state) -> dict[tuple[float, float], dict]:
+    """Grot bases of the snapshot by their centre (mm, rounded to 10 mm)."""
+    found = session._found()
+    return {tuple(np.round(np.asarray(found[b["index"]].center_mm) / 10.0) * 10.0): b for b in state["bases"] if b["type_label"] == "orks/Grot"}
+
+
+def test_team_list_with_copies(grots):
+    _, session = grots
+    rows = session.state()["rosters"][0]
+    assert [r["name"] for r in rows["operatives"]] == ["Nob", "Grot 1", "Burna", "Grot 2"]
+    assert [r["label"] for r in rows["operatives"]][-1] == "orks/Grot#2"
+    assert rows["missing"] == [{"label": "orks/Grot", "name": "Grot", "max": 3, "copies_in_play": 2}]
+    session.dispatch("roster.add", slot=0, label="orks/Grot")
+    s = session.state()
+    assert s["rosters"][0]["operatives"][-1]["name"] == "Grot 3" and s["rosters"][0]["missing"] == []
+    session.dispatch("roster.add", slot=0, label="orks/Grot")
+    assert "all 3 copies" in session.state()["notice"]["text"]
+    session.dispatch("roster.add", slot=0, label="orks/Nob#2")
+    assert "cannot be added" in session.state()["notice"]["text"]
+    # Remove copy 2: its wounds go; it comes back with all wounds and the same number.
+    session.dispatch("wounds.set", value=1, label="orks/Grot#2")
+    session.dispatch("operative.select", label="orks/Grot#2")
+    session.dispatch("roster.remove", slot=0)
+    names = [r["name"] for r in session.state()["rosters"][0]["operatives"]]
+    assert names == ["Nob", "Grot 1", "Burna", "Grot 3"] and "orks/Grot#2" not in session.wounds
+    session.dispatch("roster.add", slot=0, label="orks/Grot")
+    rows = session.state()["rosters"][0]["operatives"]
+    assert rows[-1]["name"] == "Grot 2" and rows[-1]["wounds"] == 5
+    assert session.gallery is None or session.gallery.copies["orks/Grot"] == 3
+
+
+def test_copies_get_numbers_by_position_and_keep_them(grots):
+    cfg, session = grots
+    state = snap(session, paint_copies(cfg, [("Grot", A, 0.0), ("Grot", B, 90.0), *OTHERS]))
+    assert_json_safe(state)
+    grot = grot_bases(session, state)
+    assert grot[A]["label"] == "orks/Grot#1" and grot[B]["label"] == "orks/Grot#2"  # first snapshot: nearest the top-left corner first
+    assert grot[B]["name"] == "Grot 2" and grot[B]["copy"] == 2 and grot[B]["sure"]
+    session.dispatch("wounds.set", value=2, label="orks/Grot#2")
+    # Grot 2 moves from B to C, Grot 1 stays: no question.
+    state = snap(session, paint_copies(cfg, [("Grot", A, 10.0), ("Grot", C, 180.0), *OTHERS]))
+    grot = grot_bases(session, state)
+    assert grot[A]["label"] == "orks/Grot#1" and grot[C]["label"] == "orks/Grot#2"
+    assert grot[A]["sure"] and grot[C]["sure"] and grot[C]["wounds"] == 2
+    assert np.allclose(session.positions["orks/Grot#2"], C, atol=2.0)
+
+
+def equidistant(a, c, off: float = 50.0) -> tuple[tuple[float, float], tuple[float, float]]:
+    """Two points at the same distance from a and from c: a swap of the copies there costs nothing."""
+    mid, d = 0.5 * (np.asarray(a, float) + c), np.asarray(c, float) - a
+    n = np.array([-d[1], d[0]]) / np.hypot(*d)
+    return tuple(np.round(mid + off * n)), tuple(np.round(mid - off * n))
+
+
+def test_a_possible_swap_is_unsure_only_when_the_states_differ(grots):
+    cfg, session = grots
+    snap(session, paint_copies(cfg, [("Grot", A, 0.0), ("Grot", C, 90.0), *OTHERS]))
+    p, q = equidistant(A, C)
+    state = snap(session, paint_copies(cfg, [("Grot", p, 0.0), ("Grot", q, 90.0), *OTHERS]))
+    assert all(b["sure"] for b in grot_bases(session, state).values())  # same wounds: a swap changes nothing
+    before = {k: v.copy() for k, v in session.positions.items()}
+    session.dispatch("wounds.set", value=1, label="orks/Grot#1")
+    p2, q2 = equidistant(p, q)
+    state = snap(session, paint_copies(cfg, [("Grot", p2, 0.0), ("Grot", q2, 90.0), *OTHERS]))
+    grot = list(grot_bases(session, state).values())
+    assert len(grot) == 2 and not any(b["sure"] for b in grot)
+    assert all(np.allclose(session.positions[k], v) for k, v in before.items())  # unsure: the positions stay
+    # One click fixes it: choose the other copy on one base, the bases swap.
+    first, second = grot
+    other = "orks/Grot#2" if first["label"] == "orks/Grot#1" else "orks/Grot#1"
+    session.dispatch("base.choose", label=other, index=first["index"])
+    after = {b["index"]: b for b in session.state()["bases"]}
+    assert after[first["index"]]["label"] == other and after[second["index"]]["label"] == first["label"]
+    assert after[first["index"]]["confirmed"] and after[second["index"]]["confirmed"]
+    found = session._found()
+    assert np.allclose(session.positions[other], found[first["index"]].center_mm)
+    assert np.allclose(session.positions[first["label"]], found[second["index"]].center_mm)
+
+
+def test_name_menu_lists_each_copy_with_its_wounds(grots):
+    cfg, session = grots
+    state = snap(session, paint_copies(cfg, [("Grot", A, 0.0), ("Grot", B, 90.0), *OTHERS]))
+    session.dispatch("wounds.set", value=3, label="orks/Grot#2")
+    index = grot_bases(session, state)[A]["index"]
+    session.dispatch("base.select", index=index)
+    menu = session.state()["candidates"]
+    copies = [c for c in menu if c["label"].startswith("orks/Grot")]
+    assert [(c["name"], c["copy"], c["wounds"]) for c in copies] == [("Grot 1", 1, 5), ("Grot 2", 2, 3)]
+    from battlesight.ui.parts import candidate_text
+
+    assert candidate_text(copies[1]).startswith("orks/Grot 2 (3/5)")
+    # A type label picks the copy that the base has.
+    session.dispatch("base.choose", label="orks/Grot", index=index)
+    assert session.state()["bases"][index]["label"] == "orks/Grot#1"
