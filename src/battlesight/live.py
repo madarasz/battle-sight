@@ -35,7 +35,7 @@ from . import walls
 from .calib import DriftMonitor, DriftReport, DriftStatus, TagDetector, board_corners_px, lens_for_frame
 from .camera import CameraSettings
 from .config import BoardConfig
-from .overlay import BLUE, GREEN, GREY, MAGENTA, RED, WHITE, YELLOW, draw_base_discs, draw_bases, draw_board_corners, draw_circle_mm, draw_grid, draw_health_bars, draw_idents, draw_melee_sign, draw_objective_arrows, draw_move_mm, draw_outline_mm, draw_path_mm, draw_range_mm, draw_rim_line, draw_tags, draw_terrain, fit_to_width
+from .overlay import BLUE, GREEN, GREY, MAGENTA, RED, WHITE, YELLOW, draw_base_discs, draw_bases, draw_board_corners, draw_circle_mm, draw_dashed_circle_mm, draw_grid, draw_health_bars, draw_idents, draw_melee_sign, draw_objective_arrows, draw_move_mm, draw_outline_mm, draw_path_mm, draw_range_mm, draw_rim_line, draw_tags, draw_terrain, fit_to_width
 from .pipeline import Pipeline, base_crops, bases_config, bases_image, find_base_near
 from .rectify import fit_view, mm_to_rect, rect_transform, warp_board
 
@@ -274,6 +274,7 @@ ACTIONS: tuple[Action, ...] = (
     Action("reference.take", "Take empty-board reference", "e"),
     Action("reference.clear", "Clear reference", "c", enabled=lambda s: s["reference_set"]),
     Action("measure.move", "Measure movement", "m", checked=lambda s: s["movement"]),
+    Action("measure.avoid_melee", "Avoid melee", checked=lambda s: s["avoid_melee"], enabled=lambda s: s["movement"]),
     Action("board.click", "Click the board", args=("x", "y"), enabled=_in_snapshot),
     Action("board.hover", "Point at the board", args=("x", "y")),
     Action("board.select", "Right click the board", args=("x", "y"), enabled=_in_snapshot),
@@ -381,6 +382,7 @@ class LiveSession:
         self.minimap = False  # a drawn board (layout, grid, bases) in place of the camera; needs a layout
         self.around_walls = False  # measure around walls, not through them; on at each layout load
         self.movement = False  # the ring is the area that the selected base can move to
+        self.avoid_melee = False  # the movement keeps 1 in away from the enemy bases
         self.hover_mm: np.ndarray | None = None  # board position of the mouse pointer
         self._move_field: tuple[Any, moves.MoveField, list[np.ndarray]] | None = None  # key, field, outline
         self._move_route: tuple[Any, Any] | None = None  # key, route to the pointer
@@ -441,6 +443,7 @@ class LiveSession:
             "view.marks": self._toggle_marks,
             "measure.walls": self._toggle_around_walls,
             "measure.move": self._toggle_movement,
+            "measure.avoid_melee": self._toggle_avoid_melee,
             "board.hover": self._hover,
             "map.terrain_type": self._set_terrain_type,
             "map.layout": self._set_map_layout,
@@ -633,12 +636,17 @@ class LiveSession:
         to_px, a = self._to_px, found[self.selected]
         draw_circle_mm(img, a.center_mm, 0.5 * a.diameter_mm, to_px, WHITE)
         around = self._walls_on()
+        if self.movement:  # 1 in around each enemy: a move into it is a melee
+            for i in self._enemy_indexes(found):
+                draw_dashed_circle_mm(img, found[i].center_mm, 0.5 * found[i].diameter_mm + measure.MM_PER_INCH, to_px, YELLOW)
         if self.ring_in is not None and self.movement:
             field, outline = self._field(found)
             draw_range_mm(img, outline, to_px, MAGENTA)
             route = self._route(found)
             if route is not None:
                 draw_move_mm(img, route[1], field.radius, route[2], route[0], to_px)
+                for i in self._move_melee(found):
+                    draw_melee_sign(img, found[i].center_mm, to_px, WHITE)
         elif self.ring_in is not None and around:
             draw_range_mm(img, self._range_around(a), to_px, MAGENTA)
         elif self.ring_in is not None:
@@ -682,9 +690,9 @@ class LiveSession:
 
     # --- movement -------------------------------------------------------------------
 
-    def _enemies(self, found: list) -> list[tuple[tuple[float, float], float]]:
-        """The bases of the other team than the selected base: they block its
-        movement. Bases without a name block nothing."""
+    def _enemy_indexes(self, found: list) -> list[int]:
+        """Indexes of the bases of the other team than the selected base.
+        Bases without a name are no enemies."""
         if self.session is None or self.selected is None:
             return []
         labels = [x.label for x in self.session.idents]
@@ -692,14 +700,32 @@ class LiveSession:
         if mine is None:
             return []
         team = mine.partition("/")[0]
-        return [((float(c.center_mm[0]), float(c.center_mm[1])), float(c.diameter_mm)) for c, label in zip(found, labels) if label is not None and label.partition("/")[0] != team]
+        return [i for i, label in enumerate(labels[: len(found)]) if label is not None and label.partition("/")[0] != team]
+
+    def _enemies(self, found: list) -> list[tuple[tuple[float, float], float]]:
+        """(centre, diameter) of the enemy bases: they block the movement of the selected base."""
+        return [((float(found[i].center_mm[0]), float(found[i].center_mm[1])), float(found[i].diameter_mm)) for i in self._enemy_indexes(found)]
+
+    def _move_melee(self, found: list) -> list[int]:
+        """Indexes of the enemy bases that the move to the pointer comes
+        within 1 in of (rim to rim), at any point of the move."""
+        route = self._route(found)
+        if route is None:
+            return []
+        a = found[self.selected]
+        return [i for i in self._enemy_indexes(found) if measure.path_distance(route[1], found[i].center_mm) < 0.5 * a.diameter_mm + 0.5 * found[i].diameter_mm + measure.MM_PER_INCH - 0.5]
+
+    def _toggle_avoid_melee(self) -> None:
+        self.avoid_melee = not self.avoid_melee
+        self.dirty = True
 
     def _field(self, found: list) -> tuple[moves.MoveField, list[np.ndarray]]:
         """Movement field of the selected base for the ring distance, and its outline."""
         a, enemies = found[self.selected], self._enemies(found)
         # The base can go through all other bases, but it cannot stop on one.
         friends = [(xy, d) for i, c in enumerate(found) if i != self.selected for xy, d in [((float(c.center_mm[0]), float(c.center_mm[1])), float(c.diameter_mm))] if (xy, d) not in enemies]
-        key = (self.map_layout, frozenset(self.opened), self._base_key(a), self.ring_in, tuple(enemies), tuple(friends))
+        avoid = measure.MM_PER_INCH if self.avoid_melee else 0.0
+        key = (self.map_layout, frozenset(self.opened), self._base_key(a), self.ring_in, tuple(enemies), tuple(friends), avoid)
         if self._move_field is None or self._move_field[0] != key:
             size = (self.cfg.width_mm, self.cfg.height_mm)
             rects, gaps = (), ()
@@ -707,7 +733,7 @@ class LiveSession:
                 shapes = self._shapes_now()
                 xs, ys = self.cfg.grid_lines_mm()
                 rects, gaps = walls.obstacles(shapes, size, (xs[0], ys[0], xs[-1], ys[-1])), walls.open_gaps(shapes)
-            field = moves.move_field(a.center_mm, a.diameter_mm, self.ring_in, rects, gaps, enemies, size, friends)
+            field = moves.move_field(a.center_mm, a.diameter_mm, self.ring_in, rects, gaps, enemies, size, friends, avoid)
             self._move_field = (key, field, field.outline())
             self._move_route = None
         return self._move_field[1], self._move_field[2]
@@ -832,6 +858,8 @@ class LiveSession:
             "control": self._control(self._found()) if self.marks else None,
             "around_walls": self.around_walls,
             "movement": self.movement,
+            "avoid_melee": self.avoid_melee,
+            "move_melee": self._move_melee(self._found()),
             "move": self._move_state(),
             "terrain_types": sorted({e.terrain for e in self.maps}),
             "terrain_type": self.terrain_type,

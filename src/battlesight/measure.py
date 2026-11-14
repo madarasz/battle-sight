@@ -22,6 +22,17 @@ def base_at(centers_mm: Sequence, diameters_mm: Sequence[float], at_mm: Sequence
     return i if d[i] <= 0.5 * diameters_mm[i] + reach_mm else None
 
 
+def path_distance(points_mm, at_mm) -> float:
+    """Shortest distance from a chain of straight segments to a point."""
+    pts, at = np.asarray(points_mm, float).reshape(-1, 2), np.asarray(at_mm, float)
+    best = float(np.linalg.norm(pts[0] - at))
+    for a, b in zip(pts[:-1], pts[1:]):
+        ab = b - a
+        t = np.clip(np.dot(at - a, ab) / max(float(np.dot(ab, ab)), 1e-12), 0.0, 1.0)
+        best = min(best, float(np.linalg.norm(a + t * ab - at)))
+    return best
+
+
 def ring_radius_mm(diameter_mm: float, inches: float) -> float:
     """Radius of the ring that is `inches` from the rim of a base."""
     return 0.5 * diameter_mm + inches * MM_PER_INCH

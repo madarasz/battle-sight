@@ -172,7 +172,10 @@ closed. Clear the check box to measure in a straight line.
 The **Measure movement** check box shows the area that the
 selected operative can move to with the distance that you set. Move the
 mouse pointer in the area to see the best move to that point, with the
-inches of each part.
+inches of each part. A yellow dashed circle shows 1 in around each enemy
+operative. A white crossed swords sign on an enemy shows that the move goes
+into its circle. Set the **Avoid melee** check box to keep the area and the
+move out of these circles.
 
 ### 4. Track the game
 

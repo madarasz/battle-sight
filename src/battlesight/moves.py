@@ -278,6 +278,7 @@ def move_field(
     enemies: Sequence[tuple[Sequence[float], float]] = (),
     size_mm: Sequence[float] | None = None,
     friends: Sequence[tuple[Sequence[float], float]] = (),
+    avoid_mm: float = 0.0,
 ) -> MoveField:
     """Movement of a base of `diameter` at `center` with a budget of `inches`.
 
@@ -285,7 +286,10 @@ def move_field(
     `gaps`: rectangles of the open hatchways and breach points, as
     `walls.open_gaps`. `enemies`: (centre, diameter) of the bases that
     block. `friends`: bases that the base can move through, but it cannot
-    stop on them. `size_mm`: board width and height, the base stays on the board."""
+    stop on them. `size_mm`: board width and height, the base stays on the board.
+    `avoid_mm`: the base rim keeps this distance to each enemy rim (1 in =
+    no melee). An enemy that is already nearer at the start only blocks
+    with its base, or the base could not move at all."""
     k = MOVE_PX_PER_MM
     t = _tables(MM_PER_INCH * k)
     c, r = np.asarray(center, float), 0.5 * diameter
@@ -348,8 +352,10 @@ def move_field(
         for corner in ((x0, y0), (x1, y0), (x1, y1), (x0, y1)):
             cv2.circle(stand, px(*corner), grow, 0, -1)
     for at, size in enemies:
+        near = float(np.hypot(c[0] - at[0], c[1] - at[1])) <= r + 0.5 * size + avoid_mm
+        keep = clear + 0.5 * size + (0.0 if near else avoid_mm)
         for mask in (stand, free):
-            cv2.circle(mask, px(float(at[0]), float(at[1])), int(round((clear + 0.5 * size) * k)), 0, -1)
+            cv2.circle(mask, px(float(at[0]), float(at[1])), int(round(keep * k)), 0, -1)
     for at, size in friends:  # no stop on a friend; the move goes through
         cv2.circle(stand, px(float(at[0]), float(at[1])), int(round((clear + 0.5 * size) * k)), 0, -1)
     for band in (stand, free, barrier):

@@ -524,6 +524,16 @@ def test_each_layout_has_the_around_walls_check_box(idle_window, recorded):
     assert boxes[0].isEnabled() and boxes[0].isChecked()
 
 
+def test_avoid_melee_check_box_needs_measure_movement(idle_window, recorded):
+    boxes = [b for b in idle_window.centralWidget().findChildren(QAbstractButton) if b.text() == "Avoid melee"]
+    assert len(boxes) == 1 and boxes[0].isCheckable()
+    state = dict(recorded[2]["base selected"].state)
+    idle_window.current_layout.on_state({**state, "movement": False, "avoid_melee": False})
+    assert not boxes[0].isEnabled() and not boxes[0].isChecked()
+    idle_window.current_layout.on_state({**state, "movement": True, "avoid_melee": True})
+    assert boxes[0].isEnabled() and boxes[0].isChecked()
+
+
 def test_each_layout_has_the_movement_check_box(idle_window, recorded):
     boxes = [b for b in idle_window.centralWidget().findChildren(QAbstractButton) if b.text() == "Measure movement"]
     assert len(boxes) == 1 and boxes[0].isCheckable()

@@ -140,3 +140,24 @@ def test_no_stop_on_an_open_hatchway_or_breach_point():
     for x in (285.0, 300.0, 315.0):
         assert not contains(area, (x, 300.0))  # the gap is not in the area
     assert contains(area, (300.0, 294.0)) and contains(area, (300.0, 306.0))
+
+
+def test_avoid_keeps_the_rim_one_inch_from_the_enemy_rim():
+    enemy = ((300.0, 300.0), 40.0)
+    start, goal = (200.0, 300.0), (400.0, 300.0)
+    keep = 16.0 + 20.0 + MM_PER_INCH  # centre to centre
+    plain = move_field(start, D, 9, enemies=[enemy])
+    assert plain.cost((300.0 - keep + 6.0, 300.0)) is not None  # in the 1 in zone: a melee
+    field = move_field(start, D, 9, enemies=[enemy], avoid_mm=MM_PER_INCH)
+    assert field.cost((300.0 - keep + 3.0, 300.0)) is None and field.cost((300.0 - keep - 2.0, 300.0)) is not None
+    total, points, costs = field.route(goal)
+    assert total == sum(costs) and len(points) >= 3 and seg_dist(points, enemy[0]) > keep - 2.0
+    area = field.outline()
+    assert not contains(area, (300.0, 300.0 - 20.0 - MM_PER_INCH + 3.0)) and contains(area, (300.0, 300.0 - 20.0 - MM_PER_INCH - 3.0))
+
+
+def test_avoid_does_not_lock_a_base_that_starts_in_melee():
+    enemy = ((300.0, 300.0), 40.0)
+    field = move_field((250.0, 300.0), D, 3, enemies=[enemy], avoid_mm=MM_PER_INCH)  # rims 14 mm apart
+    assert field.cost((200.0, 300.0)) == 2 and field.cost((262.0, 300.0)) == 1
+    assert field.cost((270.0, 300.0)) is None  # the bases would overlap

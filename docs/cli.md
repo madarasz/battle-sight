@@ -227,6 +227,17 @@ change.
   `stand` only (disc of both radii), so a move goes through them but cannot
   stop on them. The outline has a hole at each one, and the pointer on one
   gives no route.
+- Melee zone: with `measure.move` on and a selected base, each enemy base
+  gets a yellow dashed circle at its radius + 1 in
+  (`overlay.draw_dashed_circle_mm`). `LiveSession._move_melee`: the enemies
+  whose centre is nearer to the route (`measure.path_distance`) than both
+  radii + 1 in, less 0.5 mm; each gets `overlay.draw_melee_sign` in white at
+  its centre. `state["move_melee"]` = their base indexes.
+- `measure.avoid_melee` ("Avoid melee" check box next to "Measure movement",
+  no key, off at the start, enabled only with `measure.move`): `move_field`
+  gets `avoid_mm` = 1 in, which grows each enemy disc in `stand` and `free`.
+  An enemy that is already within 1 in at the start keeps its plain disc, or
+  the base could not move at all. `state["avoid_melee"]`.
 - `state["movement"]`, `state["move"]` = `{"in", "increments"}` or null. The
   status bar shows `move 5" (3 + 2)`. Layout 6 at 9 in: about 0.15 s for a new
   field, about 2 ms for a route. The shell sends one pointer position at a

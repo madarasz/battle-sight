@@ -34,8 +34,10 @@ All results are 2D in the board plane, in board mm, from the base rim. No height
 - M5. An operative of the other team blocks the move: the bases cannot overlap at any time.
 - M6. The operative can move through operatives of its own team, but it cannot stop on one.
 - M7. Light terrain does not change a measurement or a move (drawn only).
+- M8. Melee zone: 1 in around each enemy base, rim to rim. With movement on, the zone shows as a yellow dashed circle. A move whose base comes into a zone at any point gets a white crossed swords sign on that enemy.
+- M9. "Avoid melee" (check box, off at the start, enabled only with movement on): the base keeps out of all melee zones, for the area and for each move. An enemy that is already within 1 in at the start blocks only with its base.
 
-Not in scope: teleporter pads, vantage and height, climb and jump, the 1 in engagement range of enemies, dash and charge limits, movement through closed openings, tokens.
+Not in scope: teleporter pads, vantage and height, climb and jump, dash and charge limits, movement through closed openings, tokens.
 
 ## 3. User interface
 
@@ -43,6 +45,7 @@ Not in scope: teleporter pads, vantage and height, climb and jump, the 1 in enga
 |---|---|---|---|---|
 | "Measure around walls" check box (View section) | `measure.walls` | `w` | with a layout | on at each layout load |
 | "Measure movement" check box (below the ring control) | `measure.move` | `m` | always | off |
+| "Avoid melee" check box (next to it) | `measure.avoid_melee` | none | with movement on | off |
 | Mouse pointer on the board | `board.hover` (`x`, `y` image pixels, or null) | none | sent only with movement on, a ring and a selected base | none |
 
 What the ring control (keys `1` to `9`, slider) shows for the selected base:
@@ -137,5 +140,5 @@ Done test (open): on the real board, 5 distances around walls and 5 moves agree 
 - Tape measure check on the real board (section 8).
 - Equal-cost routes: the shown one is not always the one with the fewest bends.
 - A bend of a route can be in the zone of an open gap (base over the wall). The rules permit to go through, the display of a bend there can look wrong.
-- Enemy engagement range (1 in) and teleporter pads are not in the movement area.
+- Teleporter pads are not in the movement area.
 - Volkus (no walls on a grid): only the board edge and bases apply. Its terrain needs its own obstacle shapes.

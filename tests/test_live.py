@@ -1753,3 +1753,46 @@ def test_name_menu_lists_each_copy_with_its_wounds(grots):
     # A type label picks the copy that the base has.
     session.dispatch("base.choose", label="orks/Grot", index=index)
     assert session.state()["bases"][index]["label"] == "orks/Grot#1"
+
+
+def test_movement_shows_the_melee_zone_and_avoid_melee_keeps_out_of_it(tmp_path):
+    cfg = ident_cfg()
+    frame = paint_board(cfg, GAME)
+    session, state = bases_snapshot(tmp_path, cfg, frame)
+    index = {game_name(session, i): i for i in range(len(state["bases"]))}
+    nob, burna = index["Nob"], index["Burna"]
+    avoid = ACTIONS_BY_ID["measure.avoid_melee"]
+    assert state["avoid_melee"] is False and not avoid.enabled(state) and state["move_melee"] == []
+    click_base(session, state, nob)
+    session.dispatch("ring.9")
+    plain = session.step(frame).image.copy()
+    session._enemy_indexes = lambda found: [burna]  # as with names of two teams
+    session.dispatch("measure.move")
+    live = session.step(frame)
+    assert avoid.enabled(live.state) and not avoid.checked(live.state)
+
+    edge = np.asarray(GAME["Burna"][0]) + (0.5 * SIZES["Burna"] + 25.4, 0.0)  # on the dashed circle
+    x, y = np.rint((edge + cfg.rectify_margin_mm) * cfg.rectify_px_per_mm * session.win.scale).astype(int)
+    patch = live.image[y - 6 : y + 7, x - 6 : x + 7].reshape(-1, 3).astype(int)
+    assert ((patch[:, 2] > 200) & (patch[:, 1] > 150) & (patch[:, 0] < 120)).any()  # yellow
+
+    near = np.asarray(GAME["Burna"][0]) + (-50.0, 0.0)  # the rims are 2 mm apart there
+    hover(session, near)
+    melee = session.step(frame)
+    assert_json_safe(melee.state)
+    assert melee.state["move_melee"] == [burna] and melee.state["move"] is not None
+    bx, by = np.rint((np.asarray(GAME["Burna"][0]) + cfg.rectify_margin_mm) * cfg.rectify_px_per_mm * session.win.scale).astype(int)
+    sign = melee.image[by - 12 : by + 13, bx - 12 : bx + 13].reshape(-1, 3)
+    assert (sign.min(axis=1) > 240).any() and not (live.image[by - 12 : by + 13, bx - 12 : bx + 13].reshape(-1, 3).min(axis=1) > 240).any()  # white swords
+    hover(session, np.add(GAME["Nob"][0], (-40.0, 0.0)))  # away from the enemy
+    assert session.state()["move_melee"] == []
+
+    session.dispatch("measure.avoid_melee")
+    hover(session, near)
+    kept = session.step(frame)
+    assert kept.state["avoid_melee"] is True and avoid.checked(kept.state)
+    assert kept.state["move_melee"] == [] and not np.array_equal(kept.image, melee.image)
+    field, outline = session._field(session._found())
+    assert field.cost(near) is None and not walls.contains(outline, np.asarray(GAME["Burna"][0]) + (-30.0, 0.0))
+    session.dispatch("measure.move")
+    assert not avoid.enabled(session.state())

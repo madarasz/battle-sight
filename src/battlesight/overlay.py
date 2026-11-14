@@ -518,7 +518,19 @@ def _px_per_mm(to_px, at_mm) -> float:
     return 0.5 * float(np.linalg.norm(q[1] - q[0]) + np.linalg.norm(q[2] - q[0]))
 
 
-def draw_melee_sign(frame: np.ndarray, at_mm, to_px) -> None:
+def draw_dashed_circle_mm(frame: np.ndarray, center_mm, radius_mm: float, to_px, color: tuple[int, int, int], dash_mm: float = 5.0) -> None:
+    """Dashed circle in board mm (dash and space each about `dash_mm`),
+    sampled in mm so that it bends with the lens in the camera frame."""
+    dashes = max(8, int(round(np.pi * radius_mm / dash_mm)))
+    c = np.asarray(center_mm, float)
+    thick = max(1, round(2 * _scale(frame)))
+    for k in range(dashes):
+        a = (k + np.linspace(0.0, 0.5, 5)) * (2 * np.pi / dashes)
+        arc = np.rint(to_px(c + radius_mm * np.c_[np.cos(a), np.sin(a)])).astype(np.int32).reshape(-1, 1, 2)
+        cv2.polylines(frame, [arc], False, color, thick, cv2.LINE_AA)
+
+
+def draw_melee_sign(frame: np.ndarray, at_mm, to_px, color: tuple[int, int, int] = MARK_COLOR) -> None:
     """Crossed swords on a dark octagon (a stop sign), centred on a board
     point. The sign stays upright; its size follows the board scale."""
     c = np.asarray(to_px(np.asarray(at_mm, float).reshape(1, 2)), float).reshape(2)
@@ -526,7 +538,7 @@ def draw_melee_sign(frame: np.ndarray, at_mm, to_px) -> None:
     a = np.deg2rad(22.5 + 45.0 * np.arange(8))
     octagon = np.rint(c + R * np.c_[np.cos(a), np.sin(a)]).astype(np.int32).reshape(-1, 1, 2)
     cv2.fillPoly(frame, [octagon], MARK_BACK, cv2.LINE_AA)
-    cv2.polylines(frame, [octagon], True, MARK_COLOR, max(1, round(0.08 * R)), cv2.LINE_AA)
+    cv2.polylines(frame, [octagon], True, color, max(1, round(0.08 * R)), cv2.LINE_AA)
     for sx in (1.0, -1.0):  # blade from the lower corner to the upper corner
         tip, pommel = c + 0.46 * R * np.array([sx, -1.0]), c + 0.46 * R * np.array([-sx, 1.0])
         along = (tip - pommel) / np.linalg.norm(tip - pommel)
@@ -538,8 +550,8 @@ def draw_melee_sign(frame: np.ndarray, at_mm, to_px) -> None:
         grip = np.array([pommel + 0.45 * w * normal, guard + 0.45 * w * normal, guard - 0.45 * w * normal, pommel - 0.45 * w * normal])
         bar = np.array([guard + 0.22 * R * normal + 0.6 * w * along, guard + 0.22 * R * normal - 0.6 * w * along, guard - 0.22 * R * normal - 0.6 * w * along, guard - 0.22 * R * normal + 0.6 * w * along])
         for poly in (blade, grip, bar):
-            cv2.fillPoly(frame, [np.rint(poly).astype(np.int32).reshape(-1, 1, 2)], MARK_COLOR, cv2.LINE_AA)
-        cv2.circle(frame, tuple(int(v) for v in np.rint(pommel)), max(1, round(0.9 * w)), MARK_COLOR, -1, cv2.LINE_AA)
+            cv2.fillPoly(frame, [np.rint(poly).astype(np.int32).reshape(-1, 1, 2)], color, cv2.LINE_AA)
+        cv2.circle(frame, tuple(int(v) for v in np.rint(pommel)), max(1, round(0.9 * w)), color, -1, cv2.LINE_AA)
 
 
 def objective_arrows_mm(center_mm, diameter_mm: float, objective_mm) -> list[np.ndarray]:

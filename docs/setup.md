@@ -83,6 +83,9 @@ a USB cable.
 | Needs | Camo Camera system extension on the Mac | phone and Mac on the same network | scrcpy on the Mac, USB debugging on the phone |
 | Image size | requested by the app (saved) | set in the phone app | requested by the app (saved) |
 | Lag and image quality | low lag, little compression | more lag, more compression | low lag, little compression |
+| Example latency* | - | 2817 ms | 751 ms |
+
+**Results may vary on your system. Measure by opening https://time.ms/ , point camera at it, start battlesight, put battlesight window next to browser window, screenshot it, calculate*
 
 ### A. Camo (USB)
 
