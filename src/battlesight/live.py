@@ -30,12 +30,13 @@ from . import ident as idt
 from . import measure
 from . import moves
 from . import score as sc
+from . import shoot
 from . import terrain as ter
 from . import walls
 from .calib import DriftMonitor, DriftReport, DriftStatus, TagDetector, board_corners_px, lens_for_frame
 from .camera import CameraSettings
 from .config import BoardConfig
-from .overlay import BLUE, GREEN, GREY, MAGENTA, RED, WHITE, YELLOW, draw_base_discs, draw_bases, draw_board_corners, draw_circle_mm, draw_dashed_circle_mm, draw_dashed_outline_mm, draw_grid, draw_health_bars, draw_idents, draw_melee_sign, draw_objective_arrows, draw_move_mm, draw_outline_mm, draw_path_mm, draw_range_mm, draw_rim_line, draw_tags, draw_terrain, fit_to_width
+from .overlay import BLUE, GREEN, GREY, MAGENTA, RED, WHITE, YELLOW, draw_base_discs, draw_bases, draw_board_corners, draw_circle_mm, draw_dashed_circle_mm, draw_dashed_outline_mm, draw_grid, draw_health_bars, draw_idents, draw_melee_sign, draw_objective_arrows, draw_move_mm, draw_outline_mm, draw_path_mm, draw_range_mm, draw_rim_line, draw_tags, draw_targeting_mm, draw_terrain, fit_to_width
 from .pipeline import Pipeline, base_crops, bases_config, bases_image, find_base_near
 from .rectify import fit_view, mm_to_rect, rect_transform, warp_board
 
@@ -285,6 +286,7 @@ ACTIONS: tuple[Action, ...] = (
     Action("reference.clear", "Clear reference", "c", enabled=lambda s: s["reference_set"]),
     Action("measure.move", "Measure movement", "m", checked=lambda s: s["movement"]),
     Action("measure.avoid_melee", "Avoid control range", checked=lambda s: s["avoid_melee"], enabled=lambda s: s["movement"]),
+    Action("measure.shoot", "Shoot at", checked=lambda s: s["shooting"], enabled=_has_selection),
     Action("board.click", "Click the board", args=("x", "y"), enabled=_in_snapshot),
     Action("board.hover", "Point at the board", args=("x", "y")),
     Action("board.select", "Right click the board", args=("x", "y"), enabled=_in_snapshot),
@@ -393,6 +395,8 @@ class LiveSession:
         self.around_walls = False  # measure around walls, not through them; on at each layout load
         self.movement = False  # the ring is the area that the selected base can move to
         self.avoid_melee = False  # the movement keeps 1 in away from the enemy bases
+        self.shooting = False  # "Shoot at": targeting lines from the pointer to the selected base
+        self._shot: tuple[Any, shoot.Shot | None, int | None] | None = None  # key, last shot, shooter base
         self.hover_mm: np.ndarray | None = None  # board position of the mouse pointer
         self._move_field: tuple[Any, moves.MoveField, list[np.ndarray]] | None = None  # key, field, outline
         self._move_route: tuple[Any, Any] | None = None  # key, route to the pointer
@@ -456,6 +460,7 @@ class LiveSession:
             "measure.walls": self._toggle_around_walls,
             "measure.move": self._toggle_movement,
             "measure.avoid_melee": self._toggle_avoid_melee,
+            "measure.shoot": self._toggle_shooting,
             "board.hover": self._hover,
             "map.terrain_type": self._set_terrain_type,
             "map.layout": self._set_map_layout,
@@ -520,10 +525,10 @@ class LiveSession:
         return LiveFrame(self.image, state, self.win.scale, self._selected_crop())
 
     def _selected_crop(self) -> np.ndarray | None:
-        """While "Locate operative" waits for a click: the board under the
-        pointer (`_aim_crop`). Else the selected base with `PREVIEW_PAD_MM` of board around it, cut
+        """While "Locate operative" waits for a click or "Shoot at" is on: the
+        board under the pointer (`_aim_crop`). Else the selected base with `PREVIEW_PAD_MM` of board around it, cut
         from the centre of its gallery crop (`ident.store_crop`)."""
-        if self.adding:
+        if self.adding or self.shooting:
             return self._aim_crop()
         s, i = self.session, self.selected
         if s is None or i is None or i >= len(s.crops):
@@ -645,6 +650,7 @@ class LiveSession:
         for i in self._near_opening(found):  # bases near the selected hatchway or breach point
             draw_circle_mm(img, found[i].center_mm, 0.5 * found[i].diameter_mm, to_px, YELLOW)
         self._draw_measure(img, found)
+        self._draw_shot(img, found)
 
     def _near_opening(self, found: list) -> list[int]:
         """Indexes of the bases with the rim within `OPENING_NEAR_IN` of the
@@ -787,8 +793,77 @@ class LiveSession:
         at = None if x is None or y is None or not self._mapped() else self._to_mm(x, y)
         if (at is None) != (self.hover_mm is None) or (at is not None and not np.allclose(at, self.hover_mm)):
             self.hover_mm = at
-            if self.movement and self.ring_in is not None:
+            if (self.movement and self.ring_in is not None) or self.shooting:
                 self.dirty = True
+
+    # --- shooting -------------------------------------------------------------------
+
+    def _toggle_shooting(self) -> None:
+        """"Shoot at": targeting lines from the pointer to the selected base.
+        Again (or `Esc`): stop."""
+        if not self.shooting and self.selected is None:
+            self.notice.say("click a base first")
+            return
+        self.shooting = not self.shooting
+        self.dirty = True
+
+    def _shooter_index(self, found: list) -> int | None:
+        """The base under the pointer when it is not the selected base and
+        not of the same team (a base without a name can be the shooter)."""
+        if self.hover_mm is None:
+            return None
+        i = measure.base_at([c.center_mm for c in found], [c.diameter_mm for c in found], self.hover_mm, reach_mm=0.0)
+        if i is None or i == self.selected:
+            return None
+        labels = [x.label for x in self.session.idents] if self.session is not None else []
+        mine = labels[self.selected] if self.selected < len(labels) else None
+        theirs = labels[i] if i < len(labels) else None
+        if mine is not None and theirs is not None and mine.partition("/")[0] == theirs.partition("/")[0]:
+            return None
+        return i
+
+    def _aim(self, found: list) -> tuple[shoot.Shot | None, int | None]:
+        """The targeting lines from the pointer to the selected base and the
+        shooter base under the pointer (kept until the pointer, a base or the
+        terrain changes). (None, None) when "Shoot at" is off."""
+        if not self.shooting or self.selected is None or self.hover_mm is None or self.selected >= len(found):
+            return None, None
+        a = found[self.selected]
+        shooter = self._shooter_index(found)
+        key = (self.map_layout, frozenset(self.opened), self._base_key(a), float(self.hover_mm[0]), float(self.hover_mm[1]), None if shooter is None else self._base_key(found[shooter]))
+        if self._shot is None or self._shot[0] != key:
+            base = None if shooter is None else (found[shooter].center_mm, found[shooter].diameter_mm)
+            self._shot = (key, shoot.aim(self.hover_mm, a.center_mm, a.diameter_mm, self._heavy_rects(), base), shooter)
+        return self._shot[1], self._shot[2]
+
+    def _heavy_rects(self) -> np.ndarray:
+        """Heavy terrain of the layout: walls, pillars, closed hatchways and breach points."""
+        if self.map_layout is None:
+            return np.zeros((0, 4))
+        return walls.obstacles(self._shapes_now())
+
+    def _draw_shot(self, img: np.ndarray, found: list) -> None:
+        """1 in around the target and the shooter, the targeting lines and the intervening heavy terrain."""
+        if not self.shooting or self.selected is None or self.selected >= len(found):
+            return
+        to_px, a = self._to_px, found[self.selected]
+        draw_dashed_circle_mm(img, a.center_mm, 0.5 * a.diameter_mm + measure.MM_PER_INCH, to_px, YELLOW)
+        shot, shooter = self._aim(found)
+        if shooter is not None:
+            b = found[shooter]
+            draw_dashed_circle_mm(img, b.center_mm, 0.5 * b.diameter_mm + measure.MM_PER_INCH, to_px, YELLOW)
+        if shot is not None:
+            draw_targeting_mm(img, shoot.facing_outline(shot.origin, a.center_mm, a.diameter_mm), shot.pieces, to_px)
+
+    def _shot_state(self) -> dict[str, Any] | None:
+        """`obscured`, `in_cover`: what the heavy terrain in the targeting
+        lines gives; `intervening`: its pieces; `shooter`: base index under
+        the pointer. None while "Shoot at" is off or the pointer is off the
+        board or on the target."""
+        shot, shooter = self._aim(self._found())
+        if shot is None:
+            return None
+        return {"obscured": shot.obscured, "in_cover": shot.in_cover, "intervening": len(shot.pieces), "shooter": shooter}
 
     # --- measurement around walls ---------------------------------------------------
 
@@ -886,6 +961,8 @@ class LiveSession:
             "avoid_melee": self.avoid_melee,
             "move_melee": self._move_melee(self._found()),
             "move": self._move_state(),
+            "shooting": self.shooting,
+            "shot": self._shot_state(),
             "terrain_types": sorted({e.terrain for e in self.maps}),
             "terrain_type": self.terrain_type,
             "map_layouts": [e.name for e in self.maps if e.terrain == self.terrain_type],
@@ -1303,7 +1380,7 @@ class LiveSession:
     def _close_snapshot(self) -> None:
         self.result = self.snap = self.session = self.shown = None
         self.selected = self.target = self.ring_in = self.selected_opening = self.new_base = None
-        self.adding = False
+        self.adding = self.shooting = False
         self.frozen = False
 
     def _load_gallery(self) -> None:
@@ -1372,6 +1449,7 @@ class LiveSession:
         one thing is selected: a base or an opening."""
         self.selected = index
         self.target = self.ring_in = self.selected_opening = self.selected_operative = None
+        self.shooting = False
         if index != self.new_base:
             self.new_base = None
         self.dirty = True
@@ -1411,6 +1489,8 @@ class LiveSession:
         stops that."""
         if self.adding:
             self.adding = False
+        elif self.shooting:
+            self._toggle_shooting()
         elif self.frozen or self._minimap_on():
             self._show_live()
         else:

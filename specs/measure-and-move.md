@@ -142,3 +142,20 @@ Done test (open): on the real board, 5 distances around walls and 5 moves agree 
 - A bend of a route can be in the zone of an open gap (base over the wall). The rules permit to go through, the display of a bend there can look wrong.
 - Teleporter pads are not in the movement area.
 - Volkus (no walls on a grid): only the board edge and bases apply. Its terrain needs its own obstacle shapes.
+
+## 10. Targeting lines (`shoot.py`, "Shoot at")
+
+Status: in code 2026-11-15. Rules from the "Intervening" page of the core rules.
+
+- T1. The shooter draws straight lines, 1 mm in diameter, from one point of its base to each facing part of the target base. The app uses the mouse pointer as that point. The lines fill the triangle from the pointer to the two tangent points on the target rim (`shoot.tangent_points`), less the target base.
+- T2. Heavy terrain: walls, pillars, wall ends, closed hatchways and closed breach points (`walls.obstacles` without the board-edge extension). An open opening cuts a gap in its wall. Light terrain is not heavy.
+- T3. A heavy piece that the lines touch is intervening (red fill and edge on the video).
+- T4. OBSCURED: a part of an intervening piece in the lines is outside the 1 in zones (rim + 1 in) around the target and the shooter.
+- T5. IN COVER: a part of an intervening piece in the lines is in the 1 in zone around the target. T4 and T5 can both show.
+- T6. The shooter zone is there only when the pointer is on a base other than the target that is not of the target's team (a base without a name can be the shooter). That base also gets a yellow dashed 1 in circle; the target always gets one.
+
+UI: "Shoot at" (`measure.shoot`, no key, enabled with a selected base) in the inspector header after "Remove ID". While it is on the button reads "Cancel"; `Esc` (`snapshot.back`) and a new selection also stop it. The inspector crop is the board under the pointer (`LiveSession._aim_crop`, as for "Locate operative"), and OBSCURED / IN COVER take the place of the ring, movement and distance. The shell sends `board.hover` while `shooting`.
+
+Algorithm (`shoot.aim`): each heavy rectangle, grown by 0.5 mm for the line width, is sampled every 0.5 mm; a sample is in the lines when it is in the triangle and outside the target base. The sample zone tests give T4 and T5. `LiveSession._aim` keeps the result until the pointer, a base, the layout or an opening changes. State: `shooting`, `shot` = `{"obscured", "in_cover", "intervening", "shooter"}` or null (no pointer on the board, or the pointer on the target).
+
+Open: the shooter cannot choose a second point; vantage and the Obscured exceptions (for example a shooter within 1 in of the terrain that it looks over) are only the zone rule T4.

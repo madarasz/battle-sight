@@ -1,9 +1,11 @@
 """Layout `rosters`: a control bar on top, the video, and a team list each side.
 
-The control bar has separate sections: View, Commands, Inspector, Reference
-and Debug. The inspector shows the selected operative (name, crop, wounds,
-ring slider, name fix, remove a false base) or the selected hatchway or breach point (open or
-closed). While "Locate operative" waits for a click, it shows what to click and
+The control bar has separate sections: View (with the Debug check box),
+Commands, Inspector and Reference. The inspector shows the selected operative
+(name, crop, wounds, ring slider, name fix, remove a false base, shoot at it)
+or the selected hatchway or breach point (open or closed). While "Shoot at" is
+on, the crop is the board under the pointer, and OBSCURED and IN COVER show
+what the terrain in the targeting lines gives. While "Locate operative" waits for a click, it shows what to click and
 the board under the pointer; the base that this finds opens with its name
 list. While the name list is open, it takes the place of the wounds, ring
 and distance. Each team list shows the operatives of one team, their wounds and
@@ -17,7 +19,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any, ClassVar
 
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QAbstractButton, QComboBox, QGridLayout, QGroupBox, QHBoxLayout, QLabel, QPushButton, QStackedWidget, QToolButton, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QAbstractButton, QCheckBox, QComboBox, QGridLayout, QGroupBox, QHBoxLayout, QLabel, QPushButton, QStackedWidget, QToolButton, QVBoxLayout, QWidget
 
 from ...live import ACTIONS, Action, shown_view
 from ..parts import COLORS, CandidateList, MapPicker, OpeningControl, RingSlider, ScoreCounter, TeamRoster, VideoWidget, WoundsControl, action_control, distance_label, show_action_state
@@ -59,6 +61,7 @@ def roster_operative_title(state: dict[str, Any]) -> str:
 
 ADD_HINT = "Click the centre of the base of the operative that was not identified. Push Esc to cancel."
 MEASURE_HINT = "Right click a second base to measure to."
+SHOOT_HINT = "Point at the shooter. Push Cancel or Esc to stop."
 
 
 def inspector_page(state: dict[str, Any]) -> str:
@@ -93,7 +96,7 @@ class RostersLayout:
         root = QWidget()
         column = QVBoxLayout(root)
         column.setContentsMargins(4, 4, 4, 0)
-        column.addWidget(self._top_bar(debug_open), 0)
+        column.addWidget(self._top_bar(), 0)
         row = QHBoxLayout()
         self.rosters = [TeamRoster(slot, shell.dispatch) for slot in (0, 1)]
         self.counters = [ScoreCounter(slot, shell.dispatch) for slot in (0, 1)]
@@ -112,12 +115,13 @@ class RostersLayout:
         row.addWidget(self.video, 1)
         row.addWidget(sides[1], 0)
         column.addLayout(row, 1)
+        self.debug_toggle.setChecked(debug_open)
         shell.show_debug(debug_open)
         return root
 
     # --- top bar ---------------------------------------------------------------------
 
-    def _top_bar(self, debug_open: bool) -> QWidget:
+    def _top_bar(self) -> QWidget:
         bar = QWidget()
         bar.setFixedHeight(TOP_HEIGHT)
         row = QHBoxLayout(bar)
@@ -127,7 +131,6 @@ class RostersLayout:
         row.addWidget(self._commands_box(), 0)
         row.addWidget(self._inspector_box(), 1)
         row.addWidget(self._reference_box(), 0)
-        row.addWidget(self._debug_box(debug_open), 0)
         return bar
 
     @staticmethod
@@ -158,6 +161,10 @@ class RostersLayout:
         toggles.setHorizontalSpacing(14)
         for k, action_id in enumerate(("view.top_down", "view.grid", "view.terrain", "view.zones", "view.keys", "measure.walls", "view.marks")):
             toggles.addWidget(self._control(action_id), k // 4, k % 4)
+        self.debug_toggle = _no_focus(QCheckBox("Debug"))
+        self.debug_toggle.setToolTip("Debug values in the status bar")
+        self.debug_toggle.toggled.connect(self.shell.show_debug)
+        toggles.addWidget(self.debug_toggle, 1, 3)  # the last check box
         column.addLayout(toggles)
         column.addStretch(1)
         modes = QHBoxLayout()  # bottom row: what the video shows, one third each
@@ -187,22 +194,6 @@ class RostersLayout:
         column.addWidget(self.reference_label, 0, Qt.AlignmentFlag.AlignHCenter)  # at the bottom centre of the section
         return box
 
-    def _debug_box(self, debug_open: bool) -> QGroupBox:
-        box, column = self._section("Debug")
-        self.debug_toggle = _no_focus(QToolButton())
-        self.debug_toggle.setCheckable(True)
-        self.debug_toggle.setChecked(debug_open)
-        self.debug_toggle.setText("Hide" if debug_open else "Show")
-        self.debug_toggle.setToolTip("Debug values in the status bar")
-        self.debug_toggle.toggled.connect(self._toggle_debug)
-        column.addWidget(self.debug_toggle)
-        column.addStretch(1)
-        return box
-
-    def _toggle_debug(self, on: bool) -> None:
-        self.debug_toggle.setText("Hide" if on else "Show")
-        self.shell.show_debug(on)
-
     # --- inspector ---------------------------------------------------------------------
 
     def _inspector_box(self) -> QGroupBox:
@@ -221,6 +212,9 @@ class RostersLayout:
         self.remove = self._control("base.remove")
         self.remove.setToolTip("Not an operative (terrain, board print): remove this base from the snapshot")
         header.addWidget(self.remove, 0)
+        self.shoot = _no_focus(QPushButton("Shoot at"))  # "Cancel" while it is on
+        self.shoot.clicked.connect(lambda: self.shell.dispatch("measure.shoot"))
+        header.addWidget(self.shoot, 0)
         header.addStretch(1)
         self.close = _no_focus(QToolButton())
         self.close.setText("✕")
@@ -270,16 +264,43 @@ class RostersLayout:
         game.setSpacing(2)
         self.wounds = WoundsControl(self.shell.dispatch)
         game.addWidget(self.wounds)
+        self.measure = QWidget()  # ring, movement and distance: hidden while "Shoot at" is on
+        measure = QVBoxLayout(self.measure)
+        measure.setContentsMargins(0, 0, 0, 0)
+        measure.setSpacing(2)
         self.ring = RingSlider(self.shell.dispatch)
-        game.addWidget(self.ring)
+        measure.addWidget(self.ring)
         move_row = QHBoxLayout()
         move_row.addWidget(self._control("measure.move"))
         move_row.addSpacing(16)
         move_row.addWidget(self._control("measure.avoid_melee"))
         move_row.addStretch(1)
-        game.addLayout(move_row)
+        measure.addLayout(move_row)
         self.distance = QLabel()
-        game.addWidget(self.distance)
+        measure.addWidget(self.distance)
+        game.addWidget(self.measure)
+        self.shot = QWidget()  # what the terrain in the targeting lines gives
+        shot = QVBoxLayout(self.shot)
+        shot.setContentsMargins(0, 0, 0, 0)
+        shot.setSpacing(2)
+        flags = QHBoxLayout()
+        self.obscured = QLabel("OBSCURED")
+        self.in_cover = QLabel("IN COVER")
+        for label, color in ((self.obscured, COLORS["error"]), (self.in_cover, COLORS["info"])):
+            font = label.font()
+            font.setBold(True)
+            font.setPointSizeF(font.pointSizeF() * 1.3)
+            label.setFont(font)
+            label.setStyleSheet(f"color: {color}")
+            flags.addWidget(label, 0)
+            flags.addSpacing(16)
+        flags.addStretch(1)
+        shot.addLayout(flags)
+        self.shot_text = QLabel()
+        self.shot_text.setWordWrap(True)
+        shot.addWidget(self.shot_text)
+        self.shot.setVisible(False)
+        game.addWidget(self.shot)
         column.addWidget(self.game)
         self.candidates = CandidateList(self.shell.dispatch)
         self.candidates.setVisible(False)
@@ -330,9 +351,15 @@ class RostersLayout:
         self.close.setVisible(page in ("operative", "roster_operative", "opening"))
         self.change.setVisible(page == "operative")
         self.remove.setVisible(page == "operative")
+        self.shoot.setVisible(page == "operative")
+        self.shoot.setEnabled(ACTION_BY_ID["measure.shoot"].enabled(state))
+        self.shoot.setText("Cancel" if state["shooting"] else "Shoot at")
+        self.shoot.setToolTip("Stop the targeting lines (Esc)" if state["shooting"] else "Targeting lines from the pointer to this operative")
         if state["selected"] != self.fix_for:  # a new base starts with the name list closed
             self.fix_for = state["selected"]
             self.change.setChecked(state["selected"] is not None and state["selected"] == state["new_base"])  # a found base opens the name list
+        if state["shooting"] and self.change.isChecked():  # the targeting lines close the name list
+            self.change.setChecked(False)
         if page == "empty":
             self.title.setText("Nothing selected")
         elif page == "adding":
@@ -347,11 +374,28 @@ class RostersLayout:
         else:
             self.title.setText(operative_title(state))
             crop = self.shell.selected_crop()
-            self.crop.setVisible(crop is not None)
+            self.crop.setVisible(crop is not None or state["shooting"])  # the pointer can be off the board for a moment
             self.crop.set_image(crop)
             self.wounds.show_state(state)
             self.ring.show_state(state)
             distance = state["distance"]
             self.distance.setText(MEASURE_HINT if distance is None else distance_label(distance))
+            self._show_shot(state)
             self.change.setEnabled(bool(state["candidates"]))
             self.candidates.show_state(state)
+
+    def _show_shot(self, state: dict[str, Any]) -> None:
+        """While "Shoot at" is on: OBSCURED and IN COVER in place of the ring, movement and distance."""
+        shooting, shot = state["shooting"], state["shot"]
+        self.measure.setVisible(not shooting)
+        self.shot.setVisible(shooting)
+        if not shooting:
+            return
+        self.obscured.setVisible(shot is not None and shot["obscured"])
+        self.in_cover.setVisible(shot is not None and shot["in_cover"])
+        if shot is None:
+            self.shot_text.setText(SHOOT_HINT)
+        elif shot["obscured"] or shot["in_cover"]:
+            self.shot_text.setText("")
+        else:
+            self.shot_text.setText("No heavy terrain in the way." if shot["intervening"] == 0 else "Heavy terrain in the way, not obscured.")

@@ -180,6 +180,12 @@ operative. A white crossed swords sign on an enemy shows that the move goes
 into its circle. Set the **Avoid control range** check box to keep the area and the
 move out of these circles.
 
+To see if terrain is in the way of a shot, select the target operative and
+click **Shoot at** in the inspector. Put the mouse pointer on the shooter.
+White targeting lines go from the pointer to the target. Walls, pillars and
+closed hatchways in the lines show red. The inspector shows **OBSCURED** or
+**IN COVER**, and the board under the pointer. Click **Cancel** or push Esc to stop.
+
 ### 4. Track the game
 
 - **Wounds.** Click an operative that has a name. Click `-` or `+` in the
@@ -255,12 +261,13 @@ On the video:
 - Magenta circle or area: the range ring.
 - Magenta line with a number: the distance between two bases, in inches.
 - Grey circles with lines: the move to the mouse pointer.
+- White lines from the mouse pointer, red terrain: targeting lines and the terrain in the way.
 - Terrain: white walls, grey pillars, yellow hatchways, orange breach
   points, white rings for objectives, blue rings for teleporter pads, dark
   areas for light terrain.
 
 In the `rosters` layout, the inspector shows the selected operative (team,
-name, base size, photo, wounds, distance slider, "Change ID" and "Remove ID")
+name, base size, photo, wounds, distance slider, "Change ID", "Remove ID" and "Shoot at")
 or the selected hatchway or breach point (name, status, "Open"/"Close").
 
 ## Problems

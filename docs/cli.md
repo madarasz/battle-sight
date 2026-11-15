@@ -242,6 +242,14 @@ change.
   gets `avoid_mm` = 1 in, which grows each enemy disc in `stand` and `free`.
   An enemy that is already within 1 in at the start keeps its plain disc, or
   the base could not move at all. `state["avoid_melee"]`.
+- `measure.shoot` ("Shoot at" in the inspector, no key, enabled with a
+  selected base; again, `Esc` or a new selection stops it): targeting lines
+  from the pointer to the selected base (`shoot.aim`, `specs/measure-and-move.md`
+  section 10). Yellow dashed 1 in circles around the target and the shooter
+  base under the pointer, white lines to the tangent points with a light fill,
+  intervening heavy terrain in red (`overlay.draw_targeting_mm`).
+  `state["shooting"]`, `state["shot"]` = `{"obscured", "in_cover",
+  "intervening", "shooter"}` or null.
 - `state["movement"]`, `state["move"]` = `{"in", "increments"}` or null. The
   status bar shows `move 5" (3 + 2)`. Layout 6 at 9 in: about 0.15 s for a new
   field, about 2 ms for a route. The shell sends one pointer position at a
@@ -454,7 +462,7 @@ selected. `Esc` clears the selected base.
 | `0` | Remove the ring. |
 | `w` | Measure around walls on or off (`measure.walls`, only with a layout). |
 | `m` | Measure movement on or off (`measure.move`). |
-| mouse pointer on the board | With `measure.move` and a ring: the route to the pointer; with "Locate operative": the board under the pointer in the inspector (`board.hover`). |
+| mouse pointer on the board | With `measure.move` and a ring: the route to the pointer; with "Locate operative" or "Shoot at": the board under the pointer in the inspector; with "Shoot at": the targeting lines from the pointer (`board.hover`). |
 | `-`, `+` | One wound less or more on the selected named base (`wounds.minus`, `wounds.plus`). |
 | `o` | Open or close the selected hatchway or breach point (`opening.toggle`). |
 | left click on a base | Select it (on the selected base: clear the selection). |
@@ -493,8 +501,10 @@ of the status bar; off at each layout change). It must not import `pipeline`,
 only with `unconfirmed > 0`, "Locate operative" = `base.add` (the inspector shows the instruction while `adding`)), Inspector (operative: title `Team - Name (40mm)`, crop,
 `WoundsControl`, `RingSlider`, `measure.move`, distance, "Change ID" that shows a
 `CandidateList` (open at once for `new_base`; while open it hides the wounds,
-ring, movement and distance, and the button reads "Cancel": it closes the list), "Remove ID" = `base.remove`; opening: "Hatchway" / "Breach point" and `OpeningControl`
-(state and Open / Close button); `✕` = `base.deselect`), Reference and Debug.
+ring, movement and distance, and the button reads "Cancel": it closes the list), "Remove ID" = `base.remove`, "Shoot at" = `measure.shoot`
+(reads "Cancel" while `shooting`; the crop is the board under the pointer, OBSCURED / IN COVER from `state["shot"]` take the place of the ring, movement and distance);
+opening: "Hatchway" / "Breach point" and `OpeningControl`
+(state and Open / Close button); `✕` = `base.deselect`) and Reference. The last check box of View is "Debug" (debug values in the status bar).
 A `TeamRoster` each side of the video; the mark of a row starts with
 `current/max` wounds when the operative has a maximum. `WoundsControl`
 (`parts.py`, also in `inspector`): `-` and `+` buttons and a `QSpinBox` with

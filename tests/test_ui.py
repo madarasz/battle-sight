@@ -15,7 +15,7 @@ import numpy as np  # noqa: E402
 import pytest  # noqa: E402
 from PySide6.QtCore import QEvent, QPointF, Qt, QTimer  # noqa: E402
 from PySide6.QtGui import QMouseEvent  # noqa: E402
-from PySide6.QtWidgets import QAbstractButton, QAbstractItemView, QApplication, QRadioButton  # noqa: E402
+from PySide6.QtWidgets import QAbstractButton, QAbstractItemView, QApplication, QGroupBox, QRadioButton  # noqa: E402
 
 import battlesight.app as app  # noqa: E402
 from battlesight.live import ACTIONS, LiveSession  # noqa: E402
@@ -1140,6 +1140,37 @@ def test_rosters_inspector_shows_the_operative(idle_rosters, recorded):
     assert not layout.remove.isVisibleTo(idle_rosters)
 
 
+def test_rosters_shoot_at_shows_cancel_the_pointer_crop_and_the_result(idle_rosters, recorded):
+    layout = idle_rosters.current_layout
+    frames = recorded[2]
+    selected = frames["base selected"]
+    idle_rosters._on_frame(selected, 0)
+    order = [layout.title.parentWidget().layout().itemAt(0).layout().itemAt(k).widget() for k in range(5)]
+    assert order[2:4] == [layout.remove, layout.shoot]  # after "Remove ID"
+    assert layout.shoot.text() == "Shoot at" and layout.shoot.isEnabled() and layout.shoot.isVisibleTo(idle_rosters)
+    assert layout.ring.isVisibleTo(idle_rosters) and not layout.shot.isVisibleTo(idle_rosters)
+    layout.change.click()  # the name list closes when the targeting lines start
+    aim = np.full((80, 80, 3), 128, np.uint8)
+    shooting = dict(selected.state, shooting=True, shot=None)
+    idle_rosters._on_frame(replace(selected, state=shooting, crop=aim), 0)
+    assert layout.shoot.text() == "Cancel" and not layout.change.isChecked()
+    assert layout.shot.isVisibleTo(idle_rosters) and not layout.ring.isVisibleTo(idle_rosters) and layout.crop._image is not None
+    assert not layout.obscured.isVisibleTo(idle_rosters) and not layout.in_cover.isVisibleTo(idle_rosters) and "Esc" in layout.shot_text.text()
+    for obscured, in_cover in ((True, False), (False, True), (True, True)):
+        state = dict(shooting, shot={"obscured": obscured, "in_cover": in_cover, "intervening": 1, "shooter": 1})
+        idle_rosters._on_frame(replace(selected, state=state, crop=aim), 0)
+        assert layout.obscured.isVisibleTo(idle_rosters) is obscured and layout.in_cover.isVisibleTo(idle_rosters) is in_cover
+        assert layout.obscured.text() == "OBSCURED" and layout.in_cover.text() == "IN COVER"
+    idle_rosters._on_frame(replace(selected, state=dict(shooting, shot={"obscured": False, "in_cover": False, "intervening": 0, "shooter": None}), crop=None), 0)
+    assert layout.crop.isVisibleTo(idle_rosters)  # the pointer is off the board: the crop keeps its place
+    sent = []
+    idle_rosters.dispatch = lambda action_id, **args: sent.append(action_id)
+    layout.shoot.click()
+    assert sent == ["measure.shoot"]
+    idle_rosters._on_frame(selected, 0)
+    assert layout.shoot.text() == "Shoot at" and layout.ring.isVisibleTo(idle_rosters)
+
+
 def test_rosters_add_operative_shows_the_instruction_and_then_the_name_list(idle_rosters, recorded):
     layout = idle_rosters.current_layout
     frames = recorded[2]
@@ -1222,10 +1253,12 @@ def test_rosters_debug_goes_to_the_status_bar(idle_rosters, recorded):
     layout = idle_rosters.current_layout
     idle_rosters._on_frame(recorded[2]["live"], 0)
     assert not idle_rosters.debug_label.isVisible()
-    assert layout.debug_toggle.text() == "Show"
+    assert layout.debug_toggle.text() == "Debug" and not layout.debug_toggle.isChecked()
+    assert layout.debug_toggle.parent().title() == "View"  # the last check box of View, no Debug section
+    assert "Debug" not in [box.title() for box in idle_rosters.findChildren(QGroupBox)]
     layout.debug_toggle.click()
     assert idle_rosters.debug_label.isVisible() and idle_rosters.debug_label.text().startswith("fit ")
-    assert "tags" not in idle_rosters.debug_label.text() and layout.debug_toggle.text() == "Hide"
+    assert "tags" not in idle_rosters.debug_label.text() and layout.debug_toggle.isChecked()
     idle_rosters.set_layout("panel")
     assert not idle_rosters.debug_label.isVisible()
     path = idle_rosters.ui_file
@@ -1233,7 +1266,7 @@ def test_rosters_debug_goes_to_the_status_bar(idle_rosters, recorded):
     session, frame, _ = recorded
     win = MainWindow(session, FakeCamera(frame), path)
     win.show()
-    assert win.debug_label.isVisible() and win.current_layout.debug_toggle.isChecked() and win.current_layout.debug_toggle.text() == "Hide"
+    assert win.debug_label.isVisible() and win.current_layout.debug_toggle.isChecked()
     win.close()
 
 

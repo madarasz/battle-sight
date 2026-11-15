@@ -289,6 +289,42 @@ def draw_path_mm(frame: np.ndarray, points_mm, text: str, to_px, color: tuple[in
     _label(frame, text, (int(middle[0]), int(middle[1])), WHITE, s, thick)
 
 
+
+TARGET_ALPHA = 0.18  # fill between the targeting lines
+INTERVENING_COLOR = RED
+INTERVENING_ALPHA = 0.45
+
+
+def draw_targeting_mm(frame: np.ndarray, outline_mm, pieces_mm, to_px, color: tuple[int, int, int] = WHITE) -> None:
+    """Targeting lines: `outline_mm` is the start point, then the facing rim
+    of the target (`shoot.facing_outline`). A light fill between the outer
+    lines, the two outer lines, and each intervening terrain piece
+    (`pieces_mm`, rectangles x0, y0, x1, y1) filled and outlined in red."""
+    s = _scale(frame)
+    thick = max(1, round(2 * s))
+    for x0, y0, x1, y1 in np.asarray(pieces_mm, float).reshape(-1, 4):
+        rect = np.array([[x0, y0], [x1, y0], [x1, y1], [x0, y1]])
+        poly = np.rint(to_px(_dense(rect, 5.0))).astype(np.int32).reshape(-1, 1, 2)
+        layer = frame.copy()
+        cv2.fillPoly(layer, [poly], INTERVENING_COLOR, cv2.LINE_AA)
+        cv2.addWeighted(layer, INTERVENING_ALPHA, frame, 1 - INTERVENING_ALPHA, 0, dst=frame)
+        cv2.polylines(frame, [poly], True, INTERVENING_COLOR, max(1, round(3 * s)), cv2.LINE_AA)
+    if outline_mm is None:
+        return
+    pts = np.asarray(outline_mm, float).reshape(-1, 2)
+    poly = np.rint(to_px(_dense(pts, 5.0))).astype(np.int32).reshape(-1, 1, 2)
+    layer = frame.copy()
+    cv2.fillPoly(layer, [poly], color, cv2.LINE_AA)
+    cv2.addWeighted(layer, TARGET_ALPHA, frame, 1 - TARGET_ALPHA, 0, dst=frame)
+    for end in (pts[1], pts[-1]):
+        line = np.linspace(pts[0], end, max(2, int(np.ceil(np.linalg.norm(end - pts[0]) / 5.0)) + 1))
+        px = np.rint(to_px(line)).astype(np.int32).reshape(-1, 1, 2)
+        cv2.polylines(frame, [px], False, BLACK, thick + 2, cv2.LINE_AA)
+        cv2.polylines(frame, [px], False, color, thick, cv2.LINE_AA)
+    o = np.rint(to_px(pts[:1])[0]).astype(int)
+    cv2.circle(frame, (int(o[0]), int(o[1])), max(2, round(4 * s)), color, -1, cv2.LINE_AA)
+
+
 MOVE_COLOR = (215, 215, 215)
 
 

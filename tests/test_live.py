@@ -1471,6 +1471,56 @@ def test_only_named_bases_of_the_other_team_block_the_movement(tmp_path):
     session.session = None
 
 
+def test_shoot_at_draws_targeting_lines_from_the_pointer(tmp_path):
+    session, frame, state, nob, burna = wall_session(tmp_path)
+    action = ACTIONS_BY_ID["measure.shoot"]
+    assert not action.enabled(state) and state["shooting"] is False and state["shot"] is None
+    session.dispatch("measure.shoot")
+    assert session.state()["shooting"] is False  # no selected base
+    click_base(session, state, nob)
+    before = session.step(frame)
+    assert action.enabled(before.state) and before.crop is None  # bases only: no crop of the base
+    session.dispatch("measure.shoot")
+    s = session.state()
+    assert s["shooting"] is True and action.checked(s) and s["shot"] is None  # the pointer is not on the board yet
+
+    hover(session, GAME["Burna"][0])  # the wall is between Burna and Nob
+    shot = session.step(frame)
+    assert_json_safe(shot.state)
+    assert shot.state["shot"] == {"obscured": True, "in_cover": False, "intervening": 3, "shooter": burna}
+    assert shot.crop is not None and not np.array_equal(shot.image, before.image)  # the board under the pointer
+
+    hover(session, (300.0, 250.0))  # open floor, no base
+    clear = session.step(frame)
+    assert clear.state["shot"] == {"obscured": False, "in_cover": False, "intervening": 0, "shooter": None}
+    assert not np.array_equal(clear.image, shot.image)
+    hover(session, GAME["Nob"][0])  # on the target
+    assert session.state()["shot"] is None
+
+    session.dispatch("snapshot.back")  # Esc stops it, the selection stays
+    s = session.state()
+    assert s["shooting"] is False and s["selected"] == nob and s["mode"] == "snapshot"
+    session.dispatch("measure.shoot")
+    click_base(session, state, burna)  # a new selection stops it
+    assert session.state()["shooting"] is False
+
+
+def test_shoot_at_an_open_hatchway_is_not_heavy_terrain(tmp_path):
+    session, _, _, _, _ = wall_session(tmp_path)
+
+    def covers_gap(rects) -> bool:
+        cx, cy = session.openings[0].points.mean(axis=0)
+        return bool(np.any((rects[:, 0] <= cx) & (cx <= rects[:, 2]) & (rects[:, 1] <= cy) & (cy <= rects[:, 3])))
+
+    assert covers_gap(session._heavy_rects())  # closed
+    x, y = opening_px(session)
+    session.dispatch("board.click", x=x, y=y)
+    session.dispatch("opening.toggle")
+    assert not covers_gap(session._heavy_rects())  # open: a gap in the wall
+    session.dispatch("map.layout", name=None)
+    assert len(session._heavy_rects()) == 0
+
+
 def test_no_stop_on_another_base_in_the_movement_area(tmp_path):
     cfg = ident_cfg()
     frame = paint_board(cfg, GAME)
