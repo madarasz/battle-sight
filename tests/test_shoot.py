@@ -42,11 +42,14 @@ def test_a_long_wall_can_give_cover_and_obscure():
     assert shot.in_cover and shot.obscured
 
 
-def test_wall_near_the_shooter_base_does_not_obscure():
-    wall = wall_x(ORIGIN[0] + 20.0)
-    assert shoot.aim(ORIGIN, TARGET, D, wall).obscured  # no shooter base: only the pointer
-    shot = shoot.aim(ORIGIN, TARGET, D, wall, shooter=(ORIGIN, 32.0))
-    assert not shot.obscured and not shot.in_cover and len(shot.pieces) == 1
+def test_wall_near_the_shooter_does_not_obscure():
+    wall = wall_x(ORIGIN[0] + 20.0)  # faces 18 and 22 mm from the pointer: in 1 in of it
+    near_pointer = shoot.aim(ORIGIN, TARGET, D, wall)
+    assert not near_pointer.obscured and not near_pointer.in_cover and len(near_pointer.pieces) == 1
+    assert not shoot.aim(ORIGIN, TARGET, D, wall, shooter=(ORIGIN, 32.0)).obscured
+    farther = wall_x(ORIGIN[0] + 35.0)  # out of 1 in from the pointer, in 1 in of the base rim
+    assert shoot.aim(ORIGIN, TARGET, D, farther).obscured
+    assert not shoot.aim(ORIGIN, TARGET, D, farther, shooter=(ORIGIN, 32.0)).obscured
 
 
 def test_terrain_off_the_lines_is_not_intervening():

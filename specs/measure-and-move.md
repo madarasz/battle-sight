@@ -150,9 +150,9 @@ Status: in code 2026-11-15. Rules from the "Intervening" page of the core rules.
 - T1. The shooter draws straight lines, 1 mm in diameter, from one point of its base to each facing part of the target base. The app uses the mouse pointer as that point. The lines fill the triangle from the pointer to the two tangent points on the target rim (`shoot.tangent_points`), less the target base.
 - T2. Heavy terrain: walls, pillars, wall ends, closed hatchways and closed breach points (`walls.obstacles` without the board-edge extension). An open opening cuts a gap in its wall. Light terrain is not heavy.
 - T3. A heavy piece that the lines touch is intervening (red fill and edge on the video).
-- T4. OBSCURED: a part of an intervening piece in the lines is outside the 1 in zones (rim + 1 in) around the target and the shooter.
+- T4. OBSCURED: a part of an intervening piece in the lines is outside the 1 in zones (rim + 1 in) around both the target and the shooter.
 - T5. IN COVER: a part of an intervening piece in the lines is in the 1 in zone around the target. T4 and T5 can both show.
-- T6. The shooter zone is there only when the pointer is on a base other than the target that is not of the target's team (a base without a name can be the shooter). That base also gets a yellow dashed 1 in circle; the target always gets one.
+- T6. The shooter zone is 1 in around the shooter base: the base under the pointer, other than the target and not of the target's team (a base without a name can be the shooter). That base also gets a yellow dashed 1 in circle; the target always gets one. With the pointer on no such base, the shooter zone is 1 in around the pointer.
 
 UI: "Shoot at" (`measure.shoot`, no key, enabled with a selected base) in the inspector header after "Remove ID". While it is on the button reads "Cancel"; `Esc` (`snapshot.back`) and a new selection also stop it. The inspector crop is the board under the pointer (`LiveSession._aim_crop`, as for "Locate operative"), and OBSCURED / IN COVER take the place of the ring, movement and distance. The shell sends `board.hover` while `shooting`.
 

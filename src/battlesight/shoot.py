@@ -11,10 +11,10 @@ Heavy terrain is walls, pillars and closed hatchways and breach points
 heavy terrain that the lines touch is intervening. Its parts in the lines
 decide the result (`aim`):
 
-- a part outside the 1 in zones around the target and the shooter: obscured;
+- a part outside the 1 in zones around both the target and the shooter: obscured;
 - a part in the 1 in zone around the target: in cover.
 
-The shooter zone is only there when the pointer is on the shooter's base.
+When the pointer is not on a base, the shooter zone is 1 in around the pointer.
 """
 
 from __future__ import annotations
@@ -91,7 +91,8 @@ def aim(
 ) -> Shot | None:
     """Targeting lines from `origin` to the target base and the heavy
     terrain `rects` (M, 4) in them. `shooter`: (centre, diameter) of the
-    shooter's base, for its zone. None when `origin` is on the target base."""
+    shooter's base, for its zone; None: the zone is around `origin`. None
+    when `origin` is on the target base."""
     o = np.asarray(origin, float)
     tc, tr = np.asarray(target_center, float), 0.5 * target_diameter
     t = tangent_points(o, tc, target_diameter)
@@ -112,9 +113,8 @@ def aim(
             continue
         pieces.append(rect)
         near_target = to_target <= tr + zone_mm
-        near_shooter = np.zeros(len(p), bool)
-        if shooter is not None:
-            near_shooter = np.linalg.norm(p - np.asarray(shooter[0], float), axis=1) <= 0.5 * shooter[1] + zone_mm
+        s_center, s_diameter = (o, 0.0) if shooter is None else (np.asarray(shooter[0], float), shooter[1])
+        near_shooter = np.linalg.norm(p - s_center, axis=1) <= 0.5 * s_diameter + zone_mm
         in_cover |= bool((inside & near_target).any())
         obscured |= bool((inside & ~near_target & ~near_shooter).any())
     return Shot(o, t, np.asarray(pieces, float).reshape(-1, 4), obscured, in_cover)
