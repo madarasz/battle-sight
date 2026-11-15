@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import copy
+import hashlib
+import os
 from dataclasses import dataclass
 
 import cv2
@@ -156,6 +159,39 @@ def mild_perspective(w: int, h: int, amount: float = 0.04) -> np.ndarray:
     return cv2.getPerspectiveTransform(src, dst).astype(np.float64)
 
 
+def _digest(a: np.ndarray | None):
+    if a is None:
+        return None
+    a = np.ascontiguousarray(a)
+    return a.shape, a.dtype.str, hashlib.blake2b(a.tobytes(), digest_size=16).hexdigest()
+
+
+@pytest.fixture(autouse=True, scope="session")
+def find_circles_memo():
+    """Keeps the result of each `circles.find_circles` call for the test
+    process. Many tests run the same synthetic board through the pipeline;
+    the function is deterministic, so a repeated call gives a copy of the
+    first result. The key is the image, the parameters, the region and the
+    foreground. Set BATTLESIGHT_TEST_NO_MEMO=1 to compute each call."""
+    if os.environ.get("BATTLESIGHT_TEST_NO_MEMO"):
+        yield
+        return
+    import battlesight.circles as circles
+
+    compute = circles.find_circles
+    memo: dict = {}
+
+    def find_circles(img, p, region=None, foreground=None):
+        key = (_digest(img), p, _digest(region), _digest(foreground))
+        if key not in memo:
+            memo[key] = compute(img, p, region, foreground)
+        return copy.deepcopy(memo[key])
+
+    circles.find_circles = find_circles
+    yield
+    circles.find_circles = compute
+
+
 @pytest.fixture(autouse=True)
 def no_local_camera_file(tmp_path, monkeypatch):
     """CLI tests must not read or write the machine-local data/camera.toml."""
@@ -180,14 +216,60 @@ def cfg() -> BoardConfig:
     return make_config()
 
 
+# Test category of each test file (CLAUDE.md "Which tests to run"). A new
+# test file must be added here; the photo tests have their own marker.
+CATEGORIES = {
+    "core": ("test_calib", "test_camera", "test_config", "test_measure", "test_moves", "test_score", "test_scrcpy", "test_shoot", "test_terrain", "test_walls"),
+    "vision": ("test_bases", "test_bench", "test_ident", "test_ident_bench", "test_pipeline", "test_rectify"),
+    "live": ("test_live",),
+    "ui": ("test_ui",),
+}
+_CATEGORY_OF = {name: cat for cat, names in CATEGORIES.items() for name in names}
+
+
+@pytest.hookimpl(tryfirst=True)  # before `-m` selects the tests
+def pytest_collection_modifyitems(config, items):
+    for item in items:
+        name = item.path.stem
+        if name == "test_photos":
+            continue
+        if name not in _CATEGORY_OF:
+            raise pytest.UsageError(f"tests/{item.path.name} has no category: add it to CATEGORIES in tests/conftest.py")
+        item.add_marker(_CATEGORY_OF[name])
+
+
+_TABLES: dict[str, str] = {}  # benchmark tables, in the main process (also with xdist)
+
+
+@pytest.hookimpl(hookwrapper=True)
+def pytest_runtest_makereport(item, call):
+    """Sends a benchmark table from the process that made it (an xdist
+    worker or the main process) to the main process, in the report."""
+    outcome = yield
+    if call.when != "teardown":
+        return
+    report = outcome.get_result()
+    for key, name in ((BENCH_TABLE, "bench_table"), (IDENT_TABLE, "ident_table")):
+        table = item.config.stash.get(key, None)
+        if table:
+            report.user_properties.append((name, table))
+            del item.config.stash[key]
+
+
+def pytest_runtest_logreport(report):
+    for name, value in report.user_properties:
+        if name in ("bench_table", "ident_table"):
+            _TABLES[name] = value
+
+
 def pytest_terminal_summary(terminalreporter, exitstatus, config):
     """Print the benchmark tables after the photo tests. Nothing when they
     did not run."""
-    table = config.stash.get(BENCH_TABLE, None)
+    table = _TABLES.get("bench_table")
     if table:
         terminalreporter.write_sep("=", "bases benchmark (specs/bases-benchmark.md)")
         terminalreporter.write_line(table)
-    table = config.stash.get(IDENT_TABLE, None)
+    table = _TABLES.get("ident_table")
     if table:
         terminalreporter.write_sep("=", "identification benchmark")
         terminalreporter.write_line(table)

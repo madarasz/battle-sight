@@ -4,6 +4,7 @@ no window, no model download."""
 from __future__ import annotations
 
 import json
+import shutil
 from dataclasses import replace
 from types import SimpleNamespace
 
@@ -40,13 +41,24 @@ def settled(session: LiveSession, frame):
     return live
 
 
-@pytest.fixture
-def named(tmp_path):
-    """Gallery with three operatives, and a game frame with them moved and turned."""
+@pytest.fixture(scope="session")
+def named_template(tmp_path_factory):
+    """Gallery with three operatives, enrolled once per test process."""
+    root = tmp_path_factory.mktemp("named")
     cfg = ident_cfg()
-    gallery = make_gallery(tmp_path, cfg)
+    gallery = make_gallery(root, cfg)
     enroll_from(gallery, cfg, paint_board(cfg, TRAIN), {n: c for n, (c, _) in TRAIN.items()})
-    return cfg, paint_board(cfg, GAME)
+    return cfg, root / "gallery", paint_board(cfg, GAME)
+
+
+@pytest.fixture
+def named(tmp_path, named_template):
+    """Gallery with three operatives in `tmp_path / "gallery"` (a copy of the
+    session gallery, so a test can change it), and a game frame with them
+    moved and turned."""
+    cfg, gallery_dir, frame = named_template
+    shutil.copytree(gallery_dir, tmp_path / "gallery")
+    return cfg, frame.copy()
 
 
 def assert_json_safe(state: dict) -> None:

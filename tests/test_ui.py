@@ -29,7 +29,7 @@ from battlesight.ui.settings import load_ui_settings, save_layout  # noqa: E402
 from battlesight.ui.shell import MainWindow, help_text, status_text  # noqa: E402
 
 from .test_ident import enroll_from, ident_cfg, make_gallery, paint_board  # noqa: E402
-from .test_live import GAME, TRAIN, make_session, settled  # noqa: E402
+from .test_live import GAME, TRAIN, make_session, named, named_template, settled  # noqa: E402,F401  (fixtures)
 
 
 @pytest.fixture(scope="module")
@@ -62,25 +62,19 @@ def wait_until(check, seconds: float = 20.0):
     raise AssertionError("condition not met in time")
 
 
-@pytest.fixture
-def named_setup(tmp_path):
-    cfg = ident_cfg()
-    gallery = make_gallery(tmp_path, cfg)
-    enroll_from(gallery, cfg, paint_board(cfg, TRAIN), {n: c for n, (c, _) in TRAIN.items()})
-    return cfg, paint_board(cfg, GAME)
 
 
 @pytest.fixture
-def window(qapp, tmp_path, named_setup):
-    cfg, frame = named_setup
+def window(qapp, tmp_path, named):
+    cfg, frame = named
     win = started_window(tmp_path, cfg, frame, "panel")
     yield win
     win.close()
 
 
 @pytest.fixture
-def inspector(qapp, tmp_path, named_setup):
-    cfg, frame = named_setup
+def inspector(qapp, tmp_path, named):
+    cfg, frame = named
     win = started_window(tmp_path, cfg, frame, "inspector")
     yield win
     win.close()
@@ -274,8 +268,8 @@ def test_left_click_selects_with_no_popup(window):
 
 
 @pytest.mark.parametrize("layout", sorted(LAYOUTS))
-def test_ring_key_and_second_base_show_in_the_status_area_of_each_layout(qapp, tmp_path, named_setup, layout):
-    cfg, frame = named_setup
+def test_ring_key_and_second_base_show_in_the_status_area_of_each_layout(qapp, tmp_path, named, layout):
+    cfg, frame = named
     win = started_window(tmp_path, cfg, frame, layout)
     try:
         state = open_names(win)
@@ -434,9 +428,9 @@ def test_layout_modules_do_not_import_the_vision_code(path):
 
 
 @pytest.fixture
-def recorded(tmp_path, named_setup):
+def recorded(tmp_path, named):
     """Session and frames for each state of the done test of specs/ui.md, section 11."""
-    cfg, frame = named_setup
+    cfg, frame = named
     session = make_session(tmp_path, cfg, frame, teams=("orks",))
     frames = {"before the first frame": session.current()}
     live = settled(session, frame)
@@ -699,8 +693,8 @@ def test_a_missing_file_gives_no_notice_and_the_start_does_not_write_it(qapp, tm
     win.close()
 
 
-def test_settings_notice_reaches_the_state(qapp, tmp_path, named_setup):
-    cfg, frame = named_setup
+def test_settings_notice_reaches_the_state(qapp, tmp_path, named):
+    cfg, frame = named
     path = tmp_path / "ui.toml"
     path.write_text('[ui]\nlayout = "no-such"\n')
     win = MainWindow(make_session(tmp_path, cfg, frame), FakeCamera(frame), path)
@@ -926,8 +920,8 @@ def run_main_with(monkeypatch, tmp_path, cfg, frame, drive, extra=()):
     return app.main(["--image-source", str(path), "--gallery-root", str(tmp_path / "gallery"), *extra])
 
 
-def test_image_source_runs_the_live_app(monkeypatch, tmp_path, named_setup):
-    cfg, frame = named_setup
+def test_image_source_runs_the_live_app(monkeypatch, tmp_path, named):
+    cfg, frame = named
     seen = {}
 
     def drive(session: LiveSession, camera):
@@ -1010,12 +1004,12 @@ def test_map_picker_fills_from_state_and_sends_the_choice(qapp, tmp_path):
     assert sent == [("map.layout", {"name": "Layout 7"}), ("map.layout", {"name": None}), ("map.terrain_type", {"name": "Tomb World"})]
 
 
-def test_map_choice_is_saved_and_restored(qapp, tmp_path, named_setup):
+def test_map_choice_is_saved_and_restored(qapp, tmp_path, named):
     from battlesight.ui.settings import save_map
 
     from .test_live import write_map
 
-    cfg, frame = named_setup
+    cfg, frame = named
     write_map(tmp_path / "maps")
     path = layout_file(tmp_path, "inspector")
     save_map(path, "Test World", "Small")
@@ -1032,8 +1026,8 @@ def test_map_choice_is_saved_and_restored(qapp, tmp_path, named_setup):
 
 
 @pytest.fixture
-def rosters(qapp, tmp_path, named_setup):
-    cfg, frame = named_setup
+def rosters(qapp, tmp_path, named):
+    cfg, frame = named
     win = started_window(tmp_path, cfg, frame, "rosters")
     yield win
     win.close()
@@ -1284,10 +1278,10 @@ def test_roster_row_shows_the_wounds():
 
 
 @pytest.fixture
-def wounded_rosters(qapp, tmp_path, named_setup):
+def wounded_rosters(qapp, tmp_path, named):
     from battlesight import ident as idt
 
-    cfg, frame = named_setup
+    cfg, frame = named
     team = tmp_path / "gallery" / "orks"
     idt.save_team_file(team, "orks", idt.load_team_file(team), {"Nob": 5, "Burna": 12})
     win = started_window(tmp_path, cfg, frame, "rosters")
@@ -1320,10 +1314,10 @@ def test_rosters_wounds_control_and_team_list(wounded_rosters):
     assert "no maximum wounds" in wounds.warning.text()
 
 
-def test_rosters_opening_button_opens_and_closes(qapp, tmp_path, named_setup):
+def test_rosters_opening_button_opens_and_closes(qapp, tmp_path, named):
     from .test_live import opening_px, write_map
 
-    cfg, frame = named_setup
+    cfg, frame = named
     write_map(tmp_path / "maps")
     win = started_window(tmp_path, cfg, frame, "rosters")
     try:
@@ -1380,11 +1374,11 @@ def test_total_text_and_team_color():
     assert team_color(0) == "#e63c3c" and team_color(1) == "#2878e6"  # RED, BLUE of the overlay
 
 
-def test_rosters_score_counter(qapp, tmp_path, named_setup):
+def test_rosters_score_counter(qapp, tmp_path, named):
     from battlesight import ident as idt
     from battlesight import score as sc
 
-    cfg, frame = named_setup
+    cfg, frame = named
     team = tmp_path / "gallery" / "orks"
     idt.save_team_file(team, "orks", idt.load_team_file(team), None, idt.TeamInfo(("Recon",)))
     win = started_window(tmp_path, cfg, frame, "rosters")
@@ -1414,11 +1408,11 @@ def test_rosters_score_counter(qapp, tmp_path, named_setup):
         win.close()
 
 
-def test_rosters_select_an_operative_from_the_team_list(qapp, tmp_path, named_setup):
+def test_rosters_select_an_operative_from_the_team_list(qapp, tmp_path, named):
     from battlesight import ident as idt
     from battlesight.ui.parts import COLORS, team_color
 
-    cfg, frame = named_setup
+    cfg, frame = named
     team = tmp_path / "gallery" / "orks"
     idt.save_team_file(team, "orks", idt.load_team_file(team), {"Nob": 5})
     win = started_window(tmp_path, cfg, frame, "rosters")

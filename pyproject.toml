@@ -17,7 +17,10 @@ dependencies = [
 battlesight = "battlesight.app:main"
 
 [dependency-groups]
-dev = ["pytest>=8"]
+dev = [
+    "pytest>=8",
+    "pytest-xdist>=3.8.0",
+]
 
 [build-system]
 requires = ["hatchling"]
@@ -29,5 +32,14 @@ packages = ["src/battlesight"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 # Photo regression tests are slow and need tests/images. Run them with `uv run pytest -m photos`.
-addopts = "-m 'not photos'"
-markers = ["photos: regression tests on real photos in tests/images"]
+# Tests run on all cores (pytest-xdist). `-n 0` runs one process, for one test or a debugger.
+# `loadgroup` keeps the photo tests on one worker, so their pipeline cache works.
+addopts = "-m 'not photos' -n auto --dist loadgroup"
+# conftest.py gives each test file one of core, vision, live, ui (CLAUDE.md "Which tests to run").
+markers = [
+    "photos: regression tests on real photos in tests/images",
+    "core: pure geometry, config, camera parsing; about 1 s",
+    "vision: corners, rectify, bases, ident, pipeline, benchmarks",
+    "live: LiveSession game core",
+    "ui: PySide6 window, offscreen",
+]

@@ -13,9 +13,38 @@ To run all tests:
 uv run pytest -m ""
 ```
 
-`pyproject.toml` sets `addopts = "-m 'not photos'"`. Thus `uv run pytest`
-runs only the unit tests. A `-m` option on the command line replaces this
-default.
+`pyproject.toml` sets `addopts = "-m 'not photos' -n auto --dist loadgroup"`.
+Thus `uv run pytest` runs only the unit tests, on all cores (pytest-xdist).
+A `-m` option on the command line replaces the marker default. Use `-n 0`
+for one process: one test, a small file, `-x`, `--pdb` or `-s`.
+
+### Categories
+
+Each unit test file has one category marker. `CATEGORIES` in
+`tests/conftest.py` sets it from the file name. A test file that is not in
+`CATEGORIES` stops the collection with an error, so add each new file there.
+
+| Marker | Files | Serial time |
+|---|---|---|
+| `core` | calib, camera, config, measure, moves, score, scrcpy, shoot, terrain, walls | about 1 s |
+| `vision` | bases, bench, ident, ident_bench, pipeline, rectify | about 25 s |
+| `live` | live | about 20 s |
+| `ui` | ui | about 30 s |
+
+CLAUDE.md "Which tests to run" says which categories to run for a change.
+
+### Speed
+
+- `named` (`tests/test_live.py`): the gallery of three operatives is enrolled
+  once per test process (`named_template`) and copied into the `tmp_path` of
+  each test.
+- `find_circles_memo` (`tests/conftest.py`): each result of
+  `circles.find_circles` is kept for the test process, with the image,
+  parameters, region and foreground as the key. A repeated call gives a copy.
+  Set `BATTLESIGHT_TEST_NO_MEMO=1` to compute each call.
+- The photo tests stay on one xdist worker (`xdist_group("photos")`), so
+  the `results` fixture runs the pipeline once per photo. The benchmark
+  tables go to the main process in the test reports.
 
 ## Unit tests
 

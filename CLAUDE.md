@@ -31,10 +31,11 @@ Use `uv` for all work. Python is pinned to 3.12 (ML wheels lag on newer versions
 
 ```bash
 uv sync                                   # create .venv, install deps
-uv run pytest                             # unit tests only (no camera needed)
+uv run pytest                             # unit tests only (no camera needed), on all cores (xdist)
+uv run pytest -m core -n 0                # one category: core, vision, live, ui (see "Which tests to run")
 uv run pytest -m photos                   # photo regression tests on tests/images
 uv run pytest -m ""                       # all tests
-uv run pytest tests/test_calib.py::test_detects_four_tags_flat   # one test
+uv run pytest -n 0 tests/test_calib.py::test_detects_four_tags_flat   # one test, one process (also for -x, --pdb, -s)
 uv run battlesight                        # live app: corners, top-down view (v), space = bases + names, b = bases only, l = next layout, h = keys
 uv run battlesight --team kommandos veterans   # live app with 1 or 2 gallery teams (default: all teams)
 uv run battlesight --source http://PHONE-IP:8080/video  # one run with another source
@@ -62,6 +63,38 @@ uv run tools/bench_ident.py --baseline tests/images/ident_baseline.json   # exit
 uv run tools/annotate_bases.py tests/images/<name>.jpg --prefill   # click base ground truth, writes a missing <name>.expected.json
 uv run tools/annotate_bases.py tests/images/<name>.jpg --team kommandos veterans   # also assign operatives (n key) -> <name>.ident.json
 ```
+
+### Which tests to run
+
+`pyproject.toml` runs the tests on all cores (`-n auto`, pytest-xdist); the
+unit tests take about 30 s. Each test file has one category marker, set by
+file name in `CATEGORIES` of `tests/conftest.py` (a new test file must go
+there, else collection stops). Serial times: `core` about 1 s, `vision` about
+25 s, `live` about 20 s, `ui` about 30 s.
+
+While you work, run the tests of the changed code. Use `-n 0` for one file
+or for `core`: the workers take longer to start than these tests.
+
+| Changed code | Run |
+|---|---|
+| `measure`, `walls`, `moves`, `shoot`, `score`, `terrain`, `config`, `calib`, `camera`, `scrcpy` | its test file, then `-m "core or live"` (`live.py` uses them) |
+| `ui/` | `-m ui` |
+| `live.py`, `overlay.py` | `-m "live or ui"` |
+| `circles`, `rectify`, `pipeline`, `ident`, `bench`, `ident_bench`, `tools/bench_*`, `tools/annotate_bases.py` | `-m vision`, then `-m photos` when a detection or naming result can change (also for `[bases]` or `[ident]` values in `data/board.toml`) |
+| `app.py` | `-m "vision or ui"` (CLI tests are in both) |
+| `data/*.toml`, `tests/conftest.py`, `pyproject.toml` | all unit tests |
+| Docs, specs, skills only | no tests |
+
+Before a commit, and at the end of a task that changed code, run all unit
+tests (`uv run pytest`). Run `-m photos` when the vision code changed.
+
+Test speed: the `named` fixture (`tests/test_live.py`, also used by
+`tests/test_ui.py`) enrolls the test gallery once per process and copies it
+into each test. `tests/conftest.py` keeps each `circles.find_circles` result
+for the process (most tests run the same synthetic board); the function must
+stay deterministic. `BATTLESIGHT_TEST_NO_MEMO=1` turns the memo off. The
+photo tests stay on one worker (`xdist_group`), so each photo runs the
+pipeline once; their metrics tables go to the main process in the reports.
 
 `docs/testing.md` describes the two test sets, how to add a test photo, and how to update expected files. Update it when you add a test file or a stage.
 

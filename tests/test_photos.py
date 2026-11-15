@@ -37,7 +37,7 @@ from battlesight.pipeline import FrameResult, Pipeline
 
 from .conftest import BENCH_TABLE, IDENT_TABLE
 
-pytestmark = pytest.mark.photos
+pytestmark = [pytest.mark.photos, pytest.mark.xdist_group("photos")]  # one worker: one pipeline run per photo
 
 SHOTS = Path(__file__).resolve().parents[1] / "tests" / "images"
 PHOTOS = bench.find_photos([SHOTS]) if SHOTS.is_dir() else []
