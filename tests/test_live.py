@@ -15,7 +15,7 @@ import pytest
 import battlesight.app as app
 import battlesight.live as live_mod
 from battlesight import ident as idt
-from battlesight import measure, overlay, walls
+from battlesight import colors, measure, overlay, walls
 from battlesight.calib import TagDetector
 from battlesight.camera import CameraSettings, ImageSource
 from battlesight.live import ACTIONS, PREVIEW_PAD_MM, LiveSession
@@ -1016,7 +1016,7 @@ def test_selected_opening_shows_its_ranges_and_the_bases_near_it(tmp_path):
     expected = [i for i, c in enumerate(found) if measure.polygon_distance(points, c.center_mm) - 0.5 * c.diameter_mm <= 2 * measure.MM_PER_INCH]
     assert 0 in near and near == expected
     assert_json_safe(shown.state)
-    yellow = lambda img: int(np.sum(np.all(img == overlay.YELLOW, axis=2)))
+    yellow = lambda img: int(np.sum(np.all(img == colors.RANGE_ZONE_COLOR, axis=2)))
     assert yellow(shown.image) > yellow(plain.image)
     session.dispatch("base.deselect")
     assert session.step(frame).state["near_opening"] == []
@@ -1038,7 +1038,8 @@ def test_names_on_the_live_image_have_no_scores(tmp_path):
 
 
 def test_team_colors_paint_the_circles():
-    from battlesight.overlay import BLUE, GREY, RED, draw_idents
+    from battlesight.colors import NO_TEAM_COLOR, TEAM_1_COLOR, TEAM_2_COLOR
+    from battlesight.overlay import draw_idents
 
     class C:
         def __init__(self, x):
@@ -1048,8 +1049,8 @@ def test_team_colors_paint_the_circles():
     bases = [C(40.0), C(100.0), C(160.0)]
     idents = [idt.Ident("orks/Nob", 0.9, 0.5, sure=True), idt.Ident("elves/Ari", 0.9, 0.5, sure=True), idt.Ident(None, 0.0, 0.0)]
     img = np.zeros((120, 220, 3), np.uint8)
-    draw_idents(img, bases, idents, lambda p: np.asarray(p, float), team_colors={"orks": RED, "elves": BLUE})
-    for x, color in ((40, RED), (100, BLUE), (160, GREY)):
+    draw_idents(img, bases, idents, lambda p: np.asarray(p, float), team_colors={"orks": TEAM_1_COLOR, "elves": TEAM_2_COLOR})
+    for x, color in ((40, TEAM_1_COLOR), (100, TEAM_2_COLOR), (160, NO_TEAM_COLOR)):
         rim = img[30:51, x - 20 : x + 21].reshape(-1, 3).sum(axis=0).astype(float)  # upper half, no name there
         assert np.allclose(rim / rim.max(), np.array(color) / max(color), atol=0.05)  # anti-aliased: same hue
         name = img[60:120, x - 30 : x + 31].reshape(-1, 3)
@@ -1058,7 +1059,8 @@ def test_team_colors_paint_the_circles():
 
 
 def test_names_inside_put_the_name_in_the_middle_of_the_base():
-    from battlesight.overlay import RED, draw_idents
+    from battlesight.colors import TEAM_1_COLOR
+    from battlesight.overlay import draw_idents
 
     class C:
         center_mm = np.array([100.0, 100.0])
@@ -1066,7 +1068,7 @@ def test_names_inside_put_the_name_in_the_middle_of_the_base():
 
     x = idt.Ident("orks/Nob", 0.9, 0.5, sure=True)
     img = np.zeros((200, 200, 3), np.uint8)
-    draw_idents(img, [C()], [x], lambda p: np.asarray(p, float), scores=False, team_colors={"orks": RED}, inside=True)
+    draw_idents(img, [C()], [x], lambda p: np.asarray(p, float), scores=False, team_colors={"orks": TEAM_1_COLOR}, inside=True)
     text = np.argwhere((img[:, :, 2] > 150) & (img[:, :, 0] < 80))  # red text, not the ring
     text = text[np.hypot(text[:, 0] - 100, text[:, 1] - 100) < 14]
     assert len(text) and abs(text[:, 0].mean() - 100) < 4  # rows centred on the base

@@ -10,12 +10,28 @@ from PySide6.QtCore import QPoint, QPointF, QRectF, QSize, Qt, Signal
 from PySide6.QtGui import QColor, QFont, QIcon, QImage, QMouseEvent, QPainter, QPainterPath, QPixmap
 from PySide6.QtWidgets import QAbstractButton, QApplication, QCheckBox, QStyledItemDelegate, QStyleOptionViewItem, QComboBox, QFormLayout, QGridLayout, QGroupBox, QHBoxLayout, QLabel, QListWidget, QListWidgetItem, QPushButton, QRadioButton, QSlider, QSpinBox, QStyle, QToolButton, QVBoxLayout, QWidget
 
-from ..live import ACTIONS, TEAM_COLORS, Action
+from ..colors import (
+    BADGE_BACK_COLOR,
+    BADGE_TEXT_COLOR,
+    MESSAGE_ERROR_COLOR,
+    MESSAGE_INFO_COLOR,
+    MESSAGE_NONE_COLOR,
+    MESSAGE_OK_COLOR,
+    MESSAGE_WARN_COLOR,
+    SCORE_GRID_COLOR,
+    SELECTED_ROW_COLOR,
+    SKULL_OFF_COLOR,
+    SKULL_ON_COLOR,
+    TEAM_COLORS,
+    VIDEO_BACK_COLOR,
+    qt_hex,
+)
+from ..live import ACTIONS, Action
 from ..score import CATEGORIES, CATEGORY_MAX, CATEGORY_NAMES, PRIMARIES, SKULLS_PER_TP, TURNING_POINTS
 
 ACTION_GROUPS = {"wounds": "Game", "score": "Game", "operative": "Snapshot", "opening": "Game", "team": "View", "map": "View", "snapshot": "Snapshot", "base": "Snapshot", "names": "Snapshot", "frame": "Snapshot", "ring": "Measure", "measure": "Measure", "view": "View", "reference": "Reference", "app": "Help"}
 RING_COLUMNS = 5
-COLORS = {"none": "#8a8a8a", "ok": "#2e9e4f", "done": "#2e9e4f", "warn": "#c98a00", "hint": "#c98a00", "error": "#d03a3a", "info": "#3d8bfd"}
+COLORS = {"none": MESSAGE_NONE_COLOR, "ok": MESSAGE_OK_COLOR, "done": MESSAGE_OK_COLOR, "warn": MESSAGE_WARN_COLOR, "hint": MESSAGE_WARN_COLOR, "error": MESSAGE_ERROR_COLOR, "info": MESSAGE_INFO_COLOR}  # message level -> Qt colour
 DRIFT_LEVEL = {"OK": "ok", "NO_REFERENCE": "warn", "MOVED": "warn", "CARD_MOVED": "error", "LOST": "error"}
 
 
@@ -239,7 +255,7 @@ class VideoWidget(QWidget):
         self._image: QImage | None = None
         self.badge: tuple[str, str, str] | None = None  # text, sign colour and sign at the top right
 
-    def set_badge(self, text: str | None, color: str = "#ffffff", sign: str = "dot") -> None:
+    def set_badge(self, text: str | None, color: str = BADGE_TEXT_COLOR, sign: str = "dot") -> None:
         """A small label at the top-right corner of the image, for example the
         mode. `sign`: `dot` (circle), `pause` (two bars) or `square`."""
         badge = None if text is None else (text, color, sign)
@@ -273,7 +289,7 @@ class VideoWidget(QWidget):
 
     def paintEvent(self, _event) -> None:
         painter = QPainter(self)
-        painter.fillRect(self.rect(), QColor(0, 0, 0))
+        painter.fillRect(self.rect(), QColor(VIDEO_BACK_COLOR))
         rect = self.image_rect()
         if rect is not None:
             painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
@@ -293,7 +309,7 @@ class VideoWidget(QWidget):
         box = QRectF(area.right() - w - pad, area.top() + pad, w, h)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         painter.setPen(Qt.PenStyle.NoPen)
-        painter.setBrush(QColor(0, 0, 0, 170))
+        painter.setBrush(QColor(BADGE_BACK_COLOR))
         painter.drawRoundedRect(box, h / 2, h / 2)
         painter.setBrush(QColor(color))
         mark = QRectF(box.left() + pad, box.center().y() - dot / 2, dot, dot)
@@ -305,7 +321,7 @@ class VideoWidget(QWidget):
             painter.drawRect(mark)
         else:
             painter.drawEllipse(mark)
-        painter.setPen(QColor(255, 255, 255))
+        painter.setPen(QColor(BADGE_TEXT_COLOR))
         painter.drawText(QRectF(box.left() + dot + 2 * pad, box.top(), w - dot - 2 * pad, h), Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft, text)
 
     def mousePressEvent(self, event: QMouseEvent) -> None:
@@ -377,7 +393,7 @@ EYE = "\U0001F441"  # identified and confirmed
 IDENT_ROLE = Qt.ItemDataRole.UserRole + 1  # identification mark in front of the name in a team list row
 WOUNDS_ROLE = Qt.ItemDataRole.UserRole + 2  # wounds at the right edge of a team list row
 SELECTED_ROLE = Qt.ItemDataRole.UserRole + 3  # True: the operative of the row is selected
-SELECTED_BACK = QColor(128, 128, 128, 90)  # background of the selected row of a team list
+SELECTED_BACK = QColor(SELECTED_ROW_COLOR)  # background of the selected row of a team list
 MARK_PAD = 5  # px each side of the identification mark in a team list row
 ROSTER_FONT_SCALE = 1.3  # team choice and operative list of a team side
 
@@ -691,8 +707,6 @@ class OpeningControl(QWidget):
 NO_TAC_OP = "(no Tac Op)"
 PRIMARY_NAMES = {"hidden": "Hidden", "crit": "Crit Op", "tac": "Tac Op", "kill": "Kill Op"}
 SHORT_NAMES = {"crit": "Crit", "tac": "Tac", "kill": "Kill"}
-SKULL_ON = "#e8c547"
-SKULL_OFF = "#5a5a5a"
 SKULL_PX = 16  # icon size of one skull
 SKULL_BUTTON = "QToolButton { border: none; padding: 1px; }"
 
@@ -735,7 +749,7 @@ def skull_icon(color: str) -> QIcon:
         pixmap.setDevicePixelRatio(ratio)
         _skull_icons[color] = QIcon(pixmap)
     return _skull_icons[color]
-GRID_LINE = "1px solid #8a8a8a"
+GRID_LINE = f"1px solid {SCORE_GRID_COLOR}"
 
 
 def cell_border(category: str, tp: int | None) -> str:
@@ -757,9 +771,8 @@ def total_text(score: dict[str, Any]) -> str:
 
 
 def team_color(slot: int) -> str:
-    """Qt colour (`#rrggbb`) of the team circles of one side (BGR in `live.TEAM_COLORS`)."""
-    b, g, r = TEAM_COLORS[slot]
-    return f"#{r:02x}{g:02x}{b:02x}"
+    """Qt colour (`#rrggbb`) of the team circles of one side (BGR in `colors.TEAM_COLORS`)."""
+    return qt_hex(TEAM_COLORS[slot])
 
 
 def _no_focus_combo(box: QComboBox) -> QComboBox:
@@ -882,7 +895,7 @@ class ScoreCounter(QGroupBox):
             button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
             button.setStyleSheet(SKULL_BUTTON)
             button.setIconSize(QSize(SKULL_PX, SKULL_PX))
-            button.setIcon(skull_icon(SKULL_OFF))
+            button.setIcon(skull_icon(SKULL_OFF_COLOR))
             button.setProperty("lit", False)
             button.clicked.connect(lambda _checked=False, s=skull: self.dispatch("score.skull", slot=self.slot, category=category, tp=tp, skull=s))
             row.addWidget(button)
@@ -903,7 +916,7 @@ class ScoreCounter(QGroupBox):
                 lit = k <= value
                 if bool(button.property("lit")) != lit:
                     button.setProperty("lit", lit)
-                    button.setIcon(skull_icon(SKULL_ON if lit else SKULL_OFF))
+                    button.setIcon(skull_icon(SKULL_ON_COLOR if lit else SKULL_OFF_COLOR))
         for category, label in self.points.items():
             label.setText(str(score["points"][category]))
         if score["tac_ops"] != self.shown_tac_ops:

@@ -42,12 +42,13 @@ def test_base_at_takes_the_nearest_base_within_reach():
 
 
 def test_health_bar_length_follows_the_maximum_wounds():
-    from battlesight.overlay import BLACK, HEALTH_MM_PER_WOUND, draw_health_bars
+    from battlesight.colors import OUTLINE_COLOR
+    from battlesight.overlay import HEALTH_MM_PER_WOUND, draw_health_bars
 
     def bar_width(current: int, maximum: int) -> tuple[int, int]:
         img = np.zeros((200, 400, 3), np.uint8)
         draw_health_bars(img, [((200.0, 150.0), 40.0, current, maximum)], lambda p: np.asarray(p, float).reshape(-1, 2))
-        cols = np.flatnonzero((img != BLACK).any(axis=2).any(axis=0))
+        cols = np.flatnonzero((img != OUTLINE_COLOR).any(axis=2).any(axis=0))
         green = np.flatnonzero(((img[..., 1] > 150) | (img[..., 2] > 200)).any(axis=0))  # unharmed or wounded fill
         return cols[-1] - cols[0], 0 if green.size == 0 else green[-1] - green[0]
 
@@ -59,12 +60,12 @@ def test_health_bar_length_follows_the_maximum_wounds():
     assert full == half and abs(fill_half - fill_full * 14 / 18) <= 2
 
 
-@pytest.mark.parametrize("current, color", [(18, "HEALTH_UNHARMED"), (17, "HEALTH_WOUNDED"), (9, "HEALTH_WOUNDED"), (8, "HEALTH_INJURED"), (0, "HEALTH_INJURED")])
+@pytest.mark.parametrize("current, color", [(18, "HEALTH_UNHARMED_COLOR"), (17, "HEALTH_WOUNDED_COLOR"), (9, "HEALTH_WOUNDED_COLOR"), (8, "HEALTH_INJURED_COLOR"), (0, "HEALTH_INJURED_COLOR")])
 def test_health_bar_color_follows_the_wounds(current, color):
-    from battlesight import overlay
+    from battlesight import colors, overlay
 
-    assert overlay.health_color(current, 18) == getattr(overlay, color)
-    assert overlay.health_color(7, 15) == overlay.HEALTH_INJURED and overlay.health_color(8, 15) == overlay.HEALTH_WOUNDED  # 15 / 2 = 7.5
+    assert overlay.health_color(current, 18) == getattr(colors, color)
+    assert overlay.health_color(7, 15) == colors.HEALTH_INJURED_COLOR and overlay.health_color(8, 15) == colors.HEALTH_WOUNDED_COLOR  # 15 / 2 = 7.5
 
 
 # --- control marks ----------------------------------------------------------------

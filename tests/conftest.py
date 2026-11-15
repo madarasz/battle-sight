@@ -219,7 +219,7 @@ def cfg() -> BoardConfig:
 # Test category of each test file (CLAUDE.md "Which tests to run"). A new
 # test file must be added here; the photo tests have their own marker.
 CATEGORIES = {
-    "core": ("test_calib", "test_camera", "test_config", "test_measure", "test_moves", "test_score", "test_scrcpy", "test_shoot", "test_terrain", "test_walls"),
+    "core": ("test_calib", "test_camera", "test_colors", "test_config", "test_measure", "test_moves", "test_score", "test_scrcpy", "test_shoot", "test_terrain", "test_walls"),
     "vision": ("test_bases", "test_bench", "test_ident", "test_ident_bench", "test_pipeline", "test_rectify"),
     "live": ("test_live",),
     "ui": ("test_ui",),

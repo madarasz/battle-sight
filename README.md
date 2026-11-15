@@ -19,8 +19,9 @@ range rings and the distances between operatives.
 10. ✅ Minimap, Control marks (contesting objective, melee engagement)
 11. ✅ Scoreboard, turn number, CP counter, faction ability counter, show CritOp
 12. ✅ Edit roster: Add / Remove operative from the list
-13. ⏳ Support multiple identical models: copies in the team list, told apart by position
-14. 🚧 Operative states: injured, dead, borrowed, poisioned, etc.
+13. ⏳ Support multiple identical models: copies in the team list, told apart by position (UNTESTED)
+14. ✅ Shoot at measurements
+15. 🚧 Operative states: injured, dead, borrowed, poisioned, etc.
 optional 🚧 Tokens: find tokens, list operatives in range
 optional 🚧 Turn counter, CritOp (where to put it?)
 

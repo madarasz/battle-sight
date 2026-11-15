@@ -8,22 +8,53 @@ import numpy as np
 from .calib import DriftReport, DriftStatus, TagObs
 from .config import CORNER_NAMES, BoardConfig
 
-GREEN = (80, 220, 80)
-YELLOW = (40, 200, 255)
-RED = (60, 60, 230)
-WHITE = (255, 255, 255)
-BLACK = (0, 0, 0)
-CYAN = (255, 220, 60)
-MAGENTA = (230, 70, 230)
-BLUE = (230, 120, 40)
-GREY = (170, 170, 170)
+from .colors import (
+    BANNER_BACK_COLOR,
+    BASE_COLOR,
+    BOARD_CORNER_COLOR,
+    BOARD_FOUND_COLOR,
+    BREACH_COLOR,
+    CORNER_LOST_COLOR,
+    DROP_ZONE_GREY_COLOR,
+    DROP_ZONE_ORANGE_COLOR,
+    GRID_BOARD_EDGE_COLOR,
+    GRID_LINE_COLOR,
+    HATCHWAY_COLOR,
+    HEALTH_EMPTY_COLOR,
+    HEALTH_INJURED_COLOR,
+    HEALTH_UNHARMED_COLOR,
+    HEALTH_WOUNDED_COLOR,
+    INTERVENING_COLOR,
+    LABEL_TEXT_COLOR,
+    LIGHT_TERRAIN_COLOR,
+    MARK_BACK_COLOR,
+    MARK_COLOR,
+    MEASURE_COLOR,
+    MOVE_COLOR,
+    NAME_SURE_COLOR,
+    NAME_UNKNOWN_COLOR,
+    NAME_UNSURE_COLOR,
+    NO_TEAM_COLOR,
+    OBJECTIVE_COLOR,
+    OUTLINE_COLOR,
+    PILLAR_COLOR,
+    POINTER_COLOR,
+    STATUS_ERROR_COLOR,
+    STATUS_HINT_COLOR,
+    STATUS_OK_COLOR,
+    TAG_MOVED_COLOR,
+    TAG_ORIGIN_COLOR,
+    TARGETING_COLOR,
+    TELEPORTER_COLOR,
+    WALL_COLOR,
+)
 
 _STATUS_COLOR = {
-    DriftStatus.NO_REFERENCE: YELLOW,
-    DriftStatus.OK: GREEN,
-    DriftStatus.MOVED: YELLOW,
-    DriftStatus.CARD_MOVED: RED,
-    DriftStatus.LOST: RED,
+    DriftStatus.NO_REFERENCE: STATUS_HINT_COLOR,
+    DriftStatus.OK: STATUS_OK_COLOR,
+    DriftStatus.MOVED: STATUS_HINT_COLOR,
+    DriftStatus.CARD_MOVED: STATUS_ERROR_COLOR,
+    DriftStatus.LOST: STATUS_ERROR_COLOR,
 }
 
 
@@ -36,18 +67,18 @@ def draw_tags(frame: np.ndarray, obs: dict[int, TagObs], cfg: BoardConfig, repor
     s = _scale(frame)
     thick = max(1, round(2 * s))
     for tag_id, tag in obs.items():
-        color = GREEN
+        color = BOARD_FOUND_COLOR
         if report is not None and tag_id in report.moved:
-            color = YELLOW
+            color = TAG_MOVED_COLOR
         pts = tag.corners.astype(np.int32).reshape(-1, 1, 2)
         cv2.polylines(frame, [pts], True, color, thick, cv2.LINE_AA)
         c = tuple(int(v) for v in tag.center)
         k = cfg.corner_index(tag_id)
         label = f"{tag_id}" if k is None else f"{tag_id} {CORNER_NAMES[k]}"
-        cv2.putText(frame, label, (c[0] + int(8 * s), c[1] - int(8 * s)), cv2.FONT_HERSHEY_SIMPLEX, 0.6 * s, BLACK, thick + 2, cv2.LINE_AA)
+        cv2.putText(frame, label, (c[0] + int(8 * s), c[1] - int(8 * s)), cv2.FONT_HERSHEY_SIMPLEX, 0.6 * s, OUTLINE_COLOR, thick + 2, cv2.LINE_AA)
         cv2.putText(frame, label, (c[0] + int(8 * s), c[1] - int(8 * s)), cv2.FONT_HERSHEY_SIMPLEX, 0.6 * s, color, thick, cv2.LINE_AA)
         # Tag corner 0 (its own top-left) in a different colour: shows tag orientation.
-        cv2.circle(frame, tuple(int(v) for v in tag.corners[0]), max(2, int(4 * s)), CYAN, -1, cv2.LINE_AA)
+        cv2.circle(frame, tuple(int(v) for v in tag.corners[0]), max(2, int(4 * s)), TAG_ORIGIN_COLOR, -1, cv2.LINE_AA)
     if report is not None:
         for tag_id in report.lost:
             # Nothing to draw at the tag itself, it is gone. Show where the reference was.
@@ -60,19 +91,19 @@ def draw_board_corners(frame: np.ndarray, corners: dict[int, np.ndarray], refere
     r = int(10 * s)
     for k, p in corners.items():
         x, y = int(round(p[0])), int(round(p[1]))
-        cv2.line(frame, (x - r, y), (x + r, y), WHITE, thick, cv2.LINE_AA)
-        cv2.line(frame, (x, y - r), (x, y + r), WHITE, thick, cv2.LINE_AA)
-        cv2.circle(frame, (x, y), r, WHITE, 1, cv2.LINE_AA)
+        cv2.line(frame, (x - r, y), (x + r, y), BOARD_CORNER_COLOR, thick, cv2.LINE_AA)
+        cv2.line(frame, (x, y - r), (x, y + r), BOARD_CORNER_COLOR, thick, cv2.LINE_AA)
+        cv2.circle(frame, (x, y), r, BOARD_CORNER_COLOR, 1, cv2.LINE_AA)
     if len(corners) == 4:
         quad = np.array([corners[k] for k in range(4)], dtype=np.int32).reshape(-1, 1, 2)
-        cv2.polylines(frame, [quad], True, GREEN, 1, cv2.LINE_AA)
+        cv2.polylines(frame, [quad], True, BOARD_FOUND_COLOR, 1, cv2.LINE_AA)
     if reference:
         for k, p in reference.items():
             if k in corners:
                 continue
             x, y = int(round(p[0])), int(round(p[1]))
-            cv2.circle(frame, (x, y), r, RED, thick, cv2.LINE_AA)
-            cv2.putText(frame, "lost", (x + r, y + r), cv2.FONT_HERSHEY_SIMPLEX, 0.6 * s, RED, thick, cv2.LINE_AA)
+            cv2.circle(frame, (x, y), r, CORNER_LOST_COLOR, thick, cv2.LINE_AA)
+            cv2.putText(frame, "lost", (x + r, y + r), cv2.FONT_HERSHEY_SIMPLEX, 0.6 * s, CORNER_LOST_COLOR, thick, cv2.LINE_AA)
 
 
 def draw_banner(frame: np.ndarray, report: DriftReport, extra: str = "") -> None:
@@ -84,21 +115,21 @@ def draw_text_banner(frame: np.ndarray, text: str, color: tuple[int, int, int], 
     s = _scale(frame)
     h = int(44 * s)
     y0 = row * h
-    cv2.rectangle(frame, (0, y0), (frame.shape[1], y0 + h), BLACK, -1)
+    cv2.rectangle(frame, (0, y0), (frame.shape[1], y0 + h), BANNER_BACK_COLOR, -1)
     cv2.rectangle(frame, (0, y0), (int(12 * s), y0 + h), color, -1)
     cv2.putText(frame, text, (int(24 * s), y0 + int(30 * s)), cv2.FONT_HERSHEY_SIMPLEX, 0.8 * s, color, max(1, round(2 * s)), cv2.LINE_AA)
     if extra:
         (tw, _), _ = cv2.getTextSize(extra, cv2.FONT_HERSHEY_SIMPLEX, 0.6 * s, 1)
-        cv2.putText(frame, extra, (frame.shape[1] - tw - int(16 * s), y0 + int(30 * s)), cv2.FONT_HERSHEY_SIMPLEX, 0.6 * s, WHITE, 1, cv2.LINE_AA)
+        cv2.putText(frame, extra, (frame.shape[1] - tw - int(16 * s), y0 + int(30 * s)), cv2.FONT_HERSHEY_SIMPLEX, 0.6 * s, LABEL_TEXT_COLOR, 1, cv2.LINE_AA)
 
 
-def draw_crosshair(frame: np.ndarray, at: tuple[float, float], color: tuple[int, int, int] = YELLOW) -> None:
+def draw_crosshair(frame: np.ndarray, at: tuple[float, float], color: tuple[int, int, int] = POINTER_COLOR) -> None:
     """A "+" at the pixel `at` (a pointer for "click the centre"), with a dark
     outline and a gap at the centre, so the point under it stays visible."""
     s = _scale(frame)
     x, y = int(round(at[0])), int(round(at[1]))
     arm, gap = int(22 * s), int(5 * s)
-    for c, w in ((BLACK, max(3, round(4 * s))), (color, max(1, round(2 * s)))):
+    for c, w in ((OUTLINE_COLOR, max(3, round(4 * s))), (color, max(1, round(2 * s)))):
         for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
             cv2.line(frame, (x + dx * gap, y + dy * gap), (x + dx * arm, y + dy * arm), c, w, cv2.LINE_AA)
 
@@ -135,7 +166,7 @@ def board_outline_mm(cfg: BoardConfig, step_mm: float = 10.0) -> np.ndarray:
     return np.concatenate(pts)
 
 
-def draw_grid(frame: np.ndarray, cfg: BoardConfig, to_px, color: tuple[int, int, int] = YELLOW, outline: tuple[int, int, int] | None = CYAN) -> None:
+def draw_grid(frame: np.ndarray, cfg: BoardConfig, to_px, color: tuple[int, int, int] = GRID_LINE_COLOR, outline: tuple[int, int, int] | None = GRID_BOARD_EDGE_COLOR) -> None:
     """Draw the board grid (and outline) with `to_px`: board mm (N, 2) -> pixels (N, 2)."""
     s = _scale(frame)
     thick = max(1, round(1.5 * s))
@@ -147,7 +178,7 @@ def draw_grid(frame: np.ndarray, cfg: BoardConfig, to_px, color: tuple[int, int,
         cv2.polylines(frame, [pts], True, outline, thick, cv2.LINE_AA)
 
 
-def draw_bases(frame: np.ndarray, bases, to_px, color: tuple[int, int, int] = GREEN) -> None:
+def draw_bases(frame: np.ndarray, bases, to_px, color: tuple[int, int, int] = BASE_COLOR) -> None:
     """Draw found bases (circles.Circle) with `to_px`: board mm (N, 2) -> pixels (N, 2).
     The outline is the base bottom. The label is the diameter class in mm."""
     s = _scale(frame)
@@ -164,7 +195,7 @@ def draw_bases(frame: np.ndarray, bases, to_px, color: tuple[int, int, int] = GR
         label = f"{c.diameter_mm:g}"
         (tw, _), _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.6 * s, thick)
         org = (int(top[0] - tw / 2), int(top[1]))
-        cv2.putText(frame, label, org, cv2.FONT_HERSHEY_SIMPLEX, 0.6 * s, BLACK, thick + 2, cv2.LINE_AA)
+        cv2.putText(frame, label, org, cv2.FONT_HERSHEY_SIMPLEX, 0.6 * s, OUTLINE_COLOR, thick + 2, cv2.LINE_AA)
         cv2.putText(frame, label, org, cv2.FONT_HERSHEY_SIMPLEX, 0.6 * s, color, thick, cv2.LINE_AA)
 
 
@@ -196,7 +227,7 @@ def _label(frame: np.ndarray, text: str, org: tuple[int, int], color, s: float, 
         if x1 > x0 and y1 > y0:
             area = frame[y0:y1, x0:x1]
             cv2.addWeighted(area, 1 - LABEL_BOX_ALPHA, np.zeros_like(area), LABEL_BOX_ALPHA, 0, dst=area)
-    cv2.putText(frame, text, (x, y), cv2.FONT_HERSHEY_SIMPLEX, font, BLACK, thick + 2, cv2.LINE_AA)
+    cv2.putText(frame, text, (x, y), cv2.FONT_HERSHEY_SIMPLEX, font, OUTLINE_COLOR, thick + 2, cv2.LINE_AA)
     cv2.putText(frame, text, (x, y), cv2.FONT_HERSHEY_SIMPLEX, font, color, thick, cv2.LINE_AA)
 
 
@@ -214,8 +245,8 @@ def _shown_name(label: str) -> str:
 def ident_color(x) -> tuple[int, int, int]:
     """Green: sure or confirmed name. Yellow: unsure name. Red: unknown."""
     if x.label is None:
-        return RED
-    return GREEN if x.sure else YELLOW
+        return NAME_UNKNOWN_COLOR
+    return NAME_SURE_COLOR if x.sure else NAME_UNSURE_COLOR
 
 
 def draw_idents(frame: np.ndarray, bases, idents, to_px, scores: bool = True, team_colors: dict[str, tuple[int, int, int]] | None = None, inside: bool = False) -> None:
@@ -234,7 +265,7 @@ def draw_idents(frame: np.ndarray, bases, idents, to_px, scores: bool = True, te
         ring_color = color
         if team_colors:
             team = None if x.label is None else x.label.partition("/")[0]
-            ring_color = team_colors.get(team, GREY if team is None else color)
+            ring_color = team_colors.get(team, NO_TEAM_COLOR if team is None else color)
         ring = c.center_mm + r * np.c_[np.cos(a), np.sin(a)]
         pts = np.rint(to_px(ring)).astype(np.int32).reshape(-1, 1, 2)
         cv2.polylines(frame, [pts], True, ring_color, thick, cv2.LINE_AA)
@@ -252,7 +283,7 @@ def draw_outline_mm(frame: np.ndarray, points_mm, to_px, color: tuple[int, int, 
     s = _scale(frame)
     thick = max(1, round(3 * s))
     pts = np.rint(to_px(_dense(np.asarray(points_mm, float), 5.0))).astype(np.int32).reshape(-1, 1, 2)
-    cv2.polylines(frame, [pts], True, BLACK, thick + 2, cv2.LINE_AA)
+    cv2.polylines(frame, [pts], True, OUTLINE_COLOR, thick + 2, cv2.LINE_AA)
     cv2.polylines(frame, [pts], True, color, thick, cv2.LINE_AA)
 
 
@@ -266,12 +297,12 @@ def draw_circle_mm(frame: np.ndarray, center_mm, radius_mm: float, to_px, color:
     cv2.polylines(frame, [pts], True, color, max(1, round(4 * _scale(frame))), cv2.LINE_AA)
 
 
-def draw_rim_line(frame: np.ndarray, start_mm, end_mm, text: str, to_px, color: tuple[int, int, int] = MAGENTA) -> None:
+def draw_rim_line(frame: np.ndarray, start_mm, end_mm, text: str, to_px, color: tuple[int, int, int] = MEASURE_COLOR) -> None:
     """Line between two points in board mm, with `text` at its middle."""
     draw_path_mm(frame, [start_mm, end_mm], text, to_px, color)
 
 
-def draw_path_mm(frame: np.ndarray, points_mm, text: str, to_px, color: tuple[int, int, int] = MAGENTA) -> None:
+def draw_path_mm(frame: np.ndarray, points_mm, text: str, to_px, color: tuple[int, int, int] = MEASURE_COLOR) -> None:
     """Path of line segments in board mm, with `text` at half its length.
     Each segment has extra points, so that it bends with lens distortion."""
     s = _scale(frame)
@@ -286,16 +317,15 @@ def draw_path_mm(frame: np.ndarray, points_mm, text: str, to_px, color: tuple[in
     k = min(int(np.searchsorted(along, half, side="right")) - 1, len(steps) - 1)
     at = pts[k] + (pts[k + 1] - pts[k]) * ((half - along[k]) / steps[k] if steps[k] > 0 else 0.0)
     middle = np.rint(to_px(at.reshape(1, 2))[0]).astype(int)
-    _label(frame, text, (int(middle[0]), int(middle[1])), WHITE, s, thick)
+    _label(frame, text, (int(middle[0]), int(middle[1])), LABEL_TEXT_COLOR, s, thick)
 
 
 
 TARGET_ALPHA = 0.18  # fill between the targeting lines
-INTERVENING_COLOR = RED
 INTERVENING_ALPHA = 0.45
 
 
-def draw_targeting_mm(frame: np.ndarray, outline_mm, pieces_mm, to_px, color: tuple[int, int, int] = WHITE) -> None:
+def draw_targeting_mm(frame: np.ndarray, outline_mm, pieces_mm, to_px, color: tuple[int, int, int] = TARGETING_COLOR) -> None:
     """Targeting lines: `outline_mm` is the start point, then the facing rim
     of the target (`shoot.facing_outline`). A light fill between the outer
     lines, the two outer lines, and each intervening terrain piece
@@ -319,13 +349,10 @@ def draw_targeting_mm(frame: np.ndarray, outline_mm, pieces_mm, to_px, color: tu
     for end in (pts[1], pts[-1]):
         line = np.linspace(pts[0], end, max(2, int(np.ceil(np.linalg.norm(end - pts[0]) / 5.0)) + 1))
         px = np.rint(to_px(line)).astype(np.int32).reshape(-1, 1, 2)
-        cv2.polylines(frame, [px], False, BLACK, thick + 2, cv2.LINE_AA)
+        cv2.polylines(frame, [px], False, OUTLINE_COLOR, thick + 2, cv2.LINE_AA)
         cv2.polylines(frame, [px], False, color, thick, cv2.LINE_AA)
     o = np.rint(to_px(pts[:1])[0]).astype(int)
     cv2.circle(frame, (int(o[0]), int(o[1])), max(2, round(4 * s)), color, -1, cv2.LINE_AA)
-
-
-MOVE_COLOR = (215, 215, 215)
 
 
 def draw_move_mm(frame: np.ndarray, points_mm, radius_mm: float, costs, total: int, to_px, color: tuple[int, int, int] = MOVE_COLOR) -> None:
@@ -356,13 +383,13 @@ def draw_move_mm(frame: np.ndarray, points_mm, radius_mm: float, costs, total: i
             middle = px(0.5 * (a + b).reshape(1, 2))[0, 0]
             _label(frame, f'{cost}"', (int(middle[0]), int(middle[1])), color, s, thick)
     below = px((pts[-1] + (0.0, radius_mm + 2.0)).reshape(1, 2))[0, 0]
-    _label(frame, f'{total}"', (int(below[0]), int(below[1])), WHITE, s, thick, box=True)
+    _label(frame, f'{total}"', (int(below[0]), int(below[1])), LABEL_TEXT_COLOR, s, thick, box=True)
 
 
 RANGE_ALPHA = 0.25
 
 
-def draw_range_mm(frame: np.ndarray, contours_mm, to_px, color: tuple[int, int, int] = MAGENTA) -> None:
+def draw_range_mm(frame: np.ndarray, contours_mm, to_px, color: tuple[int, int, int] = MEASURE_COLOR) -> None:
     """Area in board mm (closed contours, a contour in another one is a
     hole): a light fill and a heavy edge, as heavy as `draw_circle_mm`."""
     polys = [np.rint(to_px(_dense(np.asarray(c, float), 5.0))).astype(np.int32).reshape(-1, 1, 2) for c in contours_mm if len(c) >= 3]
@@ -393,18 +420,16 @@ def draw_dashed_circle(
         cv2.ellipse(frame, c, (r, r), 0, a0, a0 + duty * step, color, thickness, cv2.LINE_AA)
 
 
-ORANGE = (0, 140, 255)
 TERRAIN_FILL = {
-    "wall": (235, 235, 235),
-    "pillar": (170, 170, 170),
-    "wall_end": (170, 170, 170),
-    "hatchway": YELLOW,
-    "breach": ORANGE,
+    "wall": WALL_COLOR,
+    "pillar": PILLAR_COLOR,
+    "wall_end": PILLAR_COLOR,
+    "hatchway": HATCHWAY_COLOR,
+    "breach": BREACH_COLOR,
 }
 OPENING_KINDS = ("hatchway", "breach")
-ZONE_FILL = {"orange": (40, 110, 220), "grey": (220, 220, 220)}
+ZONE_FILL = {"orange": DROP_ZONE_ORANGE_COLOR, "grey": DROP_ZONE_GREY_COLOR}
 ZONE_ALPHA = 0.3
-LIGHT_FILL = (60, 75, 90)  # light terrain (C1..C5): dark brown-grey, half see-through
 LIGHT_ALPHA = 0.55
 
 
@@ -430,7 +455,7 @@ def _draw_open(frame: np.ndarray, floor: np.ndarray, sh, px, thick: int) -> None
     edges.sort(key=lambda e: float(np.linalg.norm(e[1] - e[0])))
     for a, b in edges[:2]:  # the two short sides: across the wall
         seg = px(np.linspace(a, b, 8))
-        cv2.polylines(frame, [seg], False, BLACK, thick + 3, cv2.LINE_AA)
+        cv2.polylines(frame, [seg], False, OUTLINE_COLOR, thick + 3, cv2.LINE_AA)
         cv2.polylines(frame, [seg], False, TERRAIN_FILL[sh.kind], thick + 1, cv2.LINE_AA)
 
 
@@ -459,10 +484,10 @@ def draw_terrain(frame: np.ndarray, shapes, to_px) -> None:
     if light:
         layer = frame.copy()
         for sh in light:
-            cv2.fillPoly(layer, [px(_dense(sh.points))], LIGHT_FILL, cv2.LINE_AA)
+            cv2.fillPoly(layer, [px(_dense(sh.points))], LIGHT_TERRAIN_COLOR, cv2.LINE_AA)
         cv2.addWeighted(layer, LIGHT_ALPHA, frame, 1 - LIGHT_ALPHA, 0, dst=frame)
         for sh in light:
-            cv2.polylines(frame, [px(_dense(sh.points))], True, BLACK, thick, cv2.LINE_AA)
+            cv2.polylines(frame, [px(_dense(sh.points))], True, OUTLINE_COLOR, thick, cv2.LINE_AA)
     floor = frame.copy() if any(sh.open and sh.kind in OPENING_KINDS for sh in shapes) else None
     for sh in shapes:
         if sh.open and sh.kind in OPENING_KINDS:
@@ -470,15 +495,15 @@ def draw_terrain(frame: np.ndarray, shapes, to_px) -> None:
         elif sh.kind in TERRAIN_FILL:
             pts = px(_dense(sh.points, 5.0))
             cv2.fillPoly(frame, [pts], TERRAIN_FILL[sh.kind], cv2.LINE_AA)
-            cv2.polylines(frame, [pts], True, BLACK, 1, cv2.LINE_AA)
+            cv2.polylines(frame, [pts], True, OUTLINE_COLOR, 1, cv2.LINE_AA)
         elif sh.kind == "objective":
-            cv2.polylines(frame, [px(sh.points)], True, BLACK, thick + 2, cv2.LINE_AA)
-            cv2.polylines(frame, [px(sh.points)], True, WHITE, thick, cv2.LINE_AA)
+            cv2.polylines(frame, [px(sh.points)], True, OUTLINE_COLOR, thick + 2, cv2.LINE_AA)
+            cv2.polylines(frame, [px(sh.points)], True, OBJECTIVE_COLOR, thick, cv2.LINE_AA)
             c = px(np.array([sh.center]))[0, 0]
-            cv2.drawMarker(frame, (int(c[0]), int(c[1])), WHITE, cv2.MARKER_TILTED_CROSS, int(10 * s), thick, cv2.LINE_AA)
+            cv2.drawMarker(frame, (int(c[0]), int(c[1])), OBJECTIVE_COLOR, cv2.MARKER_TILTED_CROSS, int(10 * s), thick, cv2.LINE_AA)
         elif sh.kind == "teleporter":
-            cv2.polylines(frame, [px(sh.points)], True, BLACK, thick + 2, cv2.LINE_AA)
-            cv2.polylines(frame, [px(sh.points)], True, CYAN, thick, cv2.LINE_AA)
+            cv2.polylines(frame, [px(sh.points)], True, OUTLINE_COLOR, thick + 2, cv2.LINE_AA)
+            cv2.polylines(frame, [px(sh.points)], True, TELEPORTER_COLOR, thick, cv2.LINE_AA)
         elif sh.kind in ("wall_key", "teleporter_key", "light_key"):
             a = to_px(sh.points)[0]
             (tw, th), _ = cv2.getTextSize(sh.name, cv2.FONT_HERSHEY_SIMPLEX, 0.8 * s, thick)
@@ -489,29 +514,25 @@ def draw_terrain(frame: np.ndarray, shapes, to_px) -> None:
             pad = max(2, int(4 * s))
             box = frame[max(0, org[1] - th - pad) : org[1] + pad, max(0, org[0] - pad) : org[0] + tw + pad]
             box[:] = (box * 0.25).astype(frame.dtype)  # dark box under the text
-            cv2.putText(frame, sh.name, org, cv2.FONT_HERSHEY_SIMPLEX, 0.8 * s, WHITE, thick, cv2.LINE_AA)
+            cv2.putText(frame, sh.name, org, cv2.FONT_HERSHEY_SIMPLEX, 0.8 * s, LABEL_TEXT_COLOR, thick, cv2.LINE_AA)
         elif sh.kind == "objective_range":
             pts = to_px(sh.points)
             for k in range(0, len(pts), 2):  # dashes: every other segment of the sampled circle
                 seg = np.rint(pts[[k, (k + 1) % len(pts)]]).astype(np.int32).reshape(-1, 1, 2)
-                cv2.polylines(frame, [seg], False, WHITE, thick, cv2.LINE_AA)
+                cv2.polylines(frame, [seg], False, OBJECTIVE_COLOR, thick, cv2.LINE_AA)
 
 
 HEALTH_MM_PER_WOUND = 2.0  # bar length per maximum wound: 15 W = 30 mm
 HEALTH_BAR_MM = 4.0  # bar height
 HEALTH_GAP_MM = 3.0  # from the base rim to the bar
-HEALTH_EMPTY = (60, 60, 60)
-HEALTH_UNHARMED = (80, 220, 80)  # all wounds left (green)
-HEALTH_WOUNDED = (60, 170, 255)  # half of the wounds or more left (orange)
-HEALTH_INJURED = (60, 60, 230)  # fewer than half of the wounds left (red)
 
 
 def health_color(current: int, maximum: int) -> tuple[int, int, int]:
     """Unharmed: all wounds. Wounded: half of the wounds or more. Injured:
     fewer than half of the wounds."""
     if current >= maximum:
-        return HEALTH_UNHARMED
-    return HEALTH_WOUNDED if current >= maximum / 2 else HEALTH_INJURED
+        return HEALTH_UNHARMED_COLOR
+    return HEALTH_WOUNDED_COLOR if current >= maximum / 2 else HEALTH_INJURED_COLOR
 
 
 def draw_health_bars(frame: np.ndarray, bars, to_px) -> None:
@@ -530,17 +551,15 @@ def draw_health_bars(frame: np.ndarray, bars, to_px) -> None:
             pts = np.array([[xa, y0], [xb, y0], [xb, y1], [xa, y1]], float)
             return np.rint(to_px(pts)).astype(np.int32).reshape(-1, 1, 2)
 
-        cv2.fillPoly(frame, [poly(x0, x0 + length)], HEALTH_EMPTY, cv2.LINE_AA)
+        cv2.fillPoly(frame, [poly(x0, x0 + length)], HEALTH_EMPTY_COLOR, cv2.LINE_AA)
         part = max(0, min(current, maximum)) / maximum
         if part > 0:
             cv2.fillPoly(frame, [poly(x0, x0 + length * part)], health_color(current, maximum), cv2.LINE_AA)
-        cv2.polylines(frame, [poly(x0, x0 + length)], True, HEALTH_INJURED if current <= 0 else BLACK, thick, cv2.LINE_AA)
+        cv2.polylines(frame, [poly(x0, x0 + length)], True, HEALTH_INJURED_COLOR if current <= 0 else OUTLINE_COLOR, thick, cv2.LINE_AA)
 
 
 # --- control marks ----------------------------------------------------------------
 
-MARK_COLOR = (0, 225, 255)  # bright yellow: melee signs and objective arrows
-MARK_BACK = (30, 30, 30)  # dark sign behind the crossed swords
 MELEE_SIGN_MM = 13.0  # radius of the melee sign
 ARROW_LEN_MM = 5.0  # depth of one arrow head
 ARROW_HALF_MM = 6.0  # half width of one arrow head
@@ -589,7 +608,7 @@ def draw_melee_sign(frame: np.ndarray, at_mm, to_px, color: tuple[int, int, int]
     R = max(10.0, MELEE_SIGN_MM * _px_per_mm(to_px, at_mm))
     a = np.deg2rad(22.5 + 45.0 * np.arange(8))
     octagon = np.rint(c + R * np.c_[np.cos(a), np.sin(a)]).astype(np.int32).reshape(-1, 1, 2)
-    cv2.fillPoly(frame, [octagon], MARK_BACK, cv2.LINE_AA)
+    cv2.fillPoly(frame, [octagon], MARK_BACK_COLOR, cv2.LINE_AA)
     cv2.polylines(frame, [octagon], True, color, max(1, round(0.08 * R)), cv2.LINE_AA)
     for sx in (1.0, -1.0):  # blade from the lower corner to the upper corner
         tip, pommel = c + 0.46 * R * np.array([sx, -1.0]), c + 0.46 * R * np.array([-sx, 1.0])
@@ -634,8 +653,8 @@ def objective_arrows_mm(center_mm, diameter_mm: float, objective_mm) -> list[np.
 
 
 def draw_objective_arrows(frame: np.ndarray, center_mm, diameter_mm: float, objective_mm, to_px) -> None:
-    """Yellow arrow heads with a dark outline (`objective_arrows_mm`)."""
+    """Arrow heads (`MARK_COLOR`) with a dark outline (`objective_arrows_mm`)."""
     heads = [np.rint(to_px(h)).astype(np.int32).reshape(-1, 1, 2) for h in objective_arrows_mm(center_mm, diameter_mm, objective_mm)]
     thick = max(2, round(1.2 * _px_per_mm(to_px, center_mm)))
-    cv2.polylines(frame, heads, False, BLACK, thick + 3, cv2.LINE_AA)
+    cv2.polylines(frame, heads, False, OUTLINE_COLOR, thick + 3, cv2.LINE_AA)
     cv2.polylines(frame, heads, False, MARK_COLOR, thick, cv2.LINE_AA)

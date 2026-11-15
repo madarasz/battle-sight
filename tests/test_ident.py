@@ -793,16 +793,16 @@ def test_fps_meter_smooths_and_resets():
 
 def test_notice_shows_then_expires(capsys):
     from battlesight.live import Notice
-    from battlesight.overlay import GREEN, RED
+    from battlesight.colors import STATUS_ERROR_COLOR, STATUS_OK_COLOR
 
     now = [100.0]
     n = Notice(seconds=5, clock=lambda: now[0])
     assert n.current() is None
     n.error("no base found")
-    assert n.current() == ("no base found", RED)
+    assert n.current() == ("no base found", STATUS_ERROR_COLOR)
     assert "no base found" in capsys.readouterr().err
     n.ok("photo 3 added")
-    assert n.current() == ("photo 3 added", GREEN)
+    assert n.current() == ("photo 3 added", STATUS_OK_COLOR)
     now[0] += 5.1
     assert n.current() is None
 

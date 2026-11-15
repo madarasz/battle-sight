@@ -515,6 +515,19 @@ panel_side = "right"
 If a value is not correct, the app starts and shows a red message at the
 bottom of the window. It then uses the default value.
 
+## 10. Change the colours (optional)
+
+All colours of the video marks and of the window are in the file
+`data/color-settings.toml`. Each line is one function, for example
+`team_1 = "#e63c3c"` is the colour of the team on the left side.
+
+1. Open `data/color-settings.toml` in a text editor.
+2. Change the value to a new colour in the form `"#rrggbb"`.
+3. Start the app again.
+
+Do not remove a line. When a line is missing or a value is not correct, the
+app does not start and tells you the line.
+
 ## Troubleshooting
 
 ### `list_cameras.py` shows only index 0

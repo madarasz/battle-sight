@@ -37,6 +37,7 @@ import cv2
 import numpy as np
 
 from battlesight import bench, overlay
+from battlesight import colors as col
 from battlesight import rectify as rect
 from battlesight.camera import CameraSettings
 from battlesight.config import DEFAULT_CONFIG, BoardConfig
@@ -47,10 +48,6 @@ DEFAULT_PHOTOS = ROOT / "tests" / "images"
 BASES_FIELDS = bench.BASES_FIELDS
 LIST_KEYS = {"diameters_mm"}
 SLOW_KEYS = {"px_per_mm"}  # a new value needs a new bases image
-
-ORANGE = (0, 140, 255)
-GREY = (170, 170, 170)
-
 
 class BadInput(Exception):
     pass
@@ -199,7 +196,7 @@ def _label(img: np.ndarray, text: str, org: tuple[int, int], color, s: float) ->
     thick = max(1, round(1.5 * s))
     (tw, _), _ = cv2.getTextSize(text, cv2.FONT_HERSHEY_SIMPLEX, 0.5 * s, thick)
     org = (int(org[0] - tw / 2), int(org[1]))
-    cv2.putText(img, text, org, cv2.FONT_HERSHEY_SIMPLEX, 0.5 * s, overlay.BLACK, thick + 2, cv2.LINE_AA)
+    cv2.putText(img, text, org, cv2.FONT_HERSHEY_SIMPLEX, 0.5 * s, col.OUTLINE_COLOR, thick + 2, cv2.LINE_AA)
     cv2.putText(img, text, org, cv2.FONT_HERSHEY_SIMPLEX, 0.5 * s, color, thick, cv2.LINE_AA)
 
 
@@ -223,15 +220,15 @@ def draw_debug(p: Prepared, s: bench.PhotoScore, cfg: BoardConfig) -> np.ndarray
         return x, int(y + (0.5 * d + 6.0) * ppm)
 
     for dc in s.decoys:
-        overlay.draw_dashed_circle(img, px(dc.center_mm), 0.5 * dc.diameter_mm * ppm, GREY, 1, dashes=48, duty=0.3)
+        overlay.draw_dashed_circle(img, px(dc.center_mm), 0.5 * dc.diameter_mm * ppm, col.NOT_BASE_COLOR, 1, dashes=48, duty=0.3)
     for t in s.missed:
         d = 30.0 if t.diameter_mm is None else t.diameter_mm
-        overlay.draw_dashed_circle(img, px(t.center_mm), 0.5 * d * ppm, overlay.YELLOW, thick)
-        _label(img, f"miss {t.note}"[:40], below(t.center_mm, d), overlay.YELLOW, k)
+        overlay.draw_dashed_circle(img, px(t.center_mm), 0.5 * d * ppm, col.BENCH_MISSED_COLOR, thick)
+        _label(img, f"miss {t.note}"[:40], below(t.center_mm, d), col.BENCH_MISSED_COLOR, k)
     for m in s.matches:
         f = m.found
         d = float(f["diameter_mm"])
-        color = ORANGE if m.size_ok is False else overlay.GREEN
+        color = col.BENCH_WRONG_SIZE_COLOR if m.size_ok is False else col.BENCH_MATCH_COLOR
         cv2.circle(img, px(f["center_mm"]), int(round(0.5 * d * ppm)), color, thick, cv2.LINE_AA)
         if m.size_ok is False:
             cv2.line(img, px(f["center_mm"]), px(m.truth.center_mm), color, 1, cv2.LINE_AA)
@@ -240,24 +237,24 @@ def draw_debug(p: Prepared, s: bench.PhotoScore, cfg: BoardConfig) -> np.ndarray
             _label(img, f"{d:g}", above(f["center_mm"], d), color, k)
     for f, kind in s.false:
         d = float(f["diameter_mm"])
-        cv2.circle(img, px(f["center_mm"]), int(round(0.5 * d * ppm)), overlay.RED, thick, cv2.LINE_AA)
-        _label(img, f"{d:g} {kind} {f.get('coverage', 0):.2f}", above(f["center_mm"], d), overlay.RED, k)
+        cv2.circle(img, px(f["center_mm"]), int(round(0.5 * d * ppm)), col.BENCH_FALSE_COLOR, thick, cv2.LINE_AA)
+        _label(img, f"{d:g} {kind} {f.get('coverage', 0):.2f}", above(f["center_mm"], d), col.BENCH_FALSE_COLOR, k)
 
     legend = [
-        (overlay.GREEN, "match, right size"),
-        (ORANGE, "match, wrong size (found/true)"),
-        (overlay.RED, "false base (kind, coverage)"),
-        (overlay.YELLOW, "missed base (dashed)"),
-        (GREY, "not a base (dotted)"),
+        (col.BENCH_MATCH_COLOR, "match, right size"),
+        (col.BENCH_WRONG_SIZE_COLOR, "match, wrong size (found/true)"),
+        (col.BENCH_FALSE_COLOR, "false base (kind, coverage)"),
+        (col.BENCH_MISSED_COLOR, "missed base (dashed)"),
+        (col.NOT_BASE_COLOR, "not a base (dotted)"),
     ]
     lh = int(22 * k)
     x0, y0 = int(10 * k), img.shape[0] - lh * len(legend) - int(10 * k)
-    cv2.rectangle(img, (0, y0 - lh), (int(330 * k), img.shape[0]), overlay.BLACK, -1)
+    cv2.rectangle(img, (0, y0 - lh), (int(330 * k), img.shape[0]), col.BANNER_BACK_COLOR, -1)
     for i, (color, text) in enumerate(legend):
         y = y0 + i * lh
         cv2.circle(img, (x0 + int(8 * k), y - int(5 * k)), int(6 * k), color, thick, cv2.LINE_AA)
-        cv2.putText(img, text, (x0 + int(24 * k), y), cv2.FONT_HERSHEY_SIMPLEX, 0.5 * k, overlay.WHITE, 1, cv2.LINE_AA)
-    overlay.draw_text_banner(img, bench.format_total_line(s), overlay.GREEN if s.done_ok else overlay.RED)
+        cv2.putText(img, text, (x0 + int(24 * k), y), cv2.FONT_HERSHEY_SIMPLEX, 0.5 * k, col.LABEL_TEXT_COLOR, 1, cv2.LINE_AA)
+    overlay.draw_text_banner(img, bench.format_total_line(s), col.STATUS_OK_COLOR if s.done_ok else col.STATUS_ERROR_COLOR)
     return img
 
 

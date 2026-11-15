@@ -246,7 +246,8 @@ class Pipeline:
 
     def annotate(self, frame: np.ndarray, result: FrameResult, banner: bool = True) -> np.ndarray:
         """Copy of the frame with every stage's overlay and a status banner."""
-        from .overlay import GREEN, RED, draw_text_banner
+        from .colors import STATUS_ERROR_COLOR, STATUS_OK_COLOR
+        from .overlay import draw_text_banner
 
         out = frame.copy()
         for name, r in result.stages.items():
@@ -254,7 +255,7 @@ class Pipeline:
             if draw is not None and not r.skipped:
                 draw(out, result, self.cfg)
         if banner:
-            draw_text_banner(out, result.summary(), GREEN if result.ok else RED, f"{result.width}x{result.height}")
+            draw_text_banner(out, result.summary(), STATUS_OK_COLOR if result.ok else STATUS_ERROR_COLOR, f"{result.width}x{result.height}")
         return out
 
     def views(self, frame: np.ndarray, result: FrameResult) -> dict[str, np.ndarray]:

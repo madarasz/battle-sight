@@ -48,7 +48,8 @@ from .calib import CharucoFinder, TagDetector, calibrate_lens
 from .camera import DEFAULT_CAMERA_FILE, Camera, CameraSettings, ImageSource, parse_source
 from .config import CORNER_NAMES, DEFAULT_CONFIG, BoardConfig
 from .live import DEFAULT_REFERENCE, DISPLAY_WIDTH, BoardTracker, BoardWindow, FpsMeter, LiveSession, Notice, failed_stage, load_gallery, load_reference
-from .overlay import GREEN, RED, YELLOW, draw_bases, draw_crosshair, draw_text_banner, fit_to_width
+from .colors import CHARUCO_CORNER_COLOR, ENROLL_CANDIDATE_COLOR, STATUS_ERROR_COLOR, STATUS_HINT_COLOR, STATUS_OK_COLOR
+from .overlay import draw_bases, draw_crosshair, draw_text_banner, fit_to_width
 from .pipeline import SCHEMA_VERSION, BasesSearch, Pipeline, base_crops, bases_image, find_base_near
 from .rectify import warp_board
 
@@ -147,7 +148,7 @@ class _CornerCheck:
         something is drawn."""
         strips = []
         if self.warning is not None:
-            strips.append((self.warning, RED, "space will fail"))
+            strips.append((self.warning, STATUS_ERROR_COLOR, "space will fail"))
         if info is not None:
             strips.append((*info, ""))
         if notice is not None and notice.current() is not None:
@@ -435,7 +436,7 @@ def cmd_enroll(args: argparse.Namespace) -> int:
             right, total, misses = gallery.leave_one_out()
             _print_leave_one_out(right, total, misses, gallery.counts())
             advice = weak_text(weak_operatives(misses, gallery.counts()))
-            state["test"] = (leave_one_out_text(right, total, misses) + (f". {advice[0].upper()}{advice[1:]}" if advice else ""), GREEN if total and not misses else YELLOW)
+            state["test"] = (leave_one_out_text(right, total, misses) + (f". {advice[0].upper()}{advice[1:]}" if advice else ""), STATUS_OK_COLOR if total and not misses else STATUS_HINT_COLOR)
         if key == ord(" "):
             stop_locate()
             snap = frame.copy()
@@ -473,17 +474,17 @@ def cmd_enroll(args: argparse.Namespace) -> int:
                     notice.error("no base here: click inside a yellow circle")
         if r is not None and state["result"] is not None:
             img = win.base_image(state["snap"], r)
-            draw_bases(img, [r.scratch["bases"][i] for i in _enroll_candidates(r, op.base_mm)], win.to_px, YELLOW)
+            draw_bases(img, [r.scratch["bases"][i] for i in _enroll_candidates(r, op.base_mm)], win.to_px, ENROLL_CANDIDATE_COLOR)
             ask = f"not sure: click the base of {op.name}" if state["relaxed"] else f"click the base of {op.name}"
-            draw_text_banner(img, ask, YELLOW, f"{video}, {gallery.counts()[label]} photos, Esc back")
+            draw_text_banner(img, ask, STATUS_HINT_COLOR, f"{video}, {gallery.counts()[label]} photos, Esc back")
         else:
             img = warp_board(frame, board.view, cfg) if win.top_down else frame.copy()
             if state["locate"]:
-                draw_text_banner(img, f"locate {op.name}: click the centre of its base", YELLOW, f"{video}, {gallery.counts()[label]} photos, Esc stop")
+                draw_text_banner(img, f"locate {op.name}: click the centre of its base", STATUS_HINT_COLOR, f"{video}, {gallery.counts()[label]} photos, Esc stop")
             elif pipe.has_reference:
-                draw_text_banner(img, f"enroll {op.name}: push space", GREEN, f"{video}, {gallery.counts()[label]} photos, aim for 10 to 20")
+                draw_text_banner(img, f"enroll {op.name}: push space", STATUS_OK_COLOR, f"{video}, {gallery.counts()[label]} photos, aim for 10 to 20")
             else:
-                draw_text_banner(img, f"enroll {op.name}: no background saved, push e on the empty board", YELLOW, f"{video}, {gallery.counts()[label]} photos, aim for 10 to 20")
+                draw_text_banner(img, f"enroll {op.name}: no background saved, push e on the empty board", STATUS_HINT_COLOR, f"{video}, {gallery.counts()[label]} photos, aim for 10 to 20")
         check.update(frame, board.obs)
         shown = check.draw(win.fit(img), notice, state["test"])
         if state["locate"] and state["pointer"] is not None:
@@ -551,9 +552,9 @@ def cmd_calibrate(args: argparse.Namespace) -> int:
             out = frame.copy()
             if found is not None:
                 for p in found[1]:
-                    cv2.circle(out, (int(p[0]), int(p[1])), max(3, out.shape[1] // 500), GREEN, -1)
+                    cv2.circle(out, (int(p[0]), int(p[1])), max(3, out.shape[1] // 500), CHARUCO_CORNER_COLOR, -1)
             n = 0 if found is None else len(found[0])
-            draw_text_banner(out, f"{len(views)} views, {n} corners in frame", GREEN if found is not None else YELLOW, "space grab  c calibrate  q quit")
+            draw_text_banner(out, f"{len(views)} views, {n} corners in frame", STATUS_OK_COLOR if found is not None else STATUS_HINT_COLOR, "space grab  c calibrate  q quit")
             cv2.imshow(window, fit_to_width(out, DISPLAY_WIDTH))
             key = cv2.waitKey(1) & 0xFF
             if key == ord(" ") and found is not None:
@@ -680,26 +681,27 @@ def cmd_image_pipeline(args: argparse.Namespace) -> int:
 
 def render_map(tmap, cfg: BoardConfig) -> np.ndarray:
     """A map file on an empty top-down board, with the grid and its numbers."""
-    from .overlay import BLACK, draw_grid, draw_terrain
+    from .colors import MAP_BOARD_COLOR, MAP_GRID_COLOR, MAP_PAPER_COLOR, MAP_TEXT_COLOR
+    from .overlay import draw_grid, draw_terrain
     from .rectify import mm_to_rect
     from .terrain import shapes
 
     m, ppm = cfg.rectify_margin_mm, cfg.rectify_px_per_mm
     w, h = int(round((cfg.width_mm + 2 * m) * ppm)), int(round((cfg.height_mm + 2 * m) * ppm))
-    img = np.full((h, w, 3), 255, np.uint8)
+    img = np.full((h, w, 3), MAP_PAPER_COLOR, np.uint8)
     to_px = lambda p: mm_to_rect(cfg, p)  # noqa: E731
     board = np.rint(to_px(cfg.board_corners_mm())).astype(np.int32)
-    cv2.fillPoly(img, [board], (200, 215, 225))
-    draw_grid(img, cfg, to_px, color=(150, 150, 150), outline=BLACK)
+    cv2.fillPoly(img, [board], MAP_BOARD_COLOR)
+    draw_grid(img, cfg, to_px, color=MAP_GRID_COLOR, outline=MAP_TEXT_COLOR)
     draw_terrain(img, shapes(tmap, cfg), to_px)
     xs, ys = cfg.grid_lines_mm()
     for k, x in enumerate(xs):
         p = to_px(np.array([[x, -m / 2]]))[0]
-        cv2.putText(img, str(k), (int(p[0]) - 8, int(p[1]) + 8), cv2.FONT_HERSHEY_SIMPLEX, 0.8, BLACK, 2, cv2.LINE_AA)
+        cv2.putText(img, str(k), (int(p[0]) - 8, int(p[1]) + 8), cv2.FONT_HERSHEY_SIMPLEX, 0.8, MAP_TEXT_COLOR, 2, cv2.LINE_AA)
     for k, y in enumerate(ys):
         p = to_px(np.array([[-m / 2, y]]))[0]
-        cv2.putText(img, str(k), (int(p[0]) - 8, int(p[1]) + 8), cv2.FONT_HERSHEY_SIMPLEX, 0.8, BLACK, 2, cv2.LINE_AA)
-    cv2.putText(img, f"{tmap.terrain} / {tmap.name}", (10, h - 12), cv2.FONT_HERSHEY_SIMPLEX, 0.7, BLACK, 2, cv2.LINE_AA)
+        cv2.putText(img, str(k), (int(p[0]) - 8, int(p[1]) + 8), cv2.FONT_HERSHEY_SIMPLEX, 0.8, MAP_TEXT_COLOR, 2, cv2.LINE_AA)
+    cv2.putText(img, f"{tmap.terrain} / {tmap.name}", (10, h - 12), cv2.FONT_HERSHEY_SIMPLEX, 0.7, MAP_TEXT_COLOR, 2, cv2.LINE_AA)
     return img
 
 

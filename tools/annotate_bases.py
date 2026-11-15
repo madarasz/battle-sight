@@ -503,6 +503,7 @@ def make_suggester(img: np.ndarray, reference: np.ndarray | None, cfg, gallery: 
 def run_window(photo: Path, cfg, prefill: bool, display: tuple[int, int], teams: list[str] | None = None) -> int:
     import cv2
 
+    from battlesight import colors as col
     from battlesight import overlay
     from battlesight.camera import CameraSettings
     from battlesight.pipeline import BASES_MARGIN_MM, Pipeline, bases_image, detect_bases
@@ -630,17 +631,17 @@ def run_window(photo: Path, cfg, prefill: bool, display: tuple[int, int], teams:
         def hint(center_mm, d) -> None:
             s = ann.suggestion(center_mm, d)
             if s is not None and s.label:
-                cv2.putText(view, f"{idt.split_label(s.label)[1]}?", to_disp((center_mm[0] - 0.5 * d, center_mm[1] + 0.5 * d + 5)), cv2.FONT_HERSHEY_SIMPLEX, 0.5, overlay.CYAN, 1, cv2.LINE_AA)
+                cv2.putText(view, f"{idt.split_label(s.label)[1]}?", to_disp((center_mm[0] - 0.5 * d, center_mm[1] + 0.5 * d + 5)), cv2.FONT_HERSHEY_SIMPLEX, 0.5, col.ANNOTATE_PROPOSAL_COLOR, 1, cv2.LINE_AA)
 
         for i in ann.visible_proposals():
             p = ann.proposals[i]
-            overlay.draw_dashed_circle(view, to_disp(p["center_mm"]), rr(p["diameter_mm"]), overlay.CYAN, 1, dashes=32)
+            overlay.draw_dashed_circle(view, to_disp(p["center_mm"]), rr(p["diameter_mm"]), col.ANNOTATE_PROPOSAL_COLOR, 1, dashes=32)
             hint(p["center_mm"], p["diameter_mm"])
         for dc in ann.gt.not_bases:
-            overlay.draw_dashed_circle(view, to_disp(dc.center_mm), rr(dc.diameter_mm), (170, 170, 170), 1, dashes=48, duty=0.3)
-            cv2.putText(view, dc.kind, to_disp((dc.center_mm[0], dc.center_mm[1] + 0.5 * dc.diameter_mm + 4)), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (170, 170, 170), 1, cv2.LINE_AA)
+            overlay.draw_dashed_circle(view, to_disp(dc.center_mm), rr(dc.diameter_mm), col.NOT_BASE_COLOR, 1, dashes=48, duty=0.3)
+            cv2.putText(view, dc.kind, to_disp((dc.center_mm[0], dc.center_mm[1] + 0.5 * dc.diameter_mm + 4)), cv2.FONT_HERSHEY_SIMPLEX, 0.45, col.NOT_BASE_COLOR, 1, cv2.LINE_AA)
         for t in ann.gt.bases:
-            color = overlay.GREEN if t.rim == "clear" else overlay.YELLOW
+            color = col.ANNOTATE_CLEAR_RIM_COLOR if t.rim == "clear" else col.ANNOTATE_HIDDEN_RIM_COLOR
             d = 30.0 if t.diameter_mm is None else t.diameter_mm
             if t.source == "estimate":
                 overlay.draw_dashed_circle(view, to_disp(t.center_mm), rr(d), color, 2)
@@ -652,19 +653,19 @@ def run_window(photo: Path, cfg, prefill: bool, display: tuple[int, int], teams:
             label = f"{'?' if t.diameter_mm is None else f'{t.diameter_mm:g}'} {t.source[0]} {t.note}"[:30]
             cv2.putText(view, label, to_disp((t.center_mm[0] - 0.5 * d, t.center_mm[1] - 0.5 * d - 2)), cv2.FONT_HERSHEY_SIMPLEX, 0.45, color, 1, cv2.LINE_AA)
             if t.label:
-                cv2.putText(view, idt.split_label(t.label)[1], to_disp((t.center_mm[0] - 0.5 * d, t.center_mm[1] + 0.5 * d + 5)), cv2.FONT_HERSHEY_SIMPLEX, 0.5, overlay.WHITE, 1, cv2.LINE_AA)
+                cv2.putText(view, idt.split_label(t.label)[1], to_disp((t.center_mm[0] - 0.5 * d, t.center_mm[1] + 0.5 * d + 5)), cv2.FONT_HERSHEY_SIMPLEX, 0.5, col.LABEL_TEXT_COLOR, 1, cv2.LINE_AA)
             else:
                 hint(t.center_mm, t.diameter_mm)
         if ann.assign_base is not None:
             t = ann.gt.bases[ann.assign_base]
-            cv2.circle(view, to_disp(t.center_mm), rr(30.0 if t.diameter_mm is None else t.diameter_mm) + 3, (255, 0, 255), 3, cv2.LINE_AA)
+            cv2.circle(view, to_disp(t.center_mm), rr(30.0 if t.diameter_mm is None else t.diameter_mm) + 3, col.ANNOTATE_FIT_COLOR, 3, cv2.LINE_AA)
         for q in ann.points:
-            cv2.circle(view, to_disp(q), 3, overlay.RED, -1, cv2.LINE_AA)
+            cv2.circle(view, to_disp(q), 3, col.ANNOTATE_POINT_COLOR, -1, cv2.LINE_AA)
         pv = ann.preview()
         fit_txt = ""
         if pv is not None:
             c, d, k = pv
-            cv2.circle(view, to_disp(c), rr(d), (255, 0, 255), 1, cv2.LINE_AA)
+            cv2.circle(view, to_disp(c), rr(d), col.ANNOTATE_FIT_COLOR, 1, cv2.LINE_AA)
             fit_txt = f" | fit {d:.1f} mm -> {k:g}"
         canvas = np.zeros((display[1], display[0], 3), np.uint8)
         canvas[: view.shape[0], : view.shape[1]] = view[: display[1], : display[0]]
@@ -676,9 +677,9 @@ def run_window(photo: Path, cfg, prefill: bool, display: tuple[int, int], teams:
             f"{photo.stem} {ZOOMS[state['zoom']]}x | {pos} | bases {len(ann.gt.bases)} ({n_clear} clear), not {len(ann.gt.not_bases)}"
             f" | proposals {len(ann.visible_proposals())}/{len(ann.proposals)} | points {len(ann.points)}{fit_txt}{named_txt}" + (" | UNSAVED" if ann.dirty else "")
         )
-        overlay.draw_text_banner(canvas, text, overlay.YELLOW if ann.dirty else overlay.GREEN)
+        overlay.draw_text_banner(canvas, text, col.STATUS_HINT_COLOR if ann.dirty else col.STATUS_OK_COLOR)
         if ann.assign_base is not None:
-            overlay.draw_text_banner(canvas, f"assign operative: see the terminal, push 1-{len(ann.assign_items())} here, 0 no name, Esc cancel", overlay.CYAN, row=1)
+            overlay.draw_text_banner(canvas, f"assign operative: see the terminal, push 1-{len(ann.assign_items())} here, 0 no name, Esc cancel", col.ANNOTATE_PROPOSAL_COLOR, row=1)
         return canvas
 
     win = f"annotate {photo.name}"

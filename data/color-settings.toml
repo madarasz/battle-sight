@@ -1,0 +1,133 @@
+# Battle Sight colours. `src/battlesight/colors.py` reads this file at start.
+#
+# Each value is "#rrggbb" (red, green, blue). A value in [window] can also be
+# "#rrggbbaa" (aa = opacity, 00 = clear, ff = solid).
+# Each key is one function. The code name is the key in capital letters plus
+# "_COLOR": `team_1` is `TEAM_1_COLOR`. Keys must be unique in the file.
+# Do not remove a key: the app stops with an error when a key is missing.
+
+# --- status strips and messages on the video ------------------------------------
+
+[status]
+status_ok = "#50dc50"        # all is good, a step is done
+status_hint = "#ffc828"      # wait, a hint or a warning
+status_error = "#e63c3c"     # a step failed
+banner_back = "#000000"      # background of a status strip
+
+# --- shared drawing --------------------------------------------------------------
+
+[drawing]
+outline = "#000000"          # dark edge behind lines and text, so they stay readable
+label_text = "#ffffff"       # text on a dark background: numbers, strip text, terrain keys, names
+pointer = "#ffc828"          # "+" pointer for "click the centre"
+pointer_cross = "#ffffff"    # "+" in the crop under the pointer ("Locate operative")
+pointer_cross_edge = "#aaaaaa"
+
+# --- board corners and grid ------------------------------------------------------
+
+[board]
+board_found = "#50dc50"      # corner tag found, line through the 4 board corners
+tag_moved = "#ffc828"        # corner tag moved
+tag_origin = "#3cdcff"       # dot on tag corner 0 (tag direction)
+board_corner = "#ffffff"     # cross on each board corner
+corner_lost = "#e63c3c"      # last position of a corner that is out of view
+grid_line = "#ffc828"        # map grid lines
+grid_board_edge = "#3cdcff"  # board edge drawn with the grid
+
+# --- bases, names and teams ------------------------------------------------------
+
+[bases]
+base = "#50dc50"             # found base (before names)
+name_sure = "#50dc50"        # sure or confirmed name
+name_unsure = "#ffc828"      # unsure name
+name_unknown = "#e63c3c"     # base without a name
+team_1 = "#e63c3c"           # team on the left side
+team_2 = "#2878e6"           # team on the right side
+no_team = "#aaaaaa"          # base without a name, when teams have colours
+selected = "#ffffff"         # selected base, selected hatchway or breach point
+
+[health]
+health_empty = "#3c3c3c"     # lost wounds part of a health bar
+health_unharmed = "#50dc50"  # all wounds left
+health_wounded = "#ffaa3c"   # half of the wounds or more left
+health_injured = "#e63c3c"   # fewer than half of the wounds left, edge of an empty bar
+
+# --- measurement -----------------------------------------------------------------
+
+[measure]
+measure = "#e646e6"          # rings, distance lines, ranges, target base
+range_zone = "#ffc828"       # 1 in and 2 in zones: around an enemy, a shooter, a target, a selected opening; bases near the opening
+move = "#d7d7d7"             # movement route
+move_melee = "#ffffff"       # melee sign of a move into control range
+targeting = "#ffffff"        # targeting lines ("Shoot at")
+intervening = "#e63c3c"      # intervening heavy terrain of a shot
+mark = "#ffe100"             # control marks: melee signs and objective arrows
+mark_back = "#1e1e1e"        # dark sign behind the crossed swords
+
+# --- terrain ---------------------------------------------------------------------
+
+[terrain]
+wall = "#ebebeb"
+pillar = "#aaaaaa"           # pillars and wall ends
+hatchway = "#ffc828"
+breach = "#ff8c00"
+light_terrain = "#5a4b3c"    # light terrain (C1..C5), half see-through
+drop_zone_orange = "#dc6e28" # drop zone "orange" of a map file
+drop_zone_grey = "#dcdcdc"   # drop zone "grey" of a map file, and any other zone
+objective = "#ffffff"        # objective marker and its 1 in range
+teleporter = "#3cdcff"       # teleporter pad
+
+[minimap]
+minimap_back = "#181818"     # around the board
+minimap_board = "#303030"    # the board
+
+# --- `map` command image ---------------------------------------------------------
+
+[map_image]
+map_paper = "#ffffff"        # around the board
+map_board = "#e1d7c8"        # the board
+map_grid = "#969696"         # grid lines
+map_text = "#000000"         # board edge, grid numbers and map name
+
+# --- `enroll` and `calibrate` windows --------------------------------------------
+
+[tools]
+enroll_candidate = "#ffc828" # bases that can be the operative to enroll
+charuco_corner = "#50dc50"   # found corners of the calibration sheet
+
+# --- developer tools: tools/bench_bases.py and tools/annotate_bases.py -----------
+
+[bench]
+not_base = "#aaaaaa"         # marked "not a base" (both tools)
+bench_match = "#50dc50"      # found base, right size
+bench_wrong_size = "#ff8c00" # found base, wrong size
+bench_false = "#e63c3c"      # found circle that is not a base
+bench_missed = "#ffc828"     # base not found
+
+[annotate]
+annotate_clear_rim = "#50dc50"   # base with a clear rim
+annotate_hidden_rim = "#ffc828"  # base with a partly hidden rim
+annotate_proposal = "#3cdcff"    # detector proposal, name hint, assign strip
+annotate_point = "#e63c3c"       # clicked rim points
+annotate_fit = "#ff00ff"         # fit preview, base that gets a name
+
+# --- Qt window (panels, lists, badges) -------------------------------------------
+
+[window]
+message_none = "#8a8a8a"     # no status, base without a name in a team list
+message_ok = "#2e9e4f"       # good or done message
+message_warn = "#c98a00"     # warning or hint message
+message_error = "#d03a3a"    # error message
+message_info = "#3d8bfd"     # information message
+mode_live = "#d03a3a"        # badge sign: live video
+mode_snapshot = "#3d8bfd"    # badge sign: snapshot
+mode_minimap = "#2e9e4f"     # badge sign: minimap
+shot_obscured = "#d03a3a"    # "Obscured" in the shot panel
+shot_in_cover = "#3d8bfd"    # "In cover" in the shot panel
+video_back = "#000000"       # around the video image
+badge_back = "#000000aa"     # box behind the mode badge
+badge_text = "#ffffff"       # mode badge text
+selected_row = "#8080805a"   # background of the selected row of a team list
+skull_on = "#e8c547"         # score skull, scored
+skull_off = "#5a5a5a"        # score skull, not scored
+score_grid = "#8a8a8a"       # lines of the score grid

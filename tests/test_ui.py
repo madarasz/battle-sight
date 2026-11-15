@@ -24,6 +24,7 @@ from battlesight.ui.layouts import DEFAULT_LAYOUT, LAYOUTS  # noqa: E402
 from battlesight.ui.layouts.inspector import InspectorLayout, page_for, summary_text  # noqa: E402
 from battlesight.ui.layouts.panel import PanelLayout  # noqa: E402
 from battlesight.ui.parts import debug_text, distance_label  # noqa: E402
+from battlesight.colors import MODE_LIVE_COLOR, MODE_MINIMAP_COLOR, MODE_SNAPSHOT_COLOR, TEAM_1_COLOR, TEAM_2_COLOR, qt_hex  # noqa: E402
 from battlesight.ui.parts import COLORS, VideoWidget  # noqa: E402
 from battlesight.ui.settings import load_ui_settings, save_layout  # noqa: E402
 from battlesight.ui.shell import MainWindow, help_text, status_text  # noqa: E402
@@ -1081,11 +1082,11 @@ def test_rosters_shows_mode_badge_team_list_and_commands(idle_rosters, recorded)
     accepted = replace(frames["snapshot"], state=dict(snap, unconfirmed=0))
     idle_rosters._on_frame(accepted, 0)
     assert not layout.accept.isVisibleTo(idle_rosters)
-    assert idle_rosters.video.badge[1:] == (COLORS["info"], "pause")
+    assert idle_rosters.video.badge[1:] == (MODE_SNAPSHOT_COLOR, "pause")
     idle_rosters._on_frame(replace(frames["snapshot"], state=dict(snap, minimap=True)), 0)
-    assert idle_rosters.video.badge == ("Minimap", COLORS["ok"], "square")
+    assert idle_rosters.video.badge == ("Minimap", MODE_MINIMAP_COLOR, "square")
     idle_rosters._on_frame(frames["live"], 0)
-    assert idle_rosters.video.badge == ("Live", COLORS["error"], "dot")
+    assert idle_rosters.video.badge == ("Live", MODE_LIVE_COLOR, "dot")
     for sign in ("dot", "pause", "square"):  # each sign paints
         idle_rosters.video.set_badge("Mode", "#ffffff", sign)
         idle_rosters.video.grab()
@@ -1371,7 +1372,8 @@ def test_total_text_and_team_color():
     from battlesight.ui.parts import team_color, total_text
 
     assert total_text({"total": 15, "primary_bonus": 3}) == "15 VP"
-    assert team_color(0) == "#e63c3c" and team_color(1) == "#2878e6"  # RED, BLUE of the overlay
+    assert team_color(0) == qt_hex(TEAM_1_COLOR) and team_color(1) == qt_hex(TEAM_2_COLOR)  # the overlay colours of the teams
+    assert qt_hex((60, 60, 230)) == "#e63c3c"  # BGR -> #rrggbb
 
 
 def test_rosters_score_counter(qapp, tmp_path, named):

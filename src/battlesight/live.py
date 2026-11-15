@@ -36,7 +36,8 @@ from . import walls
 from .calib import DriftMonitor, DriftReport, DriftStatus, TagDetector, board_corners_px, lens_for_frame
 from .camera import CameraSettings
 from .config import BoardConfig
-from .overlay import BLUE, GREEN, GREY, MAGENTA, RED, WHITE, YELLOW, draw_base_discs, draw_bases, draw_board_corners, draw_circle_mm, draw_dashed_circle_mm, draw_dashed_outline_mm, draw_grid, draw_health_bars, draw_idents, draw_melee_sign, draw_objective_arrows, draw_move_mm, draw_outline_mm, draw_path_mm, draw_range_mm, draw_rim_line, draw_tags, draw_targeting_mm, draw_terrain, fit_to_width
+from .colors import MEASURE_COLOR, MINIMAP_BACK_COLOR, MINIMAP_BOARD_COLOR, MOVE_MELEE_COLOR, NAME_SURE_COLOR, NO_TEAM_COLOR, POINTER_CROSS_COLOR, POINTER_CROSS_EDGE_COLOR, RANGE_ZONE_COLOR, SELECTED_COLOR, STATUS_ERROR_COLOR, STATUS_HINT_COLOR, STATUS_OK_COLOR, TEAM_COLORS
+from .overlay import draw_base_discs, draw_bases, draw_board_corners, draw_circle_mm, draw_dashed_circle_mm, draw_dashed_outline_mm, draw_grid, draw_health_bars, draw_idents, draw_melee_sign, draw_objective_arrows, draw_move_mm, draw_outline_mm, draw_path_mm, draw_range_mm, draw_rim_line, draw_tags, draw_targeting_mm, draw_terrain, fit_to_width
 from .pipeline import Pipeline, base_crops, bases_config, bases_image, find_base_near
 from .rectify import fit_view, mm_to_rect, rect_transform, warp_board
 
@@ -49,9 +50,6 @@ OPENING_KINDS = ("hatchway", "breach")
 OPENING_HIT_MM = 8.0  # a click this near to a hatchway or a breach point selects it
 TEAM_SLOTS = 2  # one team list each side of the board
 OPENING_NEAR_IN = 2  # bases this near a selected hatchway or breach point get a yellow rim
-MINIMAP_BACK = (24, 24, 24)  # minimap: around the board
-MINIMAP_BOARD = (48, 48, 48)  # minimap: the board
-TEAM_COLORS = (RED, BLUE)  # circles of the team on the left and on the right side
 
 
 # --- helpers shared with the other live commands --------------------------------
@@ -66,20 +64,20 @@ class Notice:
         self.seconds = seconds
         self.clock = clock
         self.text: str | None = None
-        self.color = YELLOW
+        self.color = STATUS_HINT_COLOR
         self.level = "hint"
         self.until = 0.0
 
-    def say(self, text: str, color=YELLOW, error: bool = False) -> None:
+    def say(self, text: str, color=STATUS_HINT_COLOR, error: bool = False) -> None:
         print(text, file=sys.stderr if error else sys.stdout)
         self.text, self.color, self.until = text, color, self.clock() + self.seconds
-        self.level = "error" if error else "done" if color == GREEN else "hint"
+        self.level = "error" if error else "done" if color == STATUS_OK_COLOR else "hint"
 
     def error(self, text: str) -> None:
-        self.say(text, RED, error=True)
+        self.say(text, STATUS_ERROR_COLOR, error=True)
 
     def ok(self, text: str) -> None:
-        self.say(text, GREEN)
+        self.say(text, STATUS_OK_COLOR)
 
     def current(self) -> tuple[str, tuple[int, int, int]] | None:
         if self.text is None or self.clock() > self.until:
@@ -556,7 +554,7 @@ class LiveSession:
         side = int(round((AIM_DIAMETER_MM + 2 * PREVIEW_PAD_MM) * ppm))
         crop = cv2.getRectSubPix(img, (side, side), (float(cx), float(cy)))
         c, arm = side // 2, max(4, side // 12)
-        for color, width in ((GREY, 3), (WHITE, 1)):
+        for color, width in ((POINTER_CROSS_EDGE_COLOR, 3), (POINTER_CROSS_COLOR, 1)):
             cv2.line(crop, (c - arm, c), (c + arm, c), color, width)
             cv2.line(crop, (c, c - arm), (c, c + arm), color, width)
         return np.ascontiguousarray(crop)
@@ -590,9 +588,9 @@ class LiveSession:
         health bar, and the selection. Same pixels per mm as the top-down view."""
         cfg = self.cfg
         _, (w, h) = rect_transform(cfg)
-        img = np.full((h, w, 3), MINIMAP_BACK, np.uint8)
+        img = np.full((h, w, 3), MINIMAP_BACK_COLOR, np.uint8)
         (x0, y0), (x1, y1) = np.rint(mm_to_rect(cfg, np.array([[0.0, 0.0], [cfg.width_mm, cfg.height_mm]]))).astype(int)
-        cv2.rectangle(img, (int(x0), int(y0)), (int(x1), int(y1)), MINIMAP_BOARD, -1)
+        cv2.rectangle(img, (int(x0), int(y0)), (int(x1), int(y1)), MINIMAP_BOARD_COLOR, -1)
         self._draw_board(img, minimap=True)
         return self.win.fit(img)
 
@@ -620,14 +618,14 @@ class LiveSession:
             draw_grid(img, self.cfg, to_px)
         if self.selected_opening is not None:
             points = self.openings[self.selected_opening].points
-            draw_outline_mm(img, points, to_px, WHITE)
-            draw_outline_mm(img, measure.offset_outline(points, measure.MM_PER_INCH), to_px, YELLOW)
-            draw_dashed_outline_mm(img, measure.offset_outline(points, OPENING_NEAR_IN * measure.MM_PER_INCH), to_px, YELLOW)
+            draw_outline_mm(img, points, to_px, SELECTED_COLOR)
+            draw_outline_mm(img, measure.offset_outline(points, measure.MM_PER_INCH), to_px, RANGE_ZONE_COLOR)
+            draw_dashed_outline_mm(img, measure.offset_outline(points, OPENING_NEAR_IN * measure.MM_PER_INCH), to_px, RANGE_ZONE_COLOR)
         found = self._found()
         colors = {team: color for team, color in zip(self.team_slots, TEAM_COLORS) if team is not None}
         if minimap and found:
             labels = [x.label for x in self.session.idents] if self.session is not None else [None] * len(found)
-            draw_base_discs(img, found, [GREY if label is None else colors.get(label.partition("/")[0], GREEN) for label in labels], to_px)
+            draw_base_discs(img, found, [NO_TEAM_COLOR if label is None else colors.get(label.partition("/")[0], NAME_SURE_COLOR) for label in labels], to_px)
         if self.session is not None:
             control = self._control(found) if self.marks else None
             if control:
@@ -648,7 +646,7 @@ class LiveSession:
         elif found:
             draw_bases(img, found, to_px)
         for i in self._near_opening(found):  # bases near the selected hatchway or breach point
-            draw_circle_mm(img, found[i].center_mm, 0.5 * found[i].diameter_mm, to_px, YELLOW)
+            draw_circle_mm(img, found[i].center_mm, 0.5 * found[i].diameter_mm, to_px, RANGE_ZONE_COLOR)
         self._draw_measure(img, found)
         self._draw_shot(img, found)
 
@@ -665,26 +663,26 @@ class LiveSession:
         if self.selected is None:
             return
         to_px, a = self._to_px, found[self.selected]
-        draw_circle_mm(img, a.center_mm, 0.5 * a.diameter_mm, to_px, WHITE)
+        draw_circle_mm(img, a.center_mm, 0.5 * a.diameter_mm, to_px, SELECTED_COLOR)
         around = self._walls_on()
         if self.movement:  # 1 in around each enemy: a move into it is a melee
             for i in self._enemy_indexes(found):
-                draw_dashed_circle_mm(img, found[i].center_mm, 0.5 * found[i].diameter_mm + measure.MM_PER_INCH, to_px, YELLOW)
+                draw_dashed_circle_mm(img, found[i].center_mm, 0.5 * found[i].diameter_mm + measure.MM_PER_INCH, to_px, RANGE_ZONE_COLOR)
         if self.ring_in is not None and self.movement:
             field, outline = self._field(found)
-            draw_range_mm(img, outline, to_px, MAGENTA)
+            draw_range_mm(img, outline, to_px, MEASURE_COLOR)
             route = self._route(found)
             if route is not None:
                 draw_move_mm(img, route[1], field.radius, route[2], route[0], to_px)
                 for i in self._move_melee(found):
-                    draw_melee_sign(img, found[i].center_mm, to_px, WHITE)
+                    draw_melee_sign(img, found[i].center_mm, to_px, MOVE_MELEE_COLOR)
         elif self.ring_in is not None and around:
-            draw_range_mm(img, self._range_around(a), to_px, MAGENTA)
+            draw_range_mm(img, self._range_around(a), to_px, MEASURE_COLOR)
         elif self.ring_in is not None:
-            draw_circle_mm(img, a.center_mm, measure.ring_radius_mm(a.diameter_mm, self.ring_in), to_px, MAGENTA)
+            draw_circle_mm(img, a.center_mm, measure.ring_radius_mm(a.diameter_mm, self.ring_in), to_px, MEASURE_COLOR)
         if self.target is not None:
             b = found[self.target]
-            draw_circle_mm(img, b.center_mm, 0.5 * b.diameter_mm, to_px, MAGENTA)
+            draw_circle_mm(img, b.center_mm, 0.5 * b.diameter_mm, to_px, MEASURE_COLOR)
             if around:
                 path = self._path_around(a, b)
                 if path is not None:  # no line when the walls close all paths
@@ -847,11 +845,11 @@ class LiveSession:
         if not self.shooting or self.selected is None or self.selected >= len(found):
             return
         to_px, a = self._to_px, found[self.selected]
-        draw_dashed_circle_mm(img, a.center_mm, 0.5 * a.diameter_mm + measure.MM_PER_INCH, to_px, YELLOW)
+        draw_dashed_circle_mm(img, a.center_mm, 0.5 * a.diameter_mm + measure.MM_PER_INCH, to_px, RANGE_ZONE_COLOR)
         shot, shooter = self._aim(found)
         if shooter is not None:
             b = found[shooter]
-            draw_dashed_circle_mm(img, b.center_mm, 0.5 * b.diameter_mm + measure.MM_PER_INCH, to_px, YELLOW)
+            draw_dashed_circle_mm(img, b.center_mm, 0.5 * b.diameter_mm + measure.MM_PER_INCH, to_px, RANGE_ZONE_COLOR)
         if shot is not None:
             draw_targeting_mm(img, shoot.facing_outline(shot.origin, a.center_mm, a.diameter_mm), shot.pieces, to_px)
 

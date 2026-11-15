@@ -22,7 +22,8 @@ from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QAbstractButton, QCheckBox, QComboBox, QGridLayout, QGroupBox, QHBoxLayout, QLabel, QPushButton, QStackedWidget, QToolButton, QVBoxLayout, QWidget
 
 from ...live import ACTIONS, Action, shown_view
-from ..parts import COLORS, CandidateList, MapPicker, OpeningControl, RingSlider, ScoreCounter, TeamRoster, VideoWidget, WoundsControl, action_control, distance_label, show_action_state
+from ...colors import MESSAGE_NONE_COLOR, MODE_LIVE_COLOR, MODE_MINIMAP_COLOR, MODE_SNAPSHOT_COLOR, SHOT_IN_COVER_COLOR, SHOT_OBSCURED_COLOR
+from ..parts import CandidateList, MapPicker, OpeningControl, RingSlider, ScoreCounter, TeamRoster, VideoWidget, WoundsControl, action_control, distance_label, show_action_state
 
 if TYPE_CHECKING:
     from . import Shell
@@ -32,7 +33,7 @@ TOP_HEIGHT = 175
 ROSTER_WIDTH = 240
 CROP_SIZE = 96
 OPENING_NAMES = {"hatchway": "Hatchway", "breach": "Breach point"}
-MODE_BADGE = {"live": ("Live", COLORS["error"], "dot"), "snapshot": ("Snapshot", COLORS["info"], "pause"), "minimap": ("Minimap", COLORS["ok"], "square")}
+MODE_BADGE = {"live": ("Live", MODE_LIVE_COLOR, "dot"), "snapshot": ("Snapshot", MODE_SNAPSHOT_COLOR, "pause"), "minimap": ("Minimap", MODE_MINIMAP_COLOR, "square")}
 
 
 shown_mode = shown_view  # what the video shows: the minimap covers the live video and the snapshot
@@ -234,7 +235,7 @@ class RostersLayout:
         column = QVBoxLayout(page)
         hint = QLabel("Click an operative or a hatchway on the board, or an operative in a team list.")
         hint.setWordWrap(True)
-        hint.setStyleSheet(f"color: {COLORS['none']}")
+        hint.setStyleSheet(f"color: {MESSAGE_NONE_COLOR}")
         column.addWidget(hint)
         column.addStretch(1)
 
@@ -286,7 +287,7 @@ class RostersLayout:
         flags = QHBoxLayout()
         self.obscured = QLabel("OBSCURED")
         self.in_cover = QLabel("IN COVER")
-        for label, color in ((self.obscured, COLORS["error"]), (self.in_cover, COLORS["info"])):
+        for label, color in ((self.obscured, SHOT_OBSCURED_COLOR), (self.in_cover, SHOT_IN_COVER_COLOR)):
             font = label.font()
             font.setBold(True)
             font.setPointSizeF(font.pointSizeF() * 1.3)
