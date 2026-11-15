@@ -8,7 +8,7 @@ from typing import Any
 import numpy as np
 from PySide6.QtCore import QPoint, QPointF, QRectF, QSize, Qt, Signal
 from PySide6.QtGui import QColor, QFont, QIcon, QImage, QMouseEvent, QPainter, QPainterPath, QPixmap
-from PySide6.QtWidgets import QAbstractButton, QApplication, QCheckBox, QStyledItemDelegate, QStyleOptionViewItem, QComboBox, QFormLayout, QGridLayout, QGroupBox, QHBoxLayout, QLabel, QListWidget, QListWidgetItem, QPushButton, QSlider, QSpinBox, QStyle, QToolButton, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QAbstractButton, QApplication, QCheckBox, QStyledItemDelegate, QStyleOptionViewItem, QComboBox, QFormLayout, QGridLayout, QGroupBox, QHBoxLayout, QLabel, QListWidget, QListWidgetItem, QPushButton, QRadioButton, QSlider, QSpinBox, QStyle, QToolButton, QVBoxLayout, QWidget
 
 from ..live import ACTIONS, TEAM_COLORS, Action
 from ..score import CATEGORIES, CATEGORY_MAX, CATEGORY_NAMES, PRIMARIES, SKULLS_PER_TP, TURNING_POINTS
@@ -25,10 +25,14 @@ def action_group(action: Action) -> str:
 
 
 def action_control(action: Action, dispatch: Callable[[str], Any]) -> QAbstractButton:
-    """A check box or a push button for an action without arguments.
+    """A radio button, a check box or a push button for an action without
+    arguments. Radio buttons of one parent widget are one set.
 
     It never takes the focus, or `space` pushes it instead of the shortcut."""
-    control = QCheckBox(action.label) if action.checked is not None else QPushButton(action.label)
+    if action.radio:
+        control: QAbstractButton = QRadioButton(action.label)
+    else:
+        control = QCheckBox(action.label) if action.checked is not None else QPushButton(action.label)
     control.setFocusPolicy(Qt.FocusPolicy.NoFocus)
     if action.key:
         control.setToolTip(f"Key: {action.key}")

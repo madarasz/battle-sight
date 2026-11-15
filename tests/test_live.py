@@ -14,7 +14,7 @@ import pytest
 import battlesight.app as app
 import battlesight.live as live_mod
 from battlesight import ident as idt
-from battlesight import overlay, walls
+from battlesight import measure, overlay, walls
 from battlesight.calib import TagDetector
 from battlesight.camera import CameraSettings, ImageSource
 from battlesight.live import ACTIONS, PREVIEW_PAD_MM, LiveSession
@@ -982,6 +982,34 @@ def test_click_selects_a_hatchway_in_live_and_snapshot(tmp_path):
     assert session.state()["selected_opening"] is None
 
 
+def test_selected_opening_shows_its_ranges_and_the_bases_near_it(tmp_path):
+    cfg = ident_cfg()
+    frame = paint_board(cfg, GAME)
+    write_map(tmp_path / "maps")
+    session = make_session(tmp_path, cfg, frame)
+    session.dispatch("map.layout", name="Small")
+    settled(session, frame)
+    session.dispatch("snapshot.bases")
+    plain = session.step(frame)
+    assert plain.state["near_opening"] == []
+    found, points = session._found(), session.openings[0].points
+    # move one base to 1.5 in from the opening edge, so that one base is near it
+    edge = points[np.argmin(points[:, 1])]
+    found[0] = replace(found[0], center_mm=np.array([points[:, 0].mean(), edge[1] - 1.5 * measure.MM_PER_INCH - 0.5 * found[0].diameter_mm]))
+    session.dirty = True
+    x, y = opening_px(session)
+    session.dispatch("board.click", x=x, y=y)
+    shown = session.step(frame)
+    near = shown.state["near_opening"]
+    expected = [i for i, c in enumerate(found) if measure.polygon_distance(points, c.center_mm) - 0.5 * c.diameter_mm <= 2 * measure.MM_PER_INCH]
+    assert 0 in near and near == expected
+    assert_json_safe(shown.state)
+    yellow = lambda img: int(np.sum(np.all(img == overlay.YELLOW, axis=2)))
+    assert yellow(shown.image) > yellow(plain.image)
+    session.dispatch("base.deselect")
+    assert session.step(frame).state["near_opening"] == []
+
+
 def test_names_on_the_live_image_have_no_scores(tmp_path):
     from battlesight.overlay import draw_idents
 
@@ -1083,12 +1111,54 @@ def test_minimap_shows_named_bases_and_takes_clicks(tmp_path, named):
     assert session.state()["selected"] == nob
     session.dispatch("wounds.minus")
     assert not np.array_equal(session.step(frame).image, mini.image)
-    session.dispatch("snapshot.back")  # live video under the minimap: still the minimap
-    live = session.step(frame)
-    assert live.state["mode"] == "live" and live.state["minimap"] is True
-    session.dispatch("view.minimap")
+    session.dispatch("view.live")  # the live video in place of the minimap
     off = session.step(frame)
-    assert off.state["minimap"] is False and off.state["bases"][nob]["position_px"] is not None
+    assert off.state["mode"] == "live" and off.state["minimap"] is False and off.state["bases"][nob]["position_px"] is not None
+    assert ACTIONS_BY_ID["view.live"].checked(off.state) and not ACTIONS_BY_ID["view.minimap"].checked(off.state)
+    session.dispatch("view.minimap")
+    session.dispatch("snapshot.back")  # Esc: from the minimap to the live video
+    assert session.step(frame).state["minimap"] is False
+
+
+def test_view_radio_buttons_show_live_snapshot_or_minimap(tmp_path, named):
+    write_map(tmp_path / "maps")
+    session, frame, state = named_session(tmp_path, named)
+    radios = [ACTIONS_BY_ID[f"view.{m}"] for m in ("live", "snapshot", "minimap")]
+    assert all(a.radio and a.control for a in radios) and not ACTIONS_BY_ID["snapshot.back"].control
+
+    def shown():
+        s = session.step(frame).state
+        assert sum(a.checked(s) for a in radios) == 1
+        return live_mod.shown_view(s)
+
+    assert shown() == "snapshot"
+    session.dispatch("view.live")
+    assert shown() == "live"
+    session.dispatch("view.snapshot")  # the last snapshot again, with its names
+    assert shown() == "snapshot" and base_of(session.state(), "Nob") is not None
+    session.dispatch("map.layout", name="Small")
+    session.dispatch("view.minimap")
+    assert shown() == "minimap"
+    session.dispatch("view.snapshot")
+    assert shown() == "snapshot"
+
+
+def test_snapshot_radio_with_no_snapshot_pauses_the_video(tmp_path):
+    cfg = ident_cfg()
+    frame = paint_board(cfg, GAME)
+    session = make_session(tmp_path, cfg, frame)
+    assert not ACTIONS_BY_ID["view.snapshot"].enabled(session.state())  # no camera frame yet
+    session.dispatch("view.snapshot")
+    assert session.state()["mode"] == "live"
+    live = settled(session, frame)
+    assert ACTIONS_BY_ID["view.snapshot"].enabled(live.state)
+    session.dispatch("view.snapshot")
+    paused = session.step(frame)
+    assert paused.state["mode"] == "snapshot" and paused.state["bases"] == [] and paused.state["snapshot_ok"] is True
+    assert np.array_equal(session.step(np.full_like(frame, 255)).image, paused.image)  # the video stops on that frame
+    session.dispatch("view.live")
+    session.dispatch("view.snapshot")  # the same paused frame again
+    assert np.array_equal(session.step(np.full_like(frame, 255)).image, paused.image)
 
 
 def test_minimap_off_gives_the_snapshot_its_own_scale_again(tmp_path, named):
@@ -1100,7 +1170,7 @@ def test_minimap_off_gives_the_snapshot_its_own_scale_again(tmp_path, named):
     with_layout = session.step(frame)
     session.dispatch("view.minimap")
     session.step(frame)
-    session.dispatch("view.minimap")
+    session.dispatch("view.snapshot")
     after = session.step(frame)
     assert after.scale == before.scale and np.array_equal(after.image, with_layout.image)
     assert after.state["bases"] == with_layout.state["bases"]
@@ -1432,8 +1502,8 @@ at_mm = [450, 256]
 """
 
 
-def close_session(tmp_path, other: str | None = "Grot"):
-    """Named snapshot of CLOSE; `other` goes to a second team."""
+def close_session(tmp_path, other: str | None = "Grot", marks: bool = True):
+    """Named snapshot of CLOSE; `other` goes to a second team. `marks`: control marks on."""
     cfg = ident_cfg()
     gallery = make_gallery(tmp_path, cfg)
     enroll_from(gallery, cfg, paint_board(cfg, TRAIN), {n: c for n, (c, _) in TRAIN.items()})
@@ -1447,6 +1517,8 @@ def close_session(tmp_path, other: str | None = "Grot"):
     for name, i in index.items():
         team = "elves" if name == other else "orks"
         session.session.idents[i] = replace(session.session.idents[i], label=f"{team}/{name}")
+    if marks:
+        session.dispatch("view.marks")
     session.dirty = True
     return session, frame, index
 
@@ -1465,9 +1537,12 @@ def test_control_marks_need_named_operatives(tmp_path):
     assert s["bases"] and not ACTIONS_BY_ID["view.marks"].enabled(s) and s["control"] is None
 
 
-def test_control_marks_are_on_at_the_start_and_show_melee(tmp_path):
-    session, frame, index = close_session(tmp_path)
+def test_control_marks_are_off_at_the_start_and_show_melee(tmp_path):
+    session, frame, index = close_session(tmp_path, marks=False)
     assert ACTIONS_BY_ID["view.marks"].enabled(session.state())
+    start = session.step(frame)
+    assert start.state["marks"] is False and start.state["control"] is None and yellow_pixels(start.image) == 0
+    session.dispatch("view.marks")
     live = session.step(frame)
     assert live.state["marks"] is True and ACTIONS_BY_ID["view.marks"].checked(live.state)
     assert live.state["control"] == {"melee": [sorted([index["Nob"], index["Grot"]])], "objectives": []}

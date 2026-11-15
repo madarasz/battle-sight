@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from typing import Sequence
 
+import cv2
 import numpy as np
 
 MM_PER_INCH = 25.4
@@ -31,6 +32,32 @@ def path_distance(points_mm, at_mm) -> float:
         t = np.clip(np.dot(at - a, ab) / max(float(np.dot(ab, ab)), 1e-12), 0.0, 1.0)
         best = min(best, float(np.linalg.norm(a + t * ab - at)))
     return best
+
+
+def polygon_distance(points_mm, at_mm) -> float:
+    """Distance from a point to a closed polygon: 0 inside it, else to its edge."""
+    pts, at = np.asarray(points_mm, float).reshape(-1, 2), np.asarray(at_mm, float)
+    inside = False
+    for (x0, y0), (x1, y1) in zip(pts, np.roll(pts, -1, axis=0)):  # even-odd ray test to +x
+        if (y0 > at[1]) != (y1 > at[1]) and at[0] < x0 + (at[1] - y0) * (x1 - x0) / (y1 - y0):
+            inside = not inside
+    return 0.0 if inside else path_distance(np.vstack([pts, pts[:1]]), at)
+
+
+def offset_outline(points_mm, reach_mm: float, step_mm: float = 2.0) -> np.ndarray:
+    """Outline (N, 2) of all points within `reach_mm` of a convex polygon:
+    the convex hull of a circle around each corner (straight sides, round corners)."""
+    pts = np.asarray(points_mm, float).reshape(-1, 2)
+    n = max(16, int(np.ceil(2 * np.pi * reach_mm / step_mm)))
+    a = np.linspace(0, 2 * np.pi, n, endpoint=False)
+    ring = reach_mm * np.c_[np.cos(a), np.sin(a)]
+    cloud = (pts[:, None, :] + ring[None, :, :]).reshape(-1, 2)
+    return cv2.convexHull(cloud.astype(np.float32)).reshape(-1, 2).astype(float)
+
+
+def near_polygon(centers_mm: Sequence, diameters_mm: Sequence[float], points_mm, reach_mm: float) -> list[int]:
+    """Indexes of the bases whose rim is at most `reach_mm` from a polygon."""
+    return [i for i, (c, d) in enumerate(zip(centers_mm, diameters_mm)) if polygon_distance(points_mm, c) - 0.5 * d <= reach_mm]
 
 
 def ring_radius_mm(diameter_mm: float, inches: float) -> float:

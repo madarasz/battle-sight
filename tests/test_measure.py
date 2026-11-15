@@ -5,7 +5,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from battlesight.measure import MM_PER_INCH, base_at, rim_gap, ring_radius_mm
+from battlesight.measure import MM_PER_INCH, base_at, near_polygon, offset_outline, polygon_distance, rim_gap, ring_radius_mm
 
 
 def test_ring_radius_is_base_radius_plus_inches():
@@ -88,3 +88,25 @@ def test_objective_contacts_measure_to_the_marker_edge():
     centers = [(0.0, 0.0), (100.0, 0.0), (200.0, 0.0)]
     objectives = [(0.0, 16.0 + 20.0 + MM_PER_INCH), (100.0, 0.0), (200.0, 16.0 + 20.0 + MM_PER_INCH + 0.5)]
     assert objective_contacts(centers, [32.0] * 3, objectives, 40.0) == [(0, 0), (1, 1)]
+
+
+SQUARE = np.array([[0.0, 0.0], [10.0, 0.0], [10.0, 10.0], [0.0, 10.0]])
+
+
+def test_polygon_distance_is_zero_inside_and_to_the_edge_outside():
+    assert polygon_distance(SQUARE, (5.0, 5.0)) == 0.0
+    assert polygon_distance(SQUARE, (5.0, -3.0)) == pytest.approx(3.0)
+    assert polygon_distance(SQUARE, (13.0, 14.0)) == pytest.approx(5.0)  # to the corner
+
+
+def test_offset_outline_has_straight_sides_and_round_corners():
+    outline = offset_outline(SQUARE, MM_PER_INCH)
+    d = [polygon_distance(SQUARE, p) for p in outline]
+    assert min(d) == pytest.approx(MM_PER_INCH, abs=0.1) and max(d) == pytest.approx(MM_PER_INCH, abs=0.1)
+    assert outline[:, 0].min() == pytest.approx(-MM_PER_INCH, abs=0.1) and outline[:, 1].max() == pytest.approx(10.0 + MM_PER_INCH, abs=0.1)
+
+
+def test_near_polygon_takes_the_rim_distance():
+    centers = [(5.0, -20.0), (5.0, -30.0), (40.0, 5.0)]
+    assert near_polygon(centers, [20.0, 20.0, 20.0], SQUARE, 10.0) == [0]  # rims 10, 20, 20 mm off
+    assert near_polygon(centers, [20.0, 20.0, 40.0], SQUARE, 10.0) == [0, 2]

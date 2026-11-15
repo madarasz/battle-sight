@@ -121,7 +121,11 @@ off by its shift.
 `space` runs all stages (`corners`, `rectify`, `bases`, `ident`) on one
 frame. `b` runs only up to `bases`: no names, and the gallery and the model
 do not load. The snapshot stays on the screen until `Esc` ("Go back to
-Live"). Then the live video shows again, and the bases, names and selection
+Live", key and menu only) or the "Live" radio button (`view.live`). The
+"Snapshot" radio button (`view.snapshot`, enabled with a snapshot or a camera
+frame) shows the last snapshot again; with no snapshot it stops the video on
+the current frame (`LiveSession._still_snapshot`: corners and rectify only, no
+bases, no names; "Locate operative" from the live video uses the same). Then the live video shows again, and the bases, names and selection
 of the snapshot stay on it, in board mm, until the next `space` or `b`
 (`LiveSession.frozen` is the mode, `result` the last snapshot). Clicks, rings
 and distances work on the live video too, while it has a board fit. Without
@@ -233,7 +237,7 @@ change.
   whose centre is nearer to the route (`measure.path_distance`) than both
   radii + 1 in, less 0.5 mm; each gets `overlay.draw_melee_sign` in white at
   its centre. `state["move_melee"]` = their base indexes.
-- `measure.avoid_melee` ("Avoid melee" check box next to "Measure movement",
+- `measure.avoid_melee` ("Avoid control range" check box next to "Measure movement",
   no key, off at the start, enabled only with `measure.move`): `move_field`
   gets `avoid_mm` = 1 in, which grows each enemy disc in `stand` and `free`.
   An enemy that is already within 1 in at the start keeps its plain disc, or
@@ -243,7 +247,7 @@ change.
   field, about 2 ms for a route. The shell sends one pointer position at a
   time and keeps only the newest (`MainWindow._on_hover`).
 
-Control marks: `view.marks` ("Control marks", on at the start, no key,
+Control marks: `view.marks` ("Control marks", off at the start, no key,
 enabled only when a base has a name). After names (`LiveSession.session`), `LiveSession._control`
 gives `state["control"]` = `{"melee": [[i, j]], "objectives": [[i, k]]}`
 (null with the marks off or no names). `melee`: `measure.melee_pairs`,
@@ -267,6 +271,11 @@ Openings: a left or right click with no base under it selects the hatchway or
 breach point of the map layout within 8 mm (`OPENING_HIT_MM`), live and
 snapshot. One thing is selected at a time: a base or an opening. State
 `selected_opening` = `{index, kind, open}`. `base.deselect` clears both.
+A selected opening gets a yellow line 1 in around it and a yellow dashed line
+2 in around it (`measure.offset_outline`, `overlay.draw_dashed_outline_mm`).
+Each base with its rim within 2 in (`live.OPENING_NEAR_IN`,
+`measure.near_polygon`) gets a yellow circle on its rim; `state["near_opening"]`
+= their base indexes.
 
 Missed bases: `base.add` ("Locate operative", no key; `Esc` stops it, the action
 is off while `adding` or `busy`) sets `adding`. It needs a name session
@@ -457,7 +466,7 @@ selected. `Esc` clears the selected base.
 | `s` | "Save screenshot": save the current camera frame to `data/snapshots/snap_<date>_<time>.png`. |
 | `l` | Next layout. The choice goes to `data/ui.toml`. |
 | `h` | Show the key list. |
-| `Esc` | "Go back to Live": show the live video again; the bases, names and selection stay. In the live video: clear the selection. |
+| `Esc` | "Go back to Live": show the live video again, from the snapshot or the minimap; the bases, names and selection stay. In the live video: clear the selection. |
 | `q` | Quit. |
 
 The README section "What you see" tells what the overlay shows. The game
@@ -480,9 +489,8 @@ of the status bar; off at each layout change). It must not import `pipeline`,
 `ident`, `calib` or `camera`.
 
 `rosters` (Option 3 of `specs/ui.md`): a top bar with the sections View
-(`MapPicker`, view toggles and `measure.walls`), Commands (`snapshot.name`, `names.accept` shown
-only with `unconfirmed > 0`, "Locate operative" = `base.add` (the inspector shows the instruction while `adding`), `snapshot.back` shown
-only in a snapshot), Inspector (operative: title `Team - Name (40mm)`, crop,
+(`MapPicker`, view toggles and `measure.walls`, bottom row: radio buttons `view.live`, `view.snapshot`, `view.minimap`; `Action.radio` gives a `QRadioButton`, one set per parent widget), Commands (`snapshot.name`, `names.accept` shown
+only with `unconfirmed > 0`, "Locate operative" = `base.add` (the inspector shows the instruction while `adding`)), Inspector (operative: title `Team - Name (40mm)`, crop,
 `WoundsControl`, `RingSlider`, `measure.move`, distance, "Change ID" that shows a
 `CandidateList` (open at once for `new_base`; while open it hides the wounds,
 ring, movement and distance, and the button reads "Cancel": it closes the list), "Remove ID" = `base.remove`; opening: "Hatchway" / "Breach point" and `OpeningControl`
@@ -499,7 +507,7 @@ updates only the image and the status line, not the controls: the old state
 must not put the box back for a moment.
 `VideoWidget.set_badge(text, color, sign)` paints the mode at the top right of
 the image: "Live" with a red `dot`, "Snapshot" with a blue `pause` sign,
-"Minimap" with a green `square` (`rosters.shown_mode`: `state["minimap"]`
+"Minimap" with a green `square` (`live.shown_view`: `state["minimap"]`
 goes before `state["mode"]`). Scores in all lists are percentages (`parts.percent`).
 
 `data/ui.toml` is local to the machine, and git ignores it. There is no
@@ -1061,8 +1069,8 @@ the start) shows or hides walls, pillars, openings, discs and light terrain; `vi
 ("Drop zones", off at the start) shows or hides the zones; `view.keys`
 ("Terrain keys", off at the start) shows or hides the wall keys (above a
 horizontal wall, right of a vertical wall), `T` on each pad and `C1`.. on
-each light terrain piece. `view.minimap` ("Minimap", off at the start, no
-key) shows a drawn board in place of the camera image
+each light terrain piece. `view.minimap` ("Minimap" radio button, off at the start, no
+key; "Live" or "Snapshot" ends it) shows a drawn board in place of the camera image
 (`LiveSession._render_minimap`): the layout (also with "Layout" off), the
 grid when "Grid" is on, a full disc for each base of the last snapshot (team
 colour, grey without a name), names in the middle of the disc, larger

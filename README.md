@@ -22,7 +22,7 @@ range rings and the distances between operatives.
 13. ⏳ Support multiple identical models: copies in the team list, told apart by position
 14. 🚧 Operative states: injured, dead, borrowed, poisioned, etc.
 optional 🚧 Tokens: find tokens, list operatives in range
-optional 🚧 Turn counter (where to put it?)
+optional 🚧 Turn counter, CritOp (where to put it?)
 
 ✅ done · ⏳ next · 🚧 not started
 
@@ -73,10 +73,13 @@ layout. The app keeps your choice.
 | `inspector` | The panel at the right changes with your work. |
 | `panel` | The panel at the right is always the same and has all the controls. |
 
-The top-right corner of the video shows the mode:
+The "Live", "Snapshot" and "Minimap" buttons at the bottom of the View
+section select what the video shows. "Snapshot" shows the last result.
+Before the first result it stops the video on the current picture. The
+top-right corner of the video shows the mode:
 
 - Red circle, "Live": the live video.
-- Blue pause sign, "Snapshot": a result. Click "Go back to Live" to leave it.
+- Blue pause sign, "Snapshot": a result.
 - Green square, "Minimap": the minimap.
 
 ### Team lists
@@ -145,7 +148,7 @@ Code) and ask it to record the map.
    pointer. The app finds the base and shows a list of names. Choose the
    correct name. Click "Cancel" to stop. You can also do this before
    "Identify operatives", to add each operative yourself.
-7. Click "Go back to Live". The circles and names stay until the next
+7. Click "Live". The circles and names stay until the next
    "Identify operatives".
 
 To find the bases without names, use the menu item "Find bases only".
@@ -174,7 +177,7 @@ selected operative can move to with the distance that you set. Move the
 mouse pointer in the area to see the best move to that point, with the
 inches of each part. A yellow dashed circle shows 1 in around each enemy
 operative. A white crossed swords sign on an enemy shows that the move goes
-into its circle. Set the **Avoid melee** check box to keep the area and the
+into its circle. Set the **Avoid control range** check box to keep the area and the
 move out of these circles.
 
 ### 4. Track the game
@@ -189,15 +192,17 @@ move out of these circles.
   (CP). The Primary points show at the end of the Primary line. The total
   shows at the bottom, in the team colour. The counters start again at each app start.
 - **Hatchways and breach points.** All start closed. Click one, then click
-  "Open" or "Close" in the inspector. The measurements follow.
-- **Control marks** (View check box, on at the start). Yellow crossed swords
+  "Open" or "Close" in the inspector. The measurements follow. A yellow line
+  shows 1 in around it, a yellow dashed line 2 in. Operatives within 2 in get
+  a yellow circle on their base.
+- **Control marks** (View check box, off at the start). Yellow crossed swords
   show two operatives of different teams in melee. Yellow arrow heads show
   an operative in control range of an objective. Operatives without a name
   get no marks.
 
 ### 5. Other views
 
-- **Minimap.** Shows a drawing of the board in place of the camera image,
+- **Minimap** (View button). Shows a drawing of the board in place of the camera image,
   with a disc for each operative. Clicks and measurements work as on the
   camera image. It needs a layout.
 - **Adjust perspective** check box. On: the board from straight above. Off:

@@ -15,7 +15,7 @@ import numpy as np  # noqa: E402
 import pytest  # noqa: E402
 from PySide6.QtCore import QEvent, QPointF, Qt, QTimer  # noqa: E402
 from PySide6.QtGui import QMouseEvent  # noqa: E402
-from PySide6.QtWidgets import QAbstractButton, QAbstractItemView, QApplication  # noqa: E402
+from PySide6.QtWidgets import QAbstractButton, QAbstractItemView, QApplication, QRadioButton  # noqa: E402
 
 import battlesight.app as app  # noqa: E402
 from battlesight.live import ACTIONS, LiveSession  # noqa: E402
@@ -524,8 +524,25 @@ def test_each_layout_has_the_around_walls_check_box(idle_window, recorded):
     assert boxes[0].isEnabled() and boxes[0].isChecked()
 
 
-def test_avoid_melee_check_box_needs_measure_movement(idle_window, recorded):
-    boxes = [b for b in idle_window.centralWidget().findChildren(QAbstractButton) if b.text() == "Avoid melee"]
+def test_view_radio_buttons_in_the_bottom_row_of_view(idle_window, recorded):
+    layout = idle_window.current_layout
+    found = idle_window.centralWidget().findChildren(QRadioButton)
+    assert [c.text() for c in found] == ["Live", "Snapshot", "Minimap"]
+    radios = dict(zip(("view.live", "view.snapshot", "view.minimap"), found))
+    assert not any(b.text() in ("Go back to Live",) for b in idle_window.centralWidget().findChildren(QAbstractButton))
+    live = dict(recorded[2]["live"].state)
+    layout.on_state(live)
+    assert radios["view.live"].isChecked() and radios["view.snapshot"].isEnabled() and not radios["view.minimap"].isChecked()
+    layout.on_state({**live, "resolution": None, "snapshot_ok": None})  # no camera frame, no snapshot
+    assert not radios["view.snapshot"].isEnabled()
+    layout.on_state(dict(recorded[2]["snapshot"].state, map_layout="Small", minimap=True))
+    assert radios["view.minimap"].isChecked() and not radios["view.live"].isChecked() and radios["view.snapshot"].isEnabled()
+    layout.on_state(dict(recorded[2]["snapshot"].state))
+    assert radios["view.snapshot"].isChecked() and not radios["view.minimap"].isChecked()
+
+
+def test_avoid_control_range_check_box_needs_measure_movement(idle_window, recorded):
+    boxes = [b for b in idle_window.centralWidget().findChildren(QAbstractButton) if b.text() == "Avoid control range"]
     assert len(boxes) == 1 and boxes[0].isCheckable()
     state = dict(recorded[2]["base selected"].state)
     idle_window.current_layout.on_state({**state, "movement": False, "avoid_melee": False})
@@ -617,7 +634,8 @@ def test_panel_button_runs_the_action(window):
     assert "snapshot.bases" not in window.current_layout.controls  # key and menu only
     window.shortcuts["snapshot.bases"].activated.emit()
     wait_until(lambda: window.state["mode"] == "snapshot" and not window.state["busy"])
-    window.current_layout.controls["snapshot.back"][1].click()
+    assert "snapshot.back" not in window.current_layout.controls  # Esc: key and menu only
+    window.current_layout.controls["view.live"][1].click()
     wait_until(lambda: window.state["mode"] == "live")
 
 
@@ -835,8 +853,10 @@ def test_inspector_buttons_run_actions(inspector):
     layout = inspector.current_layout
     wait_until(lambda: layout.stack.currentWidget() is layout.pages["snapshot"] and layout.operatives.count() == 3)
     assert layout.summary.text() == "3 bases"
-    control_of(inspector, "snapshot.back").click()
+    control_of(inspector, "view.live").click()
     wait_until(lambda: inspector.state["mode"] == "live")
+    control_of(inspector, "view.snapshot").click()
+    wait_until(lambda: inspector.state["mode"] == "snapshot")
 
 
 def test_inspector_shows_ring_buttons_and_the_distance(idle_inspector, recorded):
@@ -1048,7 +1068,7 @@ def test_rosters_shows_mode_badge_team_list_and_commands(idle_rosters, recorded)
     layout = idle_rosters.current_layout
     frames = recorded[2]
     idle_rosters._on_frame(frames["live"], 0)
-    assert idle_rosters.video.badge[0] == "Live" and not layout.back.isVisibleTo(idle_rosters)
+    assert idle_rosters.video.badge[0] == "Live"
     assert not layout.accept.isVisibleTo(idle_rosters) and layout.add_operative.isEnabled()  # also before space
     left, right = layout.rosters
     assert left.team.currentText() == "orks" and right.team.currentText() == "-"
@@ -1060,7 +1080,7 @@ def test_rosters_shows_mode_badge_team_list_and_commands(idle_rosters, recorded)
     assert layout.stack.currentWidget() is layout.pages["empty"]
 
     idle_rosters._on_frame(frames["snapshot"], 0)
-    assert idle_rosters.video.badge[0] == "Snapshot" and layout.back.isVisibleTo(idle_rosters)
+    assert idle_rosters.video.badge[0] == "Snapshot"
     assert layout.accept.isVisibleTo(idle_rosters) and layout.accept.text() == "Accept all identification"
     assert all(left.operatives.mark(i).endswith("%") for i in range(3))
     snap = frames["snapshot"].state

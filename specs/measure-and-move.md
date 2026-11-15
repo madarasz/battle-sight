@@ -35,7 +35,7 @@ All results are 2D in the board plane, in board mm, from the base rim. No height
 - M6. The operative can move through operatives of its own team, but it cannot stop on one.
 - M7. Light terrain does not change a measurement or a move (drawn only).
 - M8. Melee zone: 1 in around each enemy base, rim to rim. With movement on, the zone shows as a yellow dashed circle. A move whose base comes into a zone at any point gets a white crossed swords sign on that enemy.
-- M9. "Avoid melee" (check box, off at the start, enabled only with movement on): the base keeps out of all melee zones, for the area and for each move. An enemy that is already within 1 in at the start blocks only with its base.
+- M9. "Avoid control range" (check box, off at the start, enabled only with movement on): the base keeps out of all melee zones, for the area and for each move. An enemy that is already within 1 in at the start blocks only with its base.
 
 Not in scope: teleporter pads, vantage and height, climb and jump, dash and charge limits, movement through closed openings, tokens.
 
@@ -45,7 +45,7 @@ Not in scope: teleporter pads, vantage and height, climb and jump, dash and char
 |---|---|---|---|---|
 | "Measure around walls" check box (View section) | `measure.walls` | `w` | with a layout | on at each layout load |
 | "Measure movement" check box (below the ring control) | `measure.move` | `m` | always | off |
-| "Avoid melee" check box (next to it) | `measure.avoid_melee` | none | with movement on | off |
+| "Avoid control range" check box (next to it) | `measure.avoid_melee` | none | with movement on | off |
 | Mouse pointer on the board | `board.hover` (`x`, `y` image pixels, or null) | none | sent only with movement on, a ring and a selected base | none |
 
 What the ring control (keys `1` to `9`, slider) shows for the selected base:

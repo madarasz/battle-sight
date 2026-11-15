@@ -35,7 +35,7 @@ from . import walls
 from .calib import DriftMonitor, DriftReport, DriftStatus, TagDetector, board_corners_px, lens_for_frame
 from .camera import CameraSettings
 from .config import BoardConfig
-from .overlay import BLUE, GREEN, GREY, MAGENTA, RED, WHITE, YELLOW, draw_base_discs, draw_bases, draw_board_corners, draw_circle_mm, draw_dashed_circle_mm, draw_grid, draw_health_bars, draw_idents, draw_melee_sign, draw_objective_arrows, draw_move_mm, draw_outline_mm, draw_path_mm, draw_range_mm, draw_rim_line, draw_tags, draw_terrain, fit_to_width
+from .overlay import BLUE, GREEN, GREY, MAGENTA, RED, WHITE, YELLOW, draw_base_discs, draw_bases, draw_board_corners, draw_circle_mm, draw_dashed_circle_mm, draw_dashed_outline_mm, draw_grid, draw_health_bars, draw_idents, draw_melee_sign, draw_objective_arrows, draw_move_mm, draw_outline_mm, draw_path_mm, draw_range_mm, draw_rim_line, draw_tags, draw_terrain, fit_to_width
 from .pipeline import Pipeline, base_crops, bases_config, bases_image, find_base_near
 from .rectify import fit_view, mm_to_rect, rect_transform, warp_board
 
@@ -47,6 +47,7 @@ AIM_DIAMETER_MM = 40.0  # "Locate operative": board under the pointer as if a ba
 OPENING_KINDS = ("hatchway", "breach")
 OPENING_HIT_MM = 8.0  # a click this near to a hatchway or a breach point selects it
 TEAM_SLOTS = 2  # one team list each side of the board
+OPENING_NEAR_IN = 2  # bases this near a selected hatchway or breach point get a yellow rim
 MINIMAP_BACK = (24, 24, 24)  # minimap: around the board
 MINIMAP_BOARD = (48, 48, 48)  # minimap: the board
 TEAM_COLORS = (RED, BLUE)  # circles of the team on the left and on the right side
@@ -225,6 +226,12 @@ def _in_snapshot(state: dict) -> bool:
     return state["mode"] == "snapshot"
 
 
+def shown_view(state: dict) -> str:
+    """What the video shows: "live", "snapshot" or "minimap". The minimap
+    covers the live video and the snapshot."""
+    return "minimap" if state["minimap"] else state["mode"]
+
+
 def _can_add(state: dict) -> bool:
     """A missed base can be added at any time: without a snapshot, the
     action takes one with no bases."""
@@ -254,18 +261,21 @@ class Action:
     args: tuple[str, ...] = ()
     shell: bool = False
     control: bool = True  # False: key and menu only, no button in a panel
+    radio: bool = False  # one of a set of radio buttons: `checked` is true for one of the set
 
 
 ACTIONS: tuple[Action, ...] = (
     Action("snapshot.name", "Identify operatives", "space", enabled=lambda s: not s["busy"]),
     Action("snapshot.bases", "Find bases only", "b", enabled=lambda s: not s["busy"], control=False),
-    Action("snapshot.back", "Go back to Live", "Esc", enabled=_in_snapshot),
+    Action("snapshot.back", "Go back to Live", "Esc", control=False),
     Action("view.top_down", "Adjust perspective", "v", checked=lambda s: s["top_down"]),
     Action("view.grid", "Grid", "g", checked=lambda s: s["grid"]),
     Action("view.terrain", "Layout", checked=lambda s: s["terrain"], enabled=lambda s: s["map_layout"] is not None),
     Action("view.zones", "Drop zones", checked=lambda s: s["zones"], enabled=lambda s: s["map_layout"] is not None),
     Action("view.keys", "Terrain keys", checked=lambda s: s["keys"], enabled=lambda s: s["map_layout"] is not None),
-    Action("view.minimap", "Minimap", checked=lambda s: s["minimap"], enabled=lambda s: s["map_layout"] is not None),
+    Action("view.live", "Live", checked=lambda s: shown_view(s) == "live", radio=True),
+    Action("view.snapshot", "Snapshot", checked=lambda s: shown_view(s) == "snapshot", enabled=lambda s: s["snapshot_ok"] is not None or s["resolution"] is not None, radio=True),
+    Action("view.minimap", "Minimap", checked=lambda s: shown_view(s) == "minimap", enabled=lambda s: s["map_layout"] is not None, radio=True),
     Action("view.marks", "Control marks", checked=lambda s: s["marks"], enabled=lambda s: any(b["label"] is not None for b in s["bases"])),
     Action("measure.walls", "Measure around walls", "w", checked=lambda s: s["around_walls"], enabled=lambda s: s["map_layout"] is not None),
     Action("map.terrain_type", "Terrain type", args=("name",)),
@@ -274,7 +284,7 @@ ACTIONS: tuple[Action, ...] = (
     Action("reference.take", "Take empty-board reference", "e"),
     Action("reference.clear", "Clear reference", "c", enabled=lambda s: s["reference_set"]),
     Action("measure.move", "Measure movement", "m", checked=lambda s: s["movement"]),
-    Action("measure.avoid_melee", "Avoid melee", checked=lambda s: s["avoid_melee"], enabled=lambda s: s["movement"]),
+    Action("measure.avoid_melee", "Avoid control range", checked=lambda s: s["avoid_melee"], enabled=lambda s: s["movement"]),
     Action("board.click", "Click the board", args=("x", "y"), enabled=_in_snapshot),
     Action("board.hover", "Point at the board", args=("x", "y")),
     Action("board.select", "Right click the board", args=("x", "y"), enabled=_in_snapshot),
@@ -378,7 +388,7 @@ class LiveSession:
         self.terrain = True  # terrain overlay on, when a map layout is chosen
         self.zones = False  # drop zones of the layout off
         self.keys = False  # wall keys (A1, B2, ...) off
-        self.marks = True  # melee signs and objective arrows of named operatives
+        self.marks = False  # melee signs and objective arrows of named operatives
         self.minimap = False  # a drawn board (layout, grid, bases) in place of the camera; needs a layout
         self.around_walls = False  # measure around walls, not through them; on at each layout load
         self.movement = False  # the ring is the area that the selected base can move to
@@ -439,7 +449,9 @@ class LiveSession:
             "view.terrain": self._toggle_terrain,
             "view.zones": self._toggle_zones,
             "view.keys": self._toggle_keys,
-            "view.minimap": self._toggle_minimap,
+            "view.live": self._show_live,
+            "view.snapshot": self._show_snapshot,
+            "view.minimap": self._show_minimap,
             "view.marks": self._toggle_marks,
             "measure.walls": self._toggle_around_walls,
             "measure.move": self._toggle_movement,
@@ -602,7 +614,10 @@ class LiveSession:
         if self.grid:
             draw_grid(img, self.cfg, to_px)
         if self.selected_opening is not None:
-            draw_outline_mm(img, self.openings[self.selected_opening].points, to_px, WHITE)
+            points = self.openings[self.selected_opening].points
+            draw_outline_mm(img, points, to_px, WHITE)
+            draw_outline_mm(img, measure.offset_outline(points, measure.MM_PER_INCH), to_px, YELLOW)
+            draw_dashed_outline_mm(img, measure.offset_outline(points, OPENING_NEAR_IN * measure.MM_PER_INCH), to_px, YELLOW)
         found = self._found()
         colors = {team: color for team, color in zip(self.team_slots, TEAM_COLORS) if team is not None}
         if minimap and found:
@@ -627,7 +642,17 @@ class LiveSession:
                     draw_melee_sign(img, 0.5 * (start + end), to_px)
         elif found:
             draw_bases(img, found, to_px)
+        for i in self._near_opening(found):  # bases near the selected hatchway or breach point
+            draw_circle_mm(img, found[i].center_mm, 0.5 * found[i].diameter_mm, to_px, YELLOW)
         self._draw_measure(img, found)
+
+    def _near_opening(self, found: list) -> list[int]:
+        """Indexes of the bases with the rim within `OPENING_NEAR_IN` of the
+        selected hatchway or breach point."""
+        if self.selected_opening is None or not found:
+            return []
+        points = self.openings[self.selected_opening].points
+        return measure.near_polygon([c.center_mm for c in found], [c.diameter_mm for c in found], points, OPENING_NEAR_IN * measure.MM_PER_INCH)
 
     def _draw_measure(self, img: np.ndarray, found: list) -> None:
         """The selected base, its ring, the second base and the distance."""
@@ -885,6 +910,7 @@ class LiveSession:
             "new_base": self.new_base,
             "right_click": self.right_click,
             "selected_opening": None if self.selected_opening is None else {"index": self.selected_opening, "kind": self.openings[self.selected_opening].kind, "open": self.selected_opening in self.opened},
+            "near_opening": self._near_opening(self._found()),
             "openings": [{"index": i, "kind": sh.kind, "open": i in self.opened} for i, sh in enumerate(self.openings)],
             "selected_wounds": self._selected_wounds_state(),
             "target": self.target,
@@ -1378,17 +1404,50 @@ class LiveSession:
             self.selected_operative = label
 
     def _back(self) -> None:
-        """Go back to the live video. The bases, names and selection of the
-        snapshot stay, in board mm, until the next snapshot. In the live
+        """Go back to the live video, from the snapshot or the minimap. The
+        bases, names and selection of the snapshot stay, in board mm, until
+        the next snapshot. In the live
         video the key clears the selection. While a base is added, it only
         stops that."""
         if self.adding:
             self.adding = False
-        elif self.frozen:
-            self.frozen = False
-            self.dirty = True
+        elif self.frozen or self._minimap_on():
+            self._show_live()
         else:
             self._deselect()
+
+    def _show_live(self) -> None:
+        """The live video. The bases, names and selection of the snapshot stay."""
+        self.frozen = self.minimap = False
+        self.dirty = True
+
+    def _show_snapshot(self) -> None:
+        """The last snapshot again. With no snapshot yet, the video stops on
+        the current frame: a snapshot with no bases."""
+        if self.result is None:
+            if not self._need_frame():
+                return
+            self._still_snapshot()
+        self.minimap = False
+        self.frozen = True
+        self.dirty = True
+
+    def _still_snapshot(self) -> bool:
+        """A snapshot of the current frame with no bases and no names: only
+        the board fit (corners, rectify). False when the board fit failed;
+        the frame stays on the screen."""
+        self._close_snapshot()
+        self.win.top_down = True
+        self.snap = self.frame.copy()
+        self.frozen = True
+        self.result = result = self.pipe.analyze(self.snap, source="camera", until="rectify")
+        self.dirty = True
+        if not result.ok:
+            self.notice.error(failed_stage(result))
+            return False
+        img = bases_image(self.snap, result.scratch["view"], self.cfg)
+        result.scratch.update(bases=[], bases_image=img, idents=[], base_crops=[], base_backgrounds=[])
+        return True
 
     def _toggle_view(self) -> None:
         """The live view and the snapshot each have their own view."""
@@ -1435,13 +1494,14 @@ class LiveSession:
         self.keys = not self.keys
         self.dirty = True
 
-    def _toggle_minimap(self) -> None:
+    def _show_minimap(self) -> None:
+        """The minimap over the live video or the snapshot. It needs a layout."""
         if self.map_layout is None:
             self.minimap = False
             self.notice.say("choose a layout first")
             return
-        self.minimap = not self.minimap
-        self.dirty = True  # the snapshot image gets its own scale again
+        self.minimap = True
+        self.dirty = True
 
     def _set_terrain_type(self, name: str) -> None:
         """A new terrain type starts with no layout."""
@@ -1764,18 +1824,8 @@ class LiveSession:
             self.win.top_down = True
             self.dirty = True
             return True
-        if not self.frozen:
-            self._close_snapshot()
-            self.win.top_down = True
-            self.snap = self.frame.copy()
-            self.frozen = True
-            self.result = result = self.pipe.analyze(self.snap, source="camera", until="rectify")
-            self.dirty = True
-            if not result.ok:
-                self.notice.error(failed_stage(result))
-                return False
-            img = bases_image(self.snap, result.scratch["view"], self.cfg)
-            result.scratch.update(bases=[], bases_image=img, idents=[], base_crops=[], base_backgrounds=[])
+        if not self.frozen and not self._still_snapshot():
+            return False
         result = self.result
         if result is None or not result.ok or result.scratch.get("bases_image") is None:
             self.notice.error("no board in the snapshot: push space")

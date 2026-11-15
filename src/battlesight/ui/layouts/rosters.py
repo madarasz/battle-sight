@@ -19,7 +19,7 @@ from typing import TYPE_CHECKING, Any, ClassVar
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QAbstractButton, QComboBox, QGridLayout, QGroupBox, QHBoxLayout, QLabel, QPushButton, QStackedWidget, QToolButton, QVBoxLayout, QWidget
 
-from ...live import ACTIONS, Action
+from ...live import ACTIONS, Action, shown_view
 from ..parts import COLORS, CandidateList, MapPicker, OpeningControl, RingSlider, ScoreCounter, TeamRoster, VideoWidget, WoundsControl, action_control, distance_label, show_action_state
 
 if TYPE_CHECKING:
@@ -33,9 +33,7 @@ OPENING_NAMES = {"hatchway": "Hatchway", "breach": "Breach point"}
 MODE_BADGE = {"live": ("Live", COLORS["error"], "dot"), "snapshot": ("Snapshot", COLORS["info"], "pause"), "minimap": ("Minimap", COLORS["ok"], "square")}
 
 
-def shown_mode(state: dict[str, Any]) -> str:
-    """What the video shows: the minimap covers the live video and the snapshot."""
-    return "minimap" if state["minimap"] else state["mode"]
+shown_mode = shown_view  # what the video shows: the minimap covers the live video and the snapshot
 
 
 def operative_title(state: dict[str, Any]) -> str:
@@ -158,10 +156,15 @@ class RostersLayout:
         toggles = QGridLayout()
         toggles.setVerticalSpacing(10)
         toggles.setHorizontalSpacing(14)
-        for k, action_id in enumerate(("view.top_down", "view.grid", "view.terrain", "view.zones", "view.keys", "measure.walls", "view.minimap", "view.marks")):
+        for k, action_id in enumerate(("view.top_down", "view.grid", "view.terrain", "view.zones", "view.keys", "measure.walls", "view.marks")):
             toggles.addWidget(self._control(action_id), k // 4, k % 4)
         column.addLayout(toggles)
         column.addStretch(1)
+        modes = QHBoxLayout()  # bottom row: what the video shows, one third each
+        modes.setSpacing(0)
+        for action_id in ("view.live", "view.snapshot", "view.minimap"):
+            modes.addWidget(self._control(action_id), 1, Qt.AlignmentFlag.AlignHCenter)  # centred in its third
+        column.addLayout(modes)
         return box
 
     def _commands_box(self) -> QGroupBox:
@@ -173,8 +176,6 @@ class RostersLayout:
         self.add_operative.setToolTip("An operative has no base on the video: click the centre of its base")
         column.addWidget(self.add_operative)
         column.addStretch(1)
-        self.back = self._control("snapshot.back")
-        column.addWidget(self.back)  # at the bottom of the section
         return box
 
     def _reference_box(self) -> QGroupBox:
@@ -273,6 +274,7 @@ class RostersLayout:
         game.addWidget(self.ring)
         move_row = QHBoxLayout()
         move_row.addWidget(self._control("measure.move"))
+        move_row.addSpacing(16)
         move_row.addWidget(self._control("measure.avoid_melee"))
         move_row.addStretch(1)
         game.addLayout(move_row)
@@ -313,7 +315,6 @@ class RostersLayout:
         for action, control in self.controls:
             show_action_state(control, action, state)
         self.accept.setVisible(state["unconfirmed"] > 0)
-        self.back.setVisible(state["mode"] == "snapshot")
         self.map_picker.show_state(state)
         self.reference_label.setText(f"Reference: {'set' if state['reference_set'] else 'not set'}")
         for roster in self.rosters:

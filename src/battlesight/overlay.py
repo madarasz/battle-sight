@@ -530,6 +530,22 @@ def draw_dashed_circle_mm(frame: np.ndarray, center_mm, radius_mm: float, to_px,
         cv2.polylines(frame, [arc], False, color, thick, cv2.LINE_AA)
 
 
+def draw_dashed_outline_mm(frame: np.ndarray, points_mm, to_px, color: tuple[int, int, int], dash_mm: float = 5.0) -> None:
+    """Dashed closed polygon in board mm (dash and space each about `dash_mm`)."""
+    pts = np.asarray(points_mm, float).reshape(-1, 2)
+    ring = np.vstack([pts, pts[:1]])
+    along = np.r_[0.0, np.cumsum(np.linalg.norm(np.diff(ring, axis=0), axis=1))]
+    if along[-1] <= 0.0:
+        return
+    dashes = max(4, int(round(along[-1] / (2 * dash_mm))))
+    period = along[-1] / dashes
+    thick = max(1, round(2 * _scale(frame)))
+    for k in range(dashes):
+        t = k * period + np.linspace(0.0, 0.5 * period, 5)
+        dash = np.c_[np.interp(t, along, ring[:, 0]), np.interp(t, along, ring[:, 1])]
+        cv2.polylines(frame, [np.rint(to_px(dash)).astype(np.int32).reshape(-1, 1, 2)], False, color, thick, cv2.LINE_AA)
+
+
 def draw_melee_sign(frame: np.ndarray, at_mm, to_px, color: tuple[int, int, int] = MARK_COLOR) -> None:
     """Crossed swords on a dark octagon (a stop sign), centred on a board
     point. The sign stays upright; its size follows the board scale."""

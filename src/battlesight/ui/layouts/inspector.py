@@ -72,7 +72,10 @@ class InspectorLayout:
         column = QVBoxLayout(panel)
         self.map_picker = MapPicker(self.shell.dispatch)
         column.addWidget(self.map_picker)
-        self._add_controls(column, "view.top_down", "view.grid", "view.terrain", "view.zones", "view.keys", "view.minimap", "view.marks", "measure.walls")
+        self._add_controls(column, "view.top_down", "view.grid", "view.terrain", "view.zones", "view.keys", "view.marks", "measure.walls")
+        modes = QHBoxLayout()  # what the video shows
+        column.addLayout(modes)
+        self._add_controls(modes, "view.live", "view.snapshot", "view.minimap")
         self.stack = QStackedWidget()
         for name, make in (("live", self._live_page), ("snapshot", self._snapshot_page), ("adding", self._adding_page), ("selected", self._selected_page), ("opening", self._opening_page)):
             self.pages[name] = page = QWidget()
@@ -110,7 +113,7 @@ class InspectorLayout:
         column.addWidget(self.summary)
         self.operatives = OperativeList(self.shell.dispatch)
         column.addWidget(self.operatives, 1)
-        self._add_controls(column, "base.add", "names.accept", "names.undo", "snapshot.name", "frame.save", "snapshot.back")
+        self._add_controls(column, "base.add", "names.accept", "names.undo", "snapshot.name", "frame.save")
 
     def _adding_page(self, column: QVBoxLayout) -> None:
         hint = QLabel("Click the centre of the base of the operative that was not identified. Push Esc to cancel.")
@@ -136,13 +139,15 @@ class InspectorLayout:
         self.controls.extend(rings)
         move_row = QHBoxLayout()
         column.addLayout(move_row)
-        self._add_controls(move_row, "measure.move", "measure.avoid_melee")
+        self._add_controls(move_row, "measure.move")
+        move_row.addSpacing(16)
+        self._add_controls(move_row, "measure.avoid_melee")
         self.distance = QLabel()
         self.distance.setWordWrap(True)
         column.addWidget(self.distance)
         self.candidates = CandidateList(self.shell.dispatch)
         column.addWidget(self.candidates, 1)
-        self._add_controls(column, "base.remove", "snapshot.back")
+        self._add_controls(column, "base.remove")
 
     def _opening_page(self, column: QVBoxLayout) -> None:
         self.opening_title = QLabel()
