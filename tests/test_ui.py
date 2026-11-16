@@ -1017,7 +1017,10 @@ def test_map_choice_is_saved_and_restored(qapp, tmp_path, named):
     settings = load_ui_settings(path)
     assert (settings.layout, settings.map_terrain, settings.map_layout) == ("inspector", "Test World", "Small")
     win = MainWindow(make_session(tmp_path, cfg, frame), FakeCamera(frame), path)
-    assert win.worker.commands.qsize() == 2  # restore: terrain type, then layout
+    assert win.worker.commands.qsize() == 1  # restore: only the terrain type, the app starts with no layout
+    assert win.map_choice == ["Test World", None]
+    win.dispatch("map.layout", name="Small")
+    assert load_ui_settings(path).map_layout == "Small"
     win.dispatch("map.layout", name=None)
     assert load_ui_settings(path).map_layout is None and load_ui_settings(path).map_terrain == "Test World"
     win.close()
@@ -1194,6 +1197,37 @@ def test_rosters_inspector_shows_an_opening(idle_rosters, recorded):
         idle_rosters._on_frame(replace(live, state=dict(live.state, selected_opening={"index": 0, "kind": kind, "open": is_open})), 0)
         assert layout.stack.currentWidget() is layout.pages["opening"] and layout.title.text() == title
         assert layout.opening.button.isEnabled() and layout.opening.state_label.text() == text
+
+
+LIGHT_PIECE = {"index": 0, "key": "C2", "center_mm": [100.0, 200.0], "angle_deg": 12.0, "located": True, "outline": True}
+
+
+def test_inspectors_show_a_light_terrain_piece(idle_rosters, idle_inspector, recorded):
+    live = recorded[2]["live"]
+    for window, title in ((idle_rosters, lambda layout: layout.title), (idle_inspector, lambda layout: layout.light_title)):
+        layout = window.current_layout
+        state = dict(live.state, light=[LIGHT_PIECE], selected_light=LIGHT_PIECE, light_can_locate=True)
+        window._on_frame(replace(live, state=state), 0)
+        control = layout.light
+        assert layout.stack.currentWidget() is layout.pages["light"] and title(layout).text() == "Light terrain C2"
+        assert control.pose_label.text() == "Identified on the board." and control.remove.isEnabled() and control.remove.text() == "Remove ID"
+        buttons = control.findChildren(QAbstractButton)
+        assert buttons == [control.remove] and control.remove.focusPolicy() == Qt.FocusPolicy.NoFocus  # the one button
+        card = dict(LIGHT_PIECE, located=False)
+        window._on_frame(replace(live, state=dict(state, light=[card], selected_light=card)), 0)
+        assert control.pose_label.text().startswith("Not identified") and not control.remove.isEnabled()
+        none = dict(LIGHT_PIECE, located=False, outline=False)  # no piece file
+        window._on_frame(replace(live, state=dict(state, light=[none], selected_light=none, light_can_locate=False)), 0)
+        assert "No outline file" in control.pose_label.text() and not control.remove.isEnabled()
+
+
+def test_light_control_sends_remove_id(qapp):
+    from battlesight.ui.parts import LightControl
+
+    sent = []
+    control = LightControl(lambda action_id, **args: sent.append((action_id, args)))
+    control.remove.click()
+    assert sent == [("light.remove", {})]
 
 
 def test_rosters_row_slider_and_name_fix_run_actions(rosters):

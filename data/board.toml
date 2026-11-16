@@ -87,6 +87,15 @@ mask_max_fraction = 0.6  # over this part of the crop circle the mask is wrong (
 swap_margin_mm = 25.0    # a swap of two copies that costs less than this (and the copies have a different state) makes both names unsure
 new_cost_mm = 150.0      # pairing cost of a copy that has no known position yet
 
+[light]
+# Light terrain pieces on the board (live app). "Identify terrains": the
+# outline of each piece file is searched in its rectangle on the layout card.
+# "Locate terrain": each outline is searched around the clicked point.
+margin_mm = 20.0     # the footprint of a piece is in its card rectangle, plus this on each side
+min_score = 0.47     # outline score under this: the piece is not found, the card symbol stays
+click_mm = 40.0      # "Locate terrain": the click can be this far from the centre of the piece
+min_margin = 0.1     # "Locate terrain": the score of the best piece must be this much above the next piece (not measured: one piece file)
+
 [terrain]
 # Terrain footprints where they touch the board (map files in data/maps/).
 wall_mm = 4.0              # wall thickness

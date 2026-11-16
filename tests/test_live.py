@@ -16,6 +16,7 @@ import battlesight.app as app
 import battlesight.live as live_mod
 from battlesight import ident as idt
 from battlesight import colors, measure, overlay, walls
+from battlesight import terrain as ter
 from battlesight.calib import TagDetector
 from battlesight.camera import CameraSettings, ImageSource
 from battlesight.live import ACTIONS, PREVIEW_PAD_MM, LiveSession
@@ -30,7 +31,7 @@ SETTLE = 7  # more than settle_frames of the test config
 
 def make_session(tmp_path, cfg, frame, **over) -> LiveSession:
     size = (frame.shape[1], frame.shape[0])
-    args = dict(gallery_root=tmp_path / "gallery", reference_path=tmp_path / "ref" / "empty.png", snapshot_dir=tmp_path / "snaps", maps_root=tmp_path / "maps")
+    args = dict(gallery_root=tmp_path / "gallery", reference_path=tmp_path / "ref" / "empty.png", snapshot_dir=tmp_path / "snaps", maps_root=tmp_path / "maps", pieces_root=tmp_path / "terrain")
     args.update(over)
     return LiveSession(cfg, CameraSettings(), size, **args)
 
@@ -1485,6 +1486,251 @@ def test_only_named_bases_of_the_other_team_block_the_movement(tmp_path):
     session.session = None
 
 
+LIGHT_MAP = """schema = 1
+name = "Light"
+terrain = "Test World"
+
+[[light]]
+key = "C5"
+at_mm = [300, 300]
+"""
+
+
+def test_shoot_at_light_terrain_gives_cover_not_obscured(tmp_path):
+    cfg = ident_cfg()
+    frame = paint_board(cfg, GAME)
+    write_map(tmp_path / "maps", file="light.toml", text=LIGHT_MAP)
+    pentagon = np.array([[-20, -20], [20, -20], [20, 20], [0, 25], [-20, 20]], float)
+    folder = tmp_path / "terrain" / "test-world"
+    folder.mkdir(parents=True)
+    ter.write_piece(folder / "C5.toml", ter.Piece("C5", ter.piece_frame(pentagon)))
+    session = make_session(tmp_path, cfg, frame)
+    session.dispatch("map.layout", name="Light")
+    assert [len(p) for p in session._light_outlines()] == [4]  # not identified: the card symbol
+    session.light_poses[0] = ((300.0, 300.0), 0.0)  # as "Identify terrains" sets it
+    session._build_shapes()
+    assert [len(p) for p in session._light_outlines()] == [5]  # the piece file
+    settled(session, frame)
+    session.dispatch("snapshot.bases")
+    state = session.step(frame).state
+    nob = next(i for i in range(len(state["bases"])) if game_name(session, i) == "Nob")
+    click_base(session, state, nob)
+    session.dispatch("measure.shoot")
+
+    hover(session, (300.0, 150.0))  # the piece is between the pointer and Nob, next to Nob
+    far = session.step(frame)
+    assert_json_safe(far.state)
+    assert far.state["shot"] == {"obscured": False, "in_cover": True, "cover_by": "light", "too_near": False, "intervening": 0, "shooter": None}
+    hover(session, (450.0, 350.0))  # from the side: the piece is not in the lines
+    side = session.step(frame)
+    assert side.state["shot"]["in_cover"] is False and side.state["shot"]["too_near"] is False
+    assert not np.array_equal(side.image, far.image)
+    hover(session, (300.0, 285.0))  # on the piece, within 2 in of Nob
+    near = session.step(frame).state["shot"]
+    assert near["in_cover"] is False and near["too_near"] is True and near["cover_by"] is None
+
+    session.dispatch("map.layout", name=None)  # no layout: no light terrain
+    hover(session, (300.0, 150.0))
+    assert session.step(frame).state["shot"]["in_cover"] is False
+
+
+FOUND_MAP = LIGHT_MAP.replace("at_mm = [300, 300]", "at_mm = [450, 420]").replace("C5", "C1")  # C1: 81 x 63 mm on the card
+PIECE_AT, PIECE_TURN = (458.0, 413.0), 188.0  # where the piece is on the board: not as on the card, in its rectangle plus the margin
+
+
+PIECE_OUTLINE = np.array([[-35, -22], [10, -22], [14, -15], [35, -15], [35, 0], [20, 22], [-20, 22], [-24, 16], [-35, 16]], float)
+
+
+def light_session(tmp_path, layout=True):
+    """Layout with one light terrain piece that has a piece file, and a
+    board with that piece on it, away from its card place. `layout` False:
+    no layout is chosen."""
+    cfg = ident_cfg()
+    frame = paint_board(cfg, GAME)
+    rng = np.random.default_rng(5)
+    h, w = frame.shape[:2]
+    pattern = cv2.resize(rng.integers(40, 230, (h // 12 + 1, w // 12 + 1, 3)).astype(np.uint8), (w, h), interpolation=cv2.INTER_CUBIC)
+    mask = np.zeros((h, w), np.uint8)
+    at = (ter.Piece("C1", PIECE_OUTLINE).at(PIECE_AT, PIECE_TURN) + 80.0) * 2.0  # the frame has 2 px per mm and 80 mm of table around the board
+    cv2.fillPoly(mask, [np.rint(at).astype(np.int32)], 255, cv2.LINE_AA)
+    frame[mask > 127] = pattern[mask > 127]
+    write_map(tmp_path / "maps", file="light.toml", text=FOUND_MAP)
+    folder = tmp_path / "terrain" / "test-world"
+    folder.mkdir(parents=True)
+    ter.write_piece(folder / "C1.toml", ter.Piece("C1", PIECE_OUTLINE))
+    session = make_session(tmp_path, cfg, frame)
+    if layout:
+        session.dispatch("map.layout", name="Light")
+    return session, frame
+
+
+def click_mm(session, at_mm, action="board.click") -> None:
+    p = np.asarray(session._to_px(np.asarray(at_mm, float).reshape(1, 2)), float).reshape(2) * session.win.scale
+    session.dispatch(action, x=float(p[0]), y=float(p[1]))
+
+
+@pytest.mark.parametrize("snapshot", [False, True])
+def test_identify_terrains_finds_the_piece(tmp_path, snapshot):
+    session, frame = light_session(tmp_path)
+    before = settled(session, frame)
+    assert_json_safe(before.state)
+    assert before.state["light"] == [{"index": 0, "key": "C1", "center_mm": [450.0, 420.0], "angle_deg": 0.0, "located": False, "outline": True}]
+    assert before.state["light_can_locate"] is True and ACTIONS_BY_ID["light.locate"].enabled(before.state)  # a layout with a piece file
+    assert [s.located for s in session.terrain_shapes if s.kind == "light"] == [False]
+    if snapshot:
+        session.dispatch("snapshot.bases")  # a snapshot does not search the terrain
+        assert session.step(frame).state["light"][0]["located"] is False
+
+    session.dispatch("light.locate")
+    found = session.step(frame)
+    piece = found.state["light"][0]
+    assert piece["located"] and np.linalg.norm(np.subtract(piece["center_mm"], PIECE_AT)) < 1.0
+    assert abs(piece["angle_deg"] - PIECE_TURN) <= 1.0
+    assert found.state["notice"]["text"] == "light terrain: 1 of 1 identified"
+    shape = next(s for s in session.terrain_shapes if s.kind == "light")
+    assert shape.located and shape.center == pytest.approx(PIECE_AT, abs=1.0) and len(shape.points) == len(PIECE_OUTLINE)
+    session.dispatch("light.locate")  # an identified piece keeps its pose
+    assert session.step(frame).state["light"][0] == piece
+
+    assert not ACTIONS_BY_ID["light.remove"].enabled(found.state)  # no piece is selected
+    if not snapshot:
+        session.dispatch("view.snapshot")  # clicks need the snapshot
+        session.step(frame)
+    click_mm(session, PIECE_AT)
+    s = session.step(frame).state
+    assert s["selected_light"] == piece and s["selected"] is None
+    assert ACTIONS_BY_ID["light.remove"].enabled(s) and ACTIONS_BY_ID["base.deselect"].enabled(s)
+    session.dispatch("light.remove")
+    s = session.step(frame).state
+    assert s["light"][0]["located"] is False and s["light"][0]["center_mm"] == [450.0, 420.0]
+    assert s["selected_light"] == s["light"][0] and not ACTIONS_BY_ID["light.remove"].enabled(s)  # the card symbol stays selected
+    session.dispatch("light.remove")
+    assert "identified light terrain piece first" in session.state()["notice"]["text"]
+
+
+def test_light_terrain_not_on_the_board_stays_as_on_the_card(tmp_path):
+    session, _ = light_session(tmp_path)
+    bare = paint_board(ident_cfg(), GAME)  # the board without the piece
+    settled(session, bare)
+    session.dispatch("light.locate")
+    state = session.step(bare).state
+    assert state["light"][0]["located"] is False and state["light"][0]["center_mm"] == [450.0, 420.0]
+    assert state["notice"]["text"] == "light terrain: 0 of 1 identified; not found: C1"
+
+
+def test_identify_terrains_needs_a_layout_with_a_piece_file(tmp_path):
+    cfg = ident_cfg()
+    frame = paint_board(cfg, GAME)
+    write_map(tmp_path / "maps", file="light.toml", text=LIGHT_MAP)
+    session = make_session(tmp_path, cfg, frame)
+    state = settled(session, frame).state
+    assert state["light_can_locate"] is False and not ACTIONS_BY_ID["view.light"].enabled(state)  # no layout
+    session.dispatch("light.locate")
+    assert "layout first" in session.state()["notice"]["text"]
+    session.dispatch("map.layout", name="Light")
+    state = session.step(frame).state
+    assert state["light_can_locate"] is False  # no piece file
+    session.dispatch("light.locate")
+    assert session.state()["notice"]["text"] == "light terrain: 0 of 1 identified; no outline file: C5"
+
+
+def locate_at(session, frame, at_mm):
+    """"Locate terrain", then a click at `at_mm`. Clicks need the snapshot."""
+    if not session.frozen:
+        session.dispatch("view.snapshot")
+        session.step(frame)
+    session.dispatch("light.locate_at")
+    assert session.state()["locating_light"] is True
+    click_mm(session, at_mm)
+    return session.step(frame).state
+
+
+def test_locate_terrain_without_a_layout(tmp_path):
+    session, frame = light_session(tmp_path, layout=False)
+    before = settled(session, frame).state
+    assert_json_safe(before)
+    assert before["map_layout"] is None and before["light"] == [] and before["light_files"] == ["C1"]
+    assert ACTIONS_BY_ID["light.locate_at"].enabled(before) and not ACTIONS_BY_ID["view.light"].enabled(before)
+
+    s = locate_at(session, frame, (PIECE_AT[0] - 26.0, PIECE_AT[1] + 4.0))  # on the piece, far from its centre
+    assert s["locating_light"] is False and s["notice"]["text"] == "light terrain C1 located"
+    (piece,) = s["light"]
+    assert piece["key"] == "C1" and piece["located"] and np.linalg.norm(np.subtract(piece["center_mm"], PIECE_AT)) < 1.0
+    assert abs(piece["angle_deg"] - PIECE_TURN) <= 1.0
+    assert [(sh.kind, sh.located) for sh in session.terrain_shapes] == [("light", True), ("light_key", False)]
+    assert ACTIONS_BY_ID["view.light"].enabled(s)  # a piece to show
+
+    locate_at(session, frame, PIECE_AT)  # the same piece again: nothing new
+    assert len(session.step(frame).state["light"]) == 1
+
+    click_mm(session, PIECE_AT)
+    s = session.step(frame).state
+    assert s["selected_light"] == piece and ACTIONS_BY_ID["light.remove"].enabled(s)
+    session.dispatch("light.remove")  # no item of a layout: the piece goes away
+    s = session.step(frame).state
+    assert s["light"] == [] and s["selected_light"] is None and session.terrain_shapes == []
+
+
+def test_locate_terrain_gives_the_pose_to_the_layout_item(tmp_path):
+    session, frame = light_session(tmp_path)
+    settled(session, frame)
+    s = locate_at(session, frame, PIECE_AT)
+    (piece,) = s["light"]  # the item of the layout, no second piece
+    assert piece["located"] and np.linalg.norm(np.subtract(piece["center_mm"], PIECE_AT)) < 1.0
+    assert session.light_poses.keys() == {0} and session.loose_light == []
+    session.dispatch("map.layout", name=None)  # the poses belong to the layout
+    assert session.step(frame).state["light"] == []
+
+
+def test_locate_terrain_with_no_piece_there_changes_nothing(tmp_path, capsys):
+    session, frame = light_session(tmp_path, layout=False)
+    settled(session, frame)
+    s = locate_at(session, frame, (150.0, 150.0))  # bare board
+    assert s["light"] == [] and s["locating_light"] is False
+    assert "locate terrain: no piece found at (150, 150) mm" in capsys.readouterr().out
+
+
+def test_locate_terrain_needs_a_clear_winner(tmp_path, capsys):
+    session, frame = light_session(tmp_path, layout=False)
+    ter.write_piece(tmp_path / "terrain" / "test-world" / "C2.toml", ter.Piece("C2", PIECE_OUTLINE))  # a second piece with the same outline
+    session._read_pieces()
+    settled(session, frame)
+    s = locate_at(session, frame, PIECE_AT)
+    assert s["light"] == [] and s["light_files"] == ["C1", "C2"]
+    assert "locate terrain: no clear result" in capsys.readouterr().out
+
+
+def test_locate_terrain_stops_with_esc_and_needs_a_piece_file(tmp_path):
+    session, frame = light_session(tmp_path, layout=False)
+    settled(session, frame)
+    session.dispatch("light.locate_at")
+    assert session.state()["locating_light"] is True and not ACTIONS_BY_ID["light.locate_at"].enabled(session.state())
+    session.dispatch("snapshot.back")
+    assert session.state()["locating_light"] is False
+
+    cfg = ident_cfg()
+    bare = paint_board(cfg, GAME)
+    write_map(tmp_path / "other" / "maps", file="light.toml", text=LIGHT_MAP)
+    none = make_session(tmp_path / "other", cfg, bare)
+    state = settled(none, bare).state
+    assert state["light_files"] == [] and not ACTIONS_BY_ID["light.locate_at"].enabled(state)
+    none.dispatch("light.locate_at")
+    assert "no outline file" in none.state()["notice"]["text"] and none.state()["locating_light"] is False
+
+
+def test_light_terrain_check_box_shows_and_hides_it(tmp_path):
+    session, frame = light_session(tmp_path)
+    shown = settled(session, frame)
+    action = ACTIONS_BY_ID["view.light"]
+    assert shown.state["light_shown"] is True and action.checked(shown.state) and action.enabled(shown.state)
+    session.dispatch("view.light")
+    hidden = session.step(frame)
+    assert hidden.state["light_shown"] is False and not np.array_equal(hidden.image, shown.image)
+    session.dispatch("view.terrain")  # with the layout off too, the image does not change: the light terrain was hidden
+    session.dispatch("view.light")
+    assert session.step(frame).state["light_shown"] is True
+
+
 def test_shoot_at_draws_targeting_lines_from_the_pointer(tmp_path):
     session, frame, state, nob, burna = wall_session(tmp_path)
     action = ACTIONS_BY_ID["measure.shoot"]
@@ -1501,12 +1747,12 @@ def test_shoot_at_draws_targeting_lines_from_the_pointer(tmp_path):
     hover(session, GAME["Burna"][0])  # the wall is between Burna and Nob
     shot = session.step(frame)
     assert_json_safe(shot.state)
-    assert shot.state["shot"] == {"obscured": True, "in_cover": False, "intervening": 3, "shooter": burna}
+    assert shot.state["shot"] == {"obscured": True, "in_cover": False, "cover_by": None, "too_near": False, "intervening": 3, "shooter": burna}
     assert shot.crop is not None and not np.array_equal(shot.image, before.image)  # the board under the pointer
 
     hover(session, (300.0, 250.0))  # open floor, no base
     clear = session.step(frame)
-    assert clear.state["shot"] == {"obscured": False, "in_cover": False, "intervening": 0, "shooter": None}
+    assert clear.state["shot"] == {"obscured": False, "in_cover": False, "cover_by": None, "too_near": False, "intervening": 0, "shooter": None}
     assert not np.array_equal(clear.image, shot.image)
     hover(session, GAME["Nob"][0])  # on the target
     assert session.state()["shot"] is None

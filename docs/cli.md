@@ -247,9 +247,12 @@ change.
   from the pointer to the selected base (`shoot.aim`, `specs/measure-and-move.md`
   section 10). Yellow dashed 1 in circles around the target and the shooter
   base under the pointer, white lines to the tangent points with a light fill,
-  intervening heavy terrain in red (`overlay.draw_targeting_mm`).
-  `state["shooting"]`, `state["shot"]` = `{"obscured", "in_cover",
-  "intervening", "shooter"}` or null.
+  intervening heavy terrain and the light terrain that gives cover in red
+  (`overlay.draw_targeting_mm`). `state["shooting"]`, `state["shot"]` =
+  `{"obscured", "in_cover", "cover_by", "too_near", "intervening",
+  "shooter"}` or null (`cover_by`: `heavy`, `light`, `both` or null;
+  `too_near`: terrain is in the target zone, but the target is within 2 in
+  of the shooter, so there is no cover).
 - `state["movement"]`, `state["move"]` = `{"in", "increments"}` or null. The
   status bar shows `move 5" (3 + 2)`. Layout 6 at 9 in: about 0.15 s for a new
   field, about 2 ms for a route. The shell sends one pointer position at a
@@ -532,11 +535,11 @@ at a layout change. It keeps all other text.
 | `[layouts.<name>] panel_side` | `inspector`, `panel` | `left`, `right` | `right` |
 | `[layouts.<name>] debug_open` | `inspector`, `rosters` | `true`, `false` | `false` |
 | `[map] terrain` | | terrain type of the last run (`""` = none) | first type |
-| `[map] layout` | | layout name of the last run (`""` = none) | none |
+| `[map] layout` | | layout name of the last choice (`""` = none); written, not read at the start | none |
 
 The shell writes the `[map]` lines when the user chooses a terrain type or a
-layout in the `MapPicker` drop-down lists, and sends them again at the next
-start.
+layout in the `MapPicker` drop-down lists. At the next start it sends only
+the terrain type again: the app starts with no layout.
 
 The debug values come from `state["debug"]`: `tags`, `fit_max_mm`, `fps`
 (smoothed, of `LiveSession.step`) and `detect_ms` (tag detection of the last
@@ -1169,6 +1172,129 @@ more than 1 mm over the board edge.
 | `teleporter_mm` | `60.0` | Teleporter pad diameter. |
 | `light_mm` | `{ C1 = [81, 63, 16], C2 = [62, 46], C3 = [48, 48], C4 = [45, 45], C5 = [40, 40] }` | Light terrain: `[long, short]` or `[long, short, corner cut]` in mm. A corner cut gives an octagon. Shape `light` (half see-through dark fill), key `light_key`. |
 
+### Light terrain pieces
+
+A piece file `data/terrain/<folder>/<key>.toml` holds the real outline of
+one light terrain piece (`<folder>` = the folder name of the map files, for
+example `tomb-world`). An agent writes it with the skill `record-terrain`.
+
+```toml
+schema = 1
+key = "C1"
+source = "c1.jpg"
+outline_mm = [[-38.2, -20.1], [-30.5, -29.8]]   # 3 or more points
+```
+
+The outline is a polygon in the piece frame: origin = centre of its bounding
+box, x = long side. `terrain.pieces_for(map)` loads the folder of a map;
+a bad file gives a problem text and is not used. With a piece file and a
+pose `poses[k] = (centre mm, angle)` for light item `k`,
+`shapes(map, cfg, pieces, poses)` gives the outline at that pose
+(`Shape.located`, drawn as a narrow line in the wall colour) in place of
+the card symbol. A positive angle is clockwise on the screen (`Piece.at`).
+The `map` command draws each recorded outline at the card pose.
+
+Skill `record-terrain` (`.claude/skills/record-terrain/`): the user gives a
+photo of the underside of the piece (the footprint rim is fully in view
+there), the key, and the measured length and width in mm. The agent traces
+the outer edge of the rim in photo pixels and checks it on zoomed views. Its
+helper `outline.py`:
+
+| Command | Use |
+|---|---|
+| `view PHOTO --out IMG [--points FILE] [--box X0 Y0 X1 Y1] [--no-grid]` | The photo (or a part) with a grid in photo pixels and the outline with point numbers. |
+| `suggest PHOTO --out FILE` | First outline: the largest area that is not the table colour (Lab distance, Otsu) and does not touch the photo edge. |
+| `simplify FILE --length MM --out FILE [--tolerance-mm 0.2]` | Fewer points (Douglas-Peucker): removes each point within the tolerance of the new line. Scale from the long side of the outline box and the length. Point order stays. |
+| `save FILE --key C2 --length MM --width MM [--source NAME] [--terrain tomb-world] [--root data/terrain] [--check IMG]` | Write the piece file. |
+
+`save` finds the piece frame: the angle, within 20 degrees of the photo
+axes, where the sizes of the outline along and across the frame agree best
+with length : width (a minimum area rectangle is not used: one long slanted
+edge turns it away from the direction in which a person measures; on the
+C2 piece that gave a 9.6 % scale difference for a correct outline). One
+scale for both axes (mean of the length scale and the width scale), the
+sign of x changes (the underside is the mirror image of the view from
+above), the origin goes to the bounding box centre. A scale difference
+above 3 % at the best angle gives a warning, above 8 % exit 1 (bad
+outline, wrong size, camera tilt). The command also prints the scale range
+of all frame angles that agree equally. Exit 2: bad input. The points file
+is a JSON list of `[x, y]`. `view --no-grid` draws only marks at the edge.
+
+"Identify terrains" (action `light.locate`, enabled with a layout that has a
+light item with a piece file) finds the pieces on the board
+(`lightfit.locate`): each light item with a piece file and no pose yet. The
+image is the top-down image of the snapshot while it is on the screen, else
+of the newest frame. A snapshot does not search the terrain. The search
+uses only the outline and the edges of the image, not the colour of the
+piece (each owner paints differently):
+
+1. Edge maps at 2 px per mm of the card rectangle plus `margin_mm`: Canny
+   edges (60, 150) of each Lab channel after a blur of 1 px, in 12
+   direction classes, each grown by 0.75 mm.
+2. Raw score of a pose: the part of the outline points that are on an edge
+   of their direction class (or a class next to it).
+3. Coarse pass: all angles in 4 degree steps, positions in 1 mm steps, only
+   poses with the outline in the card rectangle plus `margin_mm`. Fine pass
+   around the best: 0.5 degrees and 0.5 mm.
+4. Score = (best - median of the best of each angle) / (1 - median). A
+   piece with much detail has edges everywhere; the median takes that
+   level out.
+
+No parallax correction. `[light]` in `data/board.toml`:
+
+| Key | Default | Use |
+|---|---|---|
+| `margin_mm` | `20.0` | The footprint of a piece is in its rectangle on the layout card, plus this on each side. |
+| `min_score` | `0.47` | A score under this: the piece is not found, the card symbol stays. |
+| `click_mm` | `40.0` | "Locate terrain": the click can be this far from the centre of the piece. |
+| `min_margin` | `0.1` | "Locate terrain": the score of the best piece must be this much above the next piece. Not measured as a limit. |
+
+Measured with the C2 outline on 2 test photos (2 different paints): right
+pose 0.81 and 0.50 (piece at the board edge under an objective ring); C2
+searched where another piece or bare board is: 0.44 at most. With the 6
+layout files: found in the right layout of each photo, not found in the 10
+other searches (0.32 at most). The margin between 0.50 and 0.44 is small.
+
+"Locate terrain" (action `light.locate_at`, enabled with a piece file of the
+terrain type, also with no layout; `state["locating_light"]`, `Esc` stops
+it): the next left click is on a piece, at most `click_mm` from its centre.
+Each piece file of the terrain type (`state["light_files"]`, loaded with
+the terrain type) is searched with the same `lightfit.locate`, the outline
+in a square around the click (largest outline radius plus `click_mm` each
+side). A piece is found with a score of `min_score` or more. The found
+piece with the best score must have the click in its outline, and its
+score must be `min_margin` above the next found piece. Else nothing changes
+and the reason goes to standard output (also the score of each piece). The
+click ends the mode. With a layout the pose goes to the nearest light item
+of that key with no pose; else, and with no layout, the piece is a piece of
+its own (`LiveSession.loose_light`, after the layout items in
+`state["light"]`; "Remove ID" takes it away). A click on an identified
+piece does nothing. A layout load or change drops all poses and these
+pieces.
+
+Measured on the 2 test photos with 5 piece files, no layout, `click_mm` 40,
+on the 5 pieces that "Identify terrains" finds (C1, C2 on photo 1; C1, C2,
+C3 on photo 2): clicks at the centre and 10 mm from it in 8 directions: 42
+of 45 found, all with the right key (the 3 misses: C2 of photo 2, at the
+board edge, score near the limit). Clicks 20 mm from the centre: 29 of 40
+(some are not on the piece). One result more than 3 mm from the pose of
+"Identify terrains" (C1, click 30 mm from the centre). A reach of 20 mm
+found fewer of the clicks 30 mm from the centre; 60 mm lost the weak C2 and
+took twice the time. About 0.5 s per piece file and click (2.3 s with 5
+files). On photo 2 the piece C5 lies at the card place of C4 (put there
+by mistake): a click there gives C5 (0.54, C4 0.23), which is correct.
+
+Other actions: `view.light` ("Light terrain", on at the start, enabled with
+a layout or a located piece: shows the card symbols, the outlines and the light terrain keys),
+a left click on a piece selects it (`state["selected_light"]`),
+`light.remove` ("Remove ID", enabled for a selected piece with a pose: back
+to the card symbol; "Identify terrains" searches it again). State: `light` =
+list of `{index, key, center_mm, angle_deg, located, outline}` (`outline`:
+it has a piece file), `selected_light`, `light_can_locate`, `light_shown`,
+`light_files`, `locating_light`.
+The poses are not saved: each layout load starts from the card. The cover
+of a shot uses the outline of a located piece, else the card symbol.
+
 ### `map` command
 
 ```bash
@@ -1176,7 +1302,8 @@ uv run battlesight map data/maps/tomb-world/layout-6.toml --out out/maps/
 ```
 
 Checks each file and prints its counts. With `--out`, writes
-`<file>.png`: the map on an empty top-down board with the grid numbers.
+`<file>.png`: the map on an empty top-down board with the grid numbers
+(light terrain with its recorded outline, when a piece file exists).
 Exit code 0 all files good, 1 a file has an error, 2 a file is missing.
 
 ## Automated tests

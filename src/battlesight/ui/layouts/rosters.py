@@ -23,7 +23,7 @@ from PySide6.QtWidgets import QAbstractButton, QCheckBox, QComboBox, QGridLayout
 
 from ...live import ACTIONS, Action, shown_view
 from ...colors import MESSAGE_NONE_COLOR, MODE_LIVE_COLOR, MODE_MINIMAP_COLOR, MODE_SNAPSHOT_COLOR, SHOT_IN_COVER_COLOR, SHOT_OBSCURED_COLOR
-from ..parts import CandidateList, MapPicker, OpeningControl, RingSlider, ScoreCounter, TeamRoster, VideoWidget, WoundsControl, action_control, distance_label, show_action_state
+from ..parts import CandidateList, LightControl, MapPicker, OpeningControl, RingSlider, ScoreCounter, TeamRoster, VideoWidget, WoundsControl, action_control, distance_label, light_title, show_action_state
 
 if TYPE_CHECKING:
     from . import Shell
@@ -72,6 +72,8 @@ def inspector_page(state: dict[str, Any]) -> str:
         return "operative"
     if state["selected_operative"] is not None:
         return "roster_operative"
+    if state["selected_light"] is not None:
+        return "light"
     return "opening" if state["selected_opening"] is not None else "empty"
 
 
@@ -160,7 +162,7 @@ class RostersLayout:
         toggles = QGridLayout()
         toggles.setVerticalSpacing(10)
         toggles.setHorizontalSpacing(14)
-        for k, action_id in enumerate(("view.top_down", "view.grid", "view.terrain", "view.zones", "view.keys", "measure.walls", "view.marks")):
+        for k, action_id in enumerate(("view.top_down", "view.grid", "view.terrain", "view.zones", "view.keys", "view.light", "measure.walls", "view.marks")):
             toggles.addWidget(self._control(action_id), k // 4, k % 4)
         self.debug_toggle = _no_focus(QCheckBox("Debug"))
         self.debug_toggle.setToolTip("Debug values in the status bar")
@@ -183,6 +185,12 @@ class RostersLayout:
         self.add_operative = self._control("base.add")
         self.add_operative.setToolTip("An operative has no base on the video: click the centre of its base")
         column.addWidget(self.add_operative)
+        self.identify_terrains = self._control("light.locate")
+        self.identify_terrains.setToolTip("Find the light terrain pieces of the layout on the board")
+        column.addWidget(self.identify_terrains)
+        self.locate_terrain = self._control("light.locate_at")
+        self.locate_terrain.setToolTip("Click a light terrain piece on the video: the app finds which piece it is")
+        column.addWidget(self.locate_terrain)
         column.addStretch(1)
         return box
 
@@ -224,7 +232,7 @@ class RostersLayout:
         header.addWidget(self.close, 0, Qt.AlignmentFlag.AlignTop)
         column.addLayout(header)
         self.stack = QStackedWidget()
-        for name, make in (("empty", self._empty_page), ("adding", self._adding_page), ("operative", self._operative_page), ("roster_operative", self._roster_operative_page), ("opening", self._opening_page)):
+        for name, make in (("empty", self._empty_page), ("adding", self._adding_page), ("operative", self._operative_page), ("roster_operative", self._roster_operative_page), ("opening", self._opening_page), ("light", self._light_page)):
             self.pages[name] = page = QWidget()
             make(page)
             self.stack.addWidget(page)
@@ -331,6 +339,12 @@ class RostersLayout:
         column.addWidget(self.opening)
         column.addStretch(1)
 
+    def _light_page(self, page: QWidget) -> None:
+        column = QVBoxLayout(page)
+        self.light = LightControl(self.shell.dispatch)
+        column.addWidget(self.light)
+        column.addStretch(1)
+
     # --- state ---------------------------------------------------------------------
 
     def on_state(self, state: dict[str, Any]) -> None:
@@ -349,7 +363,7 @@ class RostersLayout:
     def _show_inspector(self, state: dict[str, Any]) -> None:
         page = inspector_page(state)
         self.stack.setCurrentWidget(self.pages[page])
-        self.close.setVisible(page in ("operative", "roster_operative", "opening"))
+        self.close.setVisible(page in ("operative", "roster_operative", "opening", "light"))
         self.change.setVisible(page == "operative")
         self.remove.setVisible(page == "operative")
         self.shoot.setVisible(page == "operative")
@@ -372,6 +386,9 @@ class RostersLayout:
         elif page == "opening":
             self.title.setText(OPENING_NAMES.get(state["selected_opening"]["kind"], state["selected_opening"]["kind"]))
             self.opening.show_state(state)
+        elif page == "light":
+            self.title.setText(light_title(state))
+            self.light.show_state(state)
         else:
             self.title.setText(operative_title(state))
             crop = self.shell.selected_crop()
@@ -398,5 +415,7 @@ class RostersLayout:
             self.shot_text.setText(SHOOT_HINT)
         elif shot["obscured"] or shot["in_cover"]:
             self.shot_text.setText("")
+        elif shot.get("too_near"):
+            self.shot_text.setText("Within 2 in of the target: no cover.")
         else:
-            self.shot_text.setText("No heavy terrain in the way." if shot["intervening"] == 0 else "Heavy terrain in the way, not obscured.")
+            self.shot_text.setText("No terrain in the way." if shot["intervening"] == 0 else "Heavy terrain in the way, not obscured.")

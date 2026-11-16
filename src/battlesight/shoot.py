@@ -15,6 +15,10 @@ decide the result (`aim`):
 - a part in the 1 in zone around the target: in cover.
 
 When the pointer is not on a base, the shooter zone is 1 in around the pointer.
+
+Light terrain (polygons, `terrain.light_outline`) gives cover in the same
+way, and never obscures. No terrain gives cover while the target is within
+2 in of the shooter (rim to rim; from the pointer without a shooter base).
 """
 
 from __future__ import annotations
@@ -30,19 +34,26 @@ from . import measure
 LINE_RADIUS_MM = 0.5  # the targeting lines are 1 mm in diameter
 SAMPLE_MM = 0.5  # test points in a terrain piece are this far apart
 ARC_POINTS = 24  # points of the facing rim in `facing_outline`
+NO_COVER_MM = 2 * measure.MM_PER_INCH  # no cover while the target is nearer to the shooter than this
 
 
 @dataclass(frozen=True)
 class Shot:
     """`origin`: start of the lines; `tangents` (2, 2): ends of the outer
     lines on the target rim; `pieces` (K, 4): rectangles x0, y0, x1, y1 of
-    the intervening heavy terrain."""
+    the intervening heavy terrain; `light`: indexes of the light terrain
+    polygons that give cover; `cover_by`: "heavy", "light", "both" or None;
+    `too_near`: terrain is in the target zone, but the target is within
+    2 in of the shooter, so it is not in cover."""
 
     origin: np.ndarray
     tangents: np.ndarray
     pieces: np.ndarray
     obscured: bool
     in_cover: bool
+    light: tuple[int, ...] = ()
+    cover_by: str | None = None
+    too_near: bool = False
 
 
 def tangent_points(origin: Sequence[float], center: Sequence[float], diameter: float) -> np.ndarray | None:
@@ -81,6 +92,20 @@ def _in_triangle(p: np.ndarray, a: np.ndarray, b: np.ndarray, c: np.ndarray) -> 
     return ((s1 >= 0) & (s2 >= 0) & (s3 >= 0)) | ((s1 <= 0) & (s2 <= 0) & (s3 <= 0))
 
 
+def _touches_polygon(p: np.ndarray, poly: np.ndarray, reach: float) -> np.ndarray:
+    """Which points (N, 2) are in the polygon (M, 2) or within `reach` of its edge."""
+    a, b = poly, np.roll(poly, -1, axis=0)
+    px, py = p[:, 0][:, None], p[:, 1][:, None]
+    ax, ay, bx, by = a[:, 0], a[:, 1], b[:, 0], b[:, 1]
+    with np.errstate(divide="ignore", invalid="ignore"):
+        crosses = ((ay > py) != (by > py)) & (px < ax + (py - ay) * (bx - ax) / (by - ay))
+    inside = crosses.sum(axis=1) % 2 == 1  # even-odd rule
+    d, rel = b - a, p[:, None, :] - a[None, :, :]
+    t = np.clip((rel * d).sum(axis=2) / np.maximum((d * d).sum(axis=1), 1e-12), 0.0, 1.0)
+    near = np.linalg.norm(rel - t[:, :, None] * d[None, :, :], axis=2).min(axis=1) <= reach
+    return inside | near
+
+
 def aim(
     origin: Sequence[float],
     target_center: Sequence[float],
@@ -88,11 +113,13 @@ def aim(
     rects: np.ndarray,
     shooter: tuple[Sequence[float], float] | None = None,
     zone_mm: float = measure.MM_PER_INCH,
+    light: Sequence[np.ndarray] = (),
 ) -> Shot | None:
     """Targeting lines from `origin` to the target base and the heavy
     terrain `rects` (M, 4) in them. `shooter`: (centre, diameter) of the
-    shooter's base, for its zone; None: the zone is around `origin`. None
-    when `origin` is on the target base."""
+    shooter's base, for its zone; None: the zone is around `origin`.
+    `light`: outlines (N, 2) of the light terrain. None when `origin` is on
+    the target base."""
     o = np.asarray(origin, float)
     tc, tr = np.asarray(target_center, float), 0.5 * target_diameter
     t = tangent_points(o, tc, target_diameter)
@@ -117,4 +144,31 @@ def aim(
         near_shooter = np.linalg.norm(p - s_center, axis=1) <= 0.5 * s_diameter + zone_mm
         in_cover |= bool((inside & near_target).any())
         obscured |= bool((inside & ~near_target & ~near_shooter).any())
-    return Shot(o, t, np.asarray(pieces, float).reshape(-1, 4), obscured, in_cover)
+    covering = []
+    for k, poly in enumerate(light):
+        poly = np.asarray(poly, float).reshape(-1, 2)
+        x0, y0 = poly.min(axis=0) - LINE_RADIUS_MM
+        x1, y1 = poly.max(axis=0) + LINE_RADIUS_MM
+        if x1 < lo[0] or x0 > hi[0] or y1 < lo[1] or y0 > hi[1]:
+            continue
+        # Only the part of the box in the target zone can give cover.
+        x0, y0 = max(x0, tc[0] - tr - zone_mm), max(y0, tc[1] - tr - zone_mm)
+        x1, y1 = min(x1, tc[0] + tr + zone_mm), min(y1, tc[1] + tr + zone_mm)
+        if x1 < x0 or y1 < y0:
+            continue
+        xs = np.linspace(x0, x1, max(2, math.ceil((x1 - x0) / SAMPLE_MM) + 1))
+        ys = np.linspace(y0, y1, max(2, math.ceil((y1 - y0) / SAMPLE_MM) + 1))
+        p = np.stack(np.meshgrid(xs, ys), axis=-1).reshape(-1, 2)
+        to_target = np.linalg.norm(p - tc, axis=1)
+        p = p[_in_triangle(p, o, t[0], t[1]) & (to_target > tr) & (to_target <= tr + zone_mm)]
+        if len(p) and _touches_polygon(p, poly, LINE_RADIUS_MM).any():
+            covering.append(k)
+    if shooter is None:
+        gap = float(np.linalg.norm(o - tc)) - tr
+    else:
+        gap = float(np.linalg.norm(np.asarray(shooter[0], float) - tc)) - tr - 0.5 * shooter[1]
+    by = "both" if in_cover and covering else "heavy" if in_cover else "light" if covering else None
+    too_near = by is not None and gap < NO_COVER_MM
+    if too_near:
+        by, covering = None, []
+    return Shot(o, t, np.asarray(pieces, float).reshape(-1, 4), obscured, by is not None, tuple(covering), by, too_near)

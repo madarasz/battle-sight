@@ -29,7 +29,7 @@ from ..colors import (
 from ..live import ACTIONS, Action
 from ..score import CATEGORIES, CATEGORY_MAX, CATEGORY_NAMES, PRIMARIES, SKULLS_PER_TP, TURNING_POINTS
 
-ACTION_GROUPS = {"wounds": "Game", "score": "Game", "operative": "Snapshot", "opening": "Game", "team": "View", "map": "View", "snapshot": "Snapshot", "base": "Snapshot", "names": "Snapshot", "frame": "Snapshot", "ring": "Measure", "measure": "Measure", "view": "View", "reference": "Reference", "app": "Help"}
+ACTION_GROUPS = {"wounds": "Game", "score": "Game", "operative": "Snapshot", "opening": "Game", "light": "Snapshot", "team": "View", "map": "View", "snapshot": "Snapshot", "base": "Snapshot", "names": "Snapshot", "frame": "Snapshot", "ring": "Measure", "measure": "Measure", "view": "View", "reference": "Reference", "app": "Help"}
 RING_COLUMNS = 5
 COLORS = {"none": MESSAGE_NONE_COLOR, "ok": MESSAGE_OK_COLOR, "done": MESSAGE_OK_COLOR, "warn": MESSAGE_WARN_COLOR, "hint": MESSAGE_WARN_COLOR, "error": MESSAGE_ERROR_COLOR, "info": MESSAGE_INFO_COLOR}  # message level -> Qt colour
 DRIFT_LEVEL = {"OK": "ok", "NO_REFERENCE": "warn", "MOVED": "warn", "CARD_MOVED": "error", "LOST": "error"}
@@ -702,6 +702,41 @@ class OpeningControl(QWidget):
         is_open = opening is not None and opening["open"]
         self.state_label.setText(OPEN_STATE[is_open])
         self.button.setText("Close" if is_open else "Open")
+
+
+LIGHT_STATE = {
+    True: "Identified on the board.",
+    False: "Not identified: the place and size are from the layout card.",
+    None: "No outline file for this piece: the place and size are from the layout card.",
+}
+
+
+def light_title(state: dict[str, Any]) -> str:
+    return f"Light terrain {state['selected_light']['key']}"
+
+
+class LightControl(QWidget):
+    """The selected light terrain piece: if it is identified on the board,
+    and "Remove ID" (back to the card symbol)."""
+
+    def __init__(self, dispatch: Callable[..., Any], parent: QWidget | None = None):
+        super().__init__(parent)
+        column = QVBoxLayout(self)
+        column.setContentsMargins(0, 0, 0, 0)
+        self.pose_label = QLabel()
+        self.pose_label.setWordWrap(True)
+        column.addWidget(self.pose_label)
+        self._action = next(a for a in ACTIONS if a.id == "light.remove")
+        self.remove = action_control(self._action, dispatch)
+        column.addWidget(self.remove)
+
+    def show_state(self, state: dict[str, Any]) -> None:
+        piece = state["selected_light"]
+        self.setEnabled(piece is not None)
+        if piece is None:
+            return
+        self.pose_label.setText(LIGHT_STATE[piece["located"] if piece["outline"] else None])
+        show_action_state(self.remove, self._action, state)
 
 
 NO_TAC_OP = "(no Tac Op)"

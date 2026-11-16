@@ -27,6 +27,7 @@ import cv2
 import numpy as np
 
 from . import ident as idt
+from . import lightfit
 from . import measure
 from . import moves
 from . import score as sc
@@ -38,7 +39,7 @@ from .camera import CameraSettings
 from .config import BoardConfig
 from .colors import MEASURE_COLOR, MINIMAP_BACK_COLOR, MINIMAP_BOARD_COLOR, MOVE_MELEE_COLOR, NAME_SURE_COLOR, NO_TEAM_COLOR, POINTER_CROSS_COLOR, POINTER_CROSS_EDGE_COLOR, RANGE_ZONE_COLOR, SELECTED_COLOR, STATUS_ERROR_COLOR, STATUS_HINT_COLOR, STATUS_OK_COLOR, TEAM_COLORS
 from .overlay import draw_base_discs, draw_bases, draw_board_corners, draw_circle_mm, draw_dashed_circle_mm, draw_dashed_outline_mm, draw_grid, draw_health_bars, draw_idents, draw_melee_sign, draw_objective_arrows, draw_move_mm, draw_outline_mm, draw_path_mm, draw_range_mm, draw_rim_line, draw_tags, draw_targeting_mm, draw_terrain, fit_to_width
-from .pipeline import Pipeline, base_crops, bases_config, bases_image, find_base_near
+from .pipeline import BASES_MARGIN_MM, Pipeline, base_crops, bases_config, bases_image, find_base_near
 from .rectify import fit_view, mm_to_rect, rect_transform, warp_board
 
 SNAPSHOT_DIR = Path(__file__).resolve().parents[2] / "data" / "snapshots"
@@ -218,7 +219,11 @@ def _has_selection(state: dict) -> bool:
 
 
 def _has_any_selection(state: dict) -> bool:
-    return state["selected"] is not None or state["selected_opening"] is not None or state["selected_operative"] is not None
+    return state["selected"] is not None or state["selected_opening"] is not None or state["selected_operative"] is not None or state["selected_light"] is not None
+
+
+def _light_located(state: dict) -> bool:
+    return state["selected_light"] is not None and state["selected_light"]["located"]
 
 
 def _in_snapshot(state: dict) -> bool:
@@ -235,6 +240,11 @@ def _can_add(state: dict) -> bool:
     """A missed base can be added at any time: without a snapshot, the
     action takes one with no bases."""
     return not state["busy"] and not state["adding"]
+
+
+def _can_locate_light(state: dict) -> bool:
+    """With a piece file of the terrain type, also without a layout."""
+    return not state["busy"] and not state["locating_light"] and bool(state["light_files"])
 
 
 def _has_wounds(state: dict) -> bool:
@@ -272,6 +282,7 @@ ACTIONS: tuple[Action, ...] = (
     Action("view.terrain", "Layout", checked=lambda s: s["terrain"], enabled=lambda s: s["map_layout"] is not None),
     Action("view.zones", "Drop zones", checked=lambda s: s["zones"], enabled=lambda s: s["map_layout"] is not None),
     Action("view.keys", "Terrain keys", checked=lambda s: s["keys"], enabled=lambda s: s["map_layout"] is not None),
+    Action("view.light", "Light terrain", checked=lambda s: s["light_shown"], enabled=lambda s: s["map_layout"] is not None or bool(s["light"])),
     Action("view.live", "Live", checked=lambda s: shown_view(s) == "live", radio=True),
     Action("view.snapshot", "Snapshot", checked=lambda s: shown_view(s) == "snapshot", enabled=lambda s: s["snapshot_ok"] is not None or s["resolution"] is not None, radio=True),
     Action("view.minimap", "Minimap", checked=lambda s: shown_view(s) == "minimap", enabled=lambda s: s["map_layout"] is not None, radio=True),
@@ -306,6 +317,9 @@ ACTIONS: tuple[Action, ...] = (
     Action("score.primary", "Primary", args=("slot", "value")),
     Action("score.cp", "Command points", args=("slot", "delta")),
     Action("opening.toggle", "Open / close", "o", enabled=lambda s: s["selected_opening"] is not None),
+    Action("light.locate", "Identify terrains", enabled=lambda s: s["light_can_locate"]),
+    Action("light.locate_at", "Locate terrain", enabled=_can_locate_light),
+    Action("light.remove", "Remove ID", enabled=_light_located),
     Action("names.accept", "Accept all identification", "a", enabled=lambda s: s["unconfirmed"] > 0),
     Action("names.undo", "Undo last gallery photo", "u", enabled=lambda s: s["can_undo"]),
     Action("frame.save", "Save screenshot", "s"),
@@ -352,6 +366,7 @@ class LiveSession:
         display_width: int = DISPLAY_WIDTH,
         clock: Callable[[], float] = time.monotonic,
         maps_root: Path | str = ter.DEFAULT_MAPS_ROOT,
+        pieces_root: Path | str = ter.DEFAULT_PIECES_ROOT,
     ):
         self.cfg = cfg
         self.board = BoardTracker(cfg, camera, frame_size)
@@ -388,6 +403,7 @@ class LiveSession:
         self.terrain = True  # terrain overlay on, when a map layout is chosen
         self.zones = False  # drop zones of the layout off
         self.keys = False  # wall keys (A1, B2, ...) off
+        self.light_shown = True  # light terrain (card symbols, found outlines) on
         self.marks = False  # melee signs and objective arrows of named operatives
         self.minimap = False  # a drawn board (layout, grid, bases) in place of the camera; needs a layout
         self.around_walls = False  # measure around walls, not through them; on at each layout load
@@ -402,6 +418,14 @@ class LiveSession:
         self._wall_path: tuple[Any, Any] | None = None  # last path around walls, with its key
         self._wall_range: tuple[Any, Any] | None = None  # last range area, with its key
         self.maps_root = Path(maps_root)
+        self.pieces_root = Path(pieces_root)  # piece files: real outlines of the light terrain
+        self.terrain_map: ter.TerrainMap | None = None
+        self.pieces: dict[str, ter.Piece] = {}
+        self.light_poses: dict[int, tuple[tuple[float, float], float]] = {}  # light item -> (centre mm, angle) found on the board
+        self.loose_light: list[tuple[str, tuple[float, float], float]] = []  # (key, centre mm, angle): pieces found by "Locate terrain" that are no item of the layout
+        self.selected_light: int | None = None  # index in the light shapes: the items of `terrain_map.light`, then `loose_light`
+        self.locating_light = False  # "Locate terrain": the next click on the board is on a light terrain piece
+        self._light_version = 0  # goes up when a light terrain outline changes
         self.maps: list[ter.MapEntry] = []
         self.terrain_type: str | None = None
         self.map_layout: str | None = None
@@ -451,6 +475,7 @@ class LiveSession:
             "view.terrain": self._toggle_terrain,
             "view.zones": self._toggle_zones,
             "view.keys": self._toggle_keys,
+            "view.light": self._toggle_light,
             "view.live": self._show_live,
             "view.snapshot": self._show_snapshot,
             "view.minimap": self._show_minimap,
@@ -485,6 +510,9 @@ class LiveSession:
             "score.primary": self._score_primary,
             "score.cp": self._score_cp,
             "opening.toggle": self._toggle_opening,
+            "light.locate": self._locate_light,
+            "light.locate_at": self._start_locating_light,
+            "light.remove": self._remove_light,
             "names.accept": self._accept_all,
             "names.undo": self._undo,
             "frame.save": self._save_frame,
@@ -616,6 +644,8 @@ class LiveSession:
         self._draw_terrain(img, to_px, always=minimap)
         if self.grid:
             draw_grid(img, self.cfg, to_px)
+        if self.selected_light is not None and self.light_shown:
+            draw_outline_mm(img, self._light_outlines()[self.selected_light], to_px, SELECTED_COLOR)
         if self.selected_opening is not None:
             points = self.openings[self.selected_opening].points
             draw_outline_mm(img, points, to_px, SELECTED_COLOR)
@@ -828,11 +858,23 @@ class LiveSession:
             return None, None
         a = found[self.selected]
         shooter = self._shooter_index(found)
-        key = (self.map_layout, frozenset(self.opened), self._base_key(a), float(self.hover_mm[0]), float(self.hover_mm[1]), None if shooter is None else self._base_key(found[shooter]))
+        key = (
+            self.map_layout,
+            self._light_version,
+            frozenset(self.opened),
+            self._base_key(a),
+            float(self.hover_mm[0]),
+            float(self.hover_mm[1]),
+            None if shooter is None else self._base_key(found[shooter]),
+        )
         if self._shot is None or self._shot[0] != key:
             base = None if shooter is None else (found[shooter].center_mm, found[shooter].diameter_mm)
-            self._shot = (key, shoot.aim(self.hover_mm, a.center_mm, a.diameter_mm, self._heavy_rects(), base), shooter)
+            self._shot = (key, shoot.aim(self.hover_mm, a.center_mm, a.diameter_mm, self._heavy_rects(), base, light=self._light_outlines()), shooter)
         return self._shot[1], self._shot[2]
+
+    def _light_outlines(self) -> list[np.ndarray]:
+        """Outlines of the light terrain of the layout, in board mm."""
+        return [s.points for s in self.terrain_shapes if s.kind == "light"]
 
     def _heavy_rects(self) -> np.ndarray:
         """Heavy terrain of the layout: walls, pillars, closed hatchways and breach points."""
@@ -841,7 +883,8 @@ class LiveSession:
         return walls.obstacles(self._shapes_now())
 
     def _draw_shot(self, img: np.ndarray, found: list) -> None:
-        """1 in around the target and the shooter, the targeting lines and the intervening heavy terrain."""
+        """1 in around the target and the shooter, the targeting lines, the
+        intervening heavy terrain and the light terrain that gives cover."""
         if not self.shooting or self.selected is None or self.selected >= len(found):
             return
         to_px, a = self._to_px, found[self.selected]
@@ -851,17 +894,27 @@ class LiveSession:
             b = found[shooter]
             draw_dashed_circle_mm(img, b.center_mm, 0.5 * b.diameter_mm + measure.MM_PER_INCH, to_px, RANGE_ZONE_COLOR)
         if shot is not None:
-            draw_targeting_mm(img, shoot.facing_outline(shot.origin, a.center_mm, a.diameter_mm), shot.pieces, to_px)
+            outlines = self._light_outlines()
+            draw_targeting_mm(img, shoot.facing_outline(shot.origin, a.center_mm, a.diameter_mm), shot.pieces, to_px, light_mm=[outlines[k] for k in shot.light])
 
     def _shot_state(self) -> dict[str, Any] | None:
-        """`obscured`, `in_cover`: what the heavy terrain in the targeting
-        lines gives; `intervening`: its pieces; `shooter`: base index under
-        the pointer. None while "Shoot at" is off or the pointer is off the
-        board or on the target."""
+        """`obscured`: from the heavy terrain in the targeting lines;
+        `in_cover`: from heavy or light terrain (`cover_by`: "heavy", "light",
+        "both" or None); `too_near`: terrain is in the target zone, but the
+        target is within 2 in of the shooter; `intervening`: heavy pieces;
+        `shooter`: base index under the pointer. None while "Shoot at" is off
+        or the pointer is off the board or on the target."""
         shot, shooter = self._aim(self._found())
         if shot is None:
             return None
-        return {"obscured": shot.obscured, "in_cover": shot.in_cover, "intervening": len(shot.pieces), "shooter": shooter}
+        return {
+            "obscured": shot.obscured,
+            "in_cover": shot.in_cover,
+            "cover_by": shot.cover_by,
+            "too_near": shot.too_near,
+            "intervening": len(shot.pieces),
+            "shooter": shooter,
+        }
 
     # --- measurement around walls ---------------------------------------------------
 
@@ -951,6 +1004,7 @@ class LiveSession:
             "terrain": self.terrain,
             "zones": self.zones,
             "keys": self.keys,
+            "light_shown": self.light_shown,
             "minimap": self._minimap_on(),
             "marks": self.marks,
             "control": self._control(self._found()) if self.marks else None,
@@ -986,6 +1040,11 @@ class LiveSession:
             "right_click": self.right_click,
             "selected_opening": None if self.selected_opening is None else {"index": self.selected_opening, "kind": self.openings[self.selected_opening].kind, "open": self.selected_opening in self.opened},
             "near_opening": self._near_opening(self._found()),
+            "light": self._light_state(),
+            "selected_light": None if self.selected_light is None else self._light_state()[self.selected_light],
+            "locating_light": self.locating_light,
+            "light_files": sorted(self.pieces),
+            "light_can_locate": self.terrain_map is not None and any(item.key in self.pieces for item in self.terrain_map.light),
             "openings": [{"index": i, "kind": sh.kind, "open": i in self.opened} for i, sh in enumerate(self.openings)],
             "selected_wounds": self._selected_wounds_state(),
             "target": self.target,
@@ -1378,7 +1437,7 @@ class LiveSession:
     def _close_snapshot(self) -> None:
         self.result = self.snap = self.session = self.shown = None
         self.selected = self.target = self.ring_in = self.selected_opening = self.new_base = None
-        self.adding = self.shooting = False
+        self.adding = self.shooting = self.locating_light = False
         self.frozen = False
 
     def _load_gallery(self) -> None:
@@ -1446,7 +1505,7 @@ class LiveSession:
         """A new selected base starts with no ring and no second base. Only
         one thing is selected: a base or an opening."""
         self.selected = index
-        self.target = self.ring_in = self.selected_opening = self.selected_operative = None
+        self.target = self.ring_in = self.selected_opening = self.selected_operative = self.selected_light = None
         self.shooting = False
         if index != self.new_base:
             self.new_base = None
@@ -1485,8 +1544,8 @@ class LiveSession:
         the next snapshot. In the live
         video the key clears the selection. While a base is added, it only
         stops that."""
-        if self.adding:
-            self.adding = False
+        if self.adding or self.locating_light:
+            self.adding = self.locating_light = False
         elif self.shooting:
             self._toggle_shooting()
         elif self.frozen or self._minimap_on():
@@ -1547,6 +1606,180 @@ class LiveSession:
             self.notice.error(f"map file not used: {text}")
         types = sorted({e.terrain for e in self.maps})
         self.terrain_type = types[0] if types else None
+        self._read_pieces()
+
+    def _read_pieces(self) -> None:
+        """The piece files of the terrain type: the folder under
+        `pieces_root` with the name of the folder of its map files."""
+        entry = next((e for e in self.maps if e.terrain == self.terrain_type), None)
+        self.pieces, problems = ({}, []) if entry is None else ter.load_pieces(self.pieces_root / entry.path.parent.name)
+        for text in problems:
+            self.notice.error(f"piece file not used: {text}")
+
+    def _build_shapes(self) -> None:
+        """The shapes of the layout, the light terrain at its poses. The
+        openings keep their order, so `opened` stays valid."""
+        self.terrain_shapes = [] if self.terrain_map is None else ter.shapes(self.terrain_map, self.cfg, self.pieces, self.light_poses)
+        for key, center, angle in self.loose_light:  # after the light items of the layout: `selected_light`
+            self.terrain_shapes.append(ter.Shape("light", self.pieces[key].at(center, angle), center, name=key, located=True))
+        self.terrain_shapes += [ter.Shape("light_key", np.array([center]), center, name=key) for key, center, _ in self.loose_light]
+        self.openings = [s for s in self.terrain_shapes if s.kind in OPENING_KINDS]
+        self._light_version += 1
+        self.dirty = True
+
+    # --- light terrain on the board -------------------------------------------------
+
+    def _light_image(self) -> np.ndarray | None:
+        """The top-down image for the search: of the snapshot while it is on
+        the screen, else of the newest frame."""
+        if self.frozen and self.result is not None and self.result.scratch.get("bases_image") is not None:
+            return self.result.scratch["bases_image"]
+        if self.frame is None or self.view is None:
+            return None
+        return bases_image(self.frame, self.view, self.cfg)
+
+    def _locate_light(self) -> None:
+        """"Identify terrains": search each light terrain piece of the
+        layout that has a piece file and no pose yet. A piece that was
+        found keeps its pose (later a model can hide it) until "Remove ID"."""
+        if self.terrain_map is None:
+            self.notice.say("choose a layout first")
+            return
+        todo = [k for k, item in enumerate(self.terrain_map.light) if item.key in self.pieces and k not in self.light_poses]
+        no_file = sorted({item.key for item in self.terrain_map.light if item.key not in self.pieces})
+        image = self._light_image() if todo else None
+        if todo and image is None:
+            self.notice.error("no board in the image: the terrain cannot be identified")
+            return
+        scale = self.cfg.bases_px_per_mm
+        missed = []
+        for k in todo:
+            item = self.terrain_map.light[k]
+            pose = lightfit.locate(
+                image,
+                scale,
+                (-BASES_MARGIN_MM, -BASES_MARGIN_MM),
+                self.pieces[item.key].outline,
+                ter.light_rect(item, self.cfg, self.cfg.light_margin_mm),  # the card footprint, with a margin
+                item.at,
+                item.angle_deg,
+                min_score=self.cfg.light_min_score,
+            )
+            if pose.confirmed:
+                self.light_poses[k] = (pose.center_mm, pose.angle_deg)
+            else:
+                missed.append(item.key)
+            print(f"  light terrain {item.key}: {'found' if pose.confirmed else 'not found'}, score {pose.score:.2f}, at ({pose.center_mm[0]:.0f}, {pose.center_mm[1]:.0f}) mm, {pose.angle_deg:.0f} deg")
+        if todo:
+            self._build_shapes()
+        located = sum(1 for k, item in enumerate(self.terrain_map.light) if k in self.light_poses)
+        text = f"light terrain: {located} of {len(self.terrain_map.light)} identified"
+        if missed:
+            text += f"; not found: {', '.join(missed)}"
+        if no_file:
+            text += f"; no outline file: {', '.join(no_file)}"
+        (self.notice.say if missed or no_file else self.notice.ok)(text)
+
+    def _remove_light(self) -> None:
+        """"Remove ID": the selected piece goes back to the card symbol."""
+        k, items = self.selected_light, self._light_items()
+        if k is not None and k >= len(items) and k - len(items) < len(self.loose_light):
+            del self.loose_light[k - len(items)]  # no item of the layout: the piece goes away
+            self.selected_light = None
+        elif k is not None and k in self.light_poses:
+            del self.light_poses[k]
+        else:
+            self.notice.say("click an identified light terrain piece first")
+            return
+        self._build_shapes()
+
+    def _light_items(self) -> tuple[ter.Light, ...]:
+        return () if self.terrain_map is None else tuple(self.terrain_map.light)
+
+    def _start_locating_light(self) -> None:
+        """"Locate terrain": the next click is on a light terrain piece on
+        the board. `Esc` stops it. It needs no layout."""
+        if not self.pieces:
+            self.notice.error("no outline file of a light terrain piece")
+            return
+        if self._light_image() is None:
+            self.notice.error("no board in the image: the terrain cannot be located")
+            return
+        self.adding = False
+        self.locating_light = True
+        self._set_selected(None)
+        self.notice.say("click the terrain piece, Esc to cancel")
+
+    def _locate_light_at(self, x: float, y: float) -> None:
+        """Search each piece file around the clicked point (`lightfit.locate`,
+        the outline in a square around the
+        click, the click at most `[light] click_mm` from the centre of the
+        piece). The best piece that is found must have the click in its
+        outline and a score `[light] min_margin` above the next piece. Else nothing
+        changes and the reason goes to standard output. With a layout, the
+        piece becomes the nearest item of its key that has no pose; else a
+        piece of its own (`loose_light`)."""
+        self.locating_light = False
+        at, image = self._to_mm(x, y), self._light_image()
+        if at is None or image is None:
+            print("locate terrain: no board position under the click")
+            return
+        at = (float(at[0]), float(at[1]))
+        if any(cv2.pointPolygonTest(s.points.astype(np.float32).reshape(-1, 1, 2), at, False) >= 0 for s in self.terrain_shapes if s.kind == "light" and s.located):
+            print("locate terrain: the piece there is identified already")
+            return
+        results = []  # (score, key, pose, the click is in the outline): each piece that is found
+        for key, piece in sorted(self.pieces.items()):
+            reach = float(np.linalg.norm(piece.outline, axis=1).max()) + self.cfg.light_click_mm
+            rect = (at[0] - reach, at[1] - reach, at[0] + reach, at[1] + reach)
+            pose = lightfit.locate(image, self.cfg.bases_px_per_mm, (-BASES_MARGIN_MM, -BASES_MARGIN_MM), piece.outline, rect, at, 0.0, min_score=self.cfg.light_min_score)
+            on_click = pose.confirmed and cv2.pointPolygonTest(piece.at(pose.center_mm, pose.angle_deg).astype(np.float32).reshape(-1, 1, 2), at, False) >= 0
+            print(f"  locate terrain {key}: score {pose.score:.2f}, {'found' if on_click else 'click not in the outline' if pose.confirmed else 'not found'}")
+            if pose.confirmed:
+                results.append((pose.score, key, pose, on_click))
+        results.sort(key=lambda r: -r[0])
+        if not results or not results[0][3]:  # a better piece next to the click: the piece under the click is not sure
+            print(f"locate terrain: no piece found at ({at[0]:.0f}, {at[1]:.0f}) mm")
+            return
+        if len(results) > 1 and results[0][0] - results[1][0] < self.cfg.light_min_margin:
+            print(f"locate terrain: no clear result at ({at[0]:.0f}, {at[1]:.0f}) mm: {results[0][1]} {results[0][0]:.2f}, {results[1][1]} {results[1][0]:.2f}")
+            return
+        _, key, pose, _ = results[0]
+        free = [k for k, item in enumerate(self._light_items()) if item.key == key and k not in self.light_poses]
+        if free:
+            k = min(free, key=lambda k: float(np.hypot(*np.subtract(self.terrain_map.light[k].at, pose.center_mm))))
+            self.light_poses[k] = (pose.center_mm, pose.angle_deg)
+        else:
+            self.loose_light.append((key, pose.center_mm, pose.angle_deg))
+        self._build_shapes()
+        self.notice.ok(f"light terrain {key} located")
+
+    def _light_state(self) -> list[dict[str, Any]]:
+        """Each light terrain piece: `located`: found on the board (real
+        outline at `center_mm`, `angle_deg`; else the card symbol at the
+        place of the layout card); `outline`: it has a piece file."""
+        out = []
+        for k, item in enumerate(self._light_items()):
+            center, angle = self.light_poses.get(k, (item.at, item.angle_deg))
+            out.append({"index": k, "key": item.key, "center_mm": [round(float(center[0]), 1), round(float(center[1]), 1)], "angle_deg": round(float(angle), 1), "located": k in self.light_poses, "outline": item.key in self.pieces})
+        for key, center, angle in self.loose_light:
+            out.append({"index": len(out), "key": key, "center_mm": [round(float(center[0]), 1), round(float(center[1]), 1)], "angle_deg": round(float(angle), 1), "located": True, "outline": True})
+        return out
+
+    def _light_under(self, x: float, y: float) -> int | None:
+        """The light terrain piece at pixel (x, y) of the returned image."""
+        outlines = self._light_outlines()
+        p_mm = self._to_mm(x, y) if outlines else None
+        if p_mm is None:
+            return None
+        for k, points in enumerate(outlines):
+            if cv2.pointPolygonTest(points.astype(np.float32).reshape(-1, 1, 2), (float(p_mm[0]), float(p_mm[1])), False) >= 0:
+                return k
+        return None
+
+    def _select_light(self, index: int | None) -> None:
+        self._set_selected(None)
+        self.selected_light = index
 
     def _shapes_now(self) -> list[ter.Shape]:
         """The shapes of the layout, the open openings with `open` set."""
@@ -1555,8 +1788,9 @@ class LiveSession:
 
     def _draw_terrain(self, img: np.ndarray, to_px, always: bool = False) -> None:
         """`always`: the layout shows also with "Layout" off (the minimap)."""
-        switch = {"zone": self.zones, "wall_key": self.keys, "teleporter_key": self.keys, "light_key": self.keys}
-        shown = [s for s in self._shapes_now() if switch.get(s.kind, self.terrain or always)]
+        on = self.terrain or always
+        switch = {"zone": self.zones, "wall_key": self.keys, "teleporter_key": self.keys, "light_key": self.keys and self.light_shown, "light": self.light_shown and (on or self.terrain_map is None)}  # no layout: only pieces of "Locate terrain"
+        shown = [s for s in self._shapes_now() if switch.get(s.kind, on)]
         if shown:
             draw_terrain(img, shown, to_px)
 
@@ -1570,6 +1804,10 @@ class LiveSession:
 
     def _toggle_keys(self) -> None:
         self.keys = not self.keys
+        self.dirty = True
+
+    def _toggle_light(self) -> None:
+        self.light_shown = not self.light_shown
         self.dirty = True
 
     def _show_minimap(self) -> None:
@@ -1588,6 +1826,7 @@ class LiveSession:
             return
         if name != self.terrain_type:
             self.terrain_type = name
+            self._read_pieces()
             self._set_map_layout(None)
 
     def _set_map_layout(self, name: str | None) -> None:
@@ -1601,6 +1840,9 @@ class LiveSession:
     def _load_map_layout(self, name: str | None) -> None:
         self.dirty = True
         self.map_layout, self.terrain_shapes, self.openings, self.selected_opening = None, [], [], None
+        self.terrain_map, self.light_poses, self.loose_light = None, {}, []  # the pieces found on the board belong to the layout that was on
+        self.selected_light = None
+        self._light_version += 1
         self.opened = set()  # a new layout starts with all hatchways and breach points closed
         self._navigator = self._wall_path = self._wall_range = self._move_field = self._move_route = None
         if name is None:
@@ -1614,9 +1856,10 @@ class LiveSession:
         except ter.MapError as exc:
             self.notice.error(f"map not loaded: {exc}")
             return
-        self.map_layout, self.terrain_shapes, self.terrain = name, ter.shapes(tmap, self.cfg), True
+        self.terrain_map = tmap
+        self.map_layout, self.terrain = name, True
+        self._build_shapes()
         self.around_walls = True  # the rule of the terrain: no measurement through walls
-        self.openings = [s for s in self.terrain_shapes if s.kind in OPENING_KINDS]
         self.notice.ok(f"map {tmap.terrain} / {tmap.name}")
 
     # --- teams ------------------------------------------------------------------
@@ -1692,13 +1935,20 @@ class LiveSession:
         breach point selects it. A right click measures (`_select_for_names`)."""
         if not self._mapped():
             return
+        if self.locating_light:
+            self._locate_light_at(x, y)
+            return
         if self.adding:
             self._add_at(x, y)
             return
         index = self._base_under(x, y)
         if index is None:
             opening = self._opening_under(x, y)
-            self._select_opening(None if opening == self.selected_opening else opening)
+            light = self._light_under(x, y) if opening is None else None
+            if light is not None:
+                self._select_light(None if light == self.selected_light else light)
+            else:
+                self._select_opening(None if opening == self.selected_opening else opening)
         else:
             self._set_selected(None if index == self.selected else index)
 
@@ -1871,6 +2121,7 @@ class LiveSession:
         detector missed. `Esc` stops it."""
         if self.adding:
             return
+        self.locating_light = False
         if not self.frozen and self.session is None and not self._need_frame():
             return
         self.busy = True

@@ -220,7 +220,7 @@ def cfg() -> BoardConfig:
 # test file must be added here; the photo tests have their own marker.
 CATEGORIES = {
     "core": ("test_calib", "test_camera", "test_colors", "test_config", "test_measure", "test_moves", "test_score", "test_scrcpy", "test_shoot", "test_terrain", "test_walls"),
-    "vision": ("test_bases", "test_bench", "test_ident", "test_ident_bench", "test_pipeline", "test_rectify"),
+    "vision": ("test_bases", "test_bench", "test_ident", "test_ident_bench", "test_lightfit", "test_pipeline", "test_rectify"),
     "live": ("test_live",),
     "ui": ("test_ui",),
 }

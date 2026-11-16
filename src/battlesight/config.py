@@ -86,6 +86,11 @@ class BoardConfig:
     terrain_breach_walls: tuple[str, ...] = ("A1", "B2")  # walls with a breach point; the other walls have hatchways
     terrain_no_middle_pillar: tuple[str, ...] = ("A2",)  # A walls with no pillar at the middle
     terrain_teleporter_mm: float = 60.0  # teleporter pad diameter
+    # Light terrain on the board (live app): search for each piece around its place on the layout card.
+    light_margin_mm: float = 20.0  # the footprint of a piece is in its rectangle on the layout card, plus this on each side
+    light_min_score: float = 0.47  # a piece with an outline score under this is not found (`lightfit.locate`)
+    light_click_mm: float = 40.0  # "Locate terrain": the click can be this far from the centre of the piece
+    light_min_margin: float = 0.1  # "Locate terrain": the best piece must be this much above the next one
     # Light terrain (C1..C5 on the layout cards): (key, long side, short side, corner cut), all mm.
     # The footprint of the card symbol; the real pieces have more detailed outlines.
     terrain_light_mm: tuple[tuple[str, float, float, float], ...] = (
@@ -103,6 +108,7 @@ class BoardConfig:
         board, tags, drift = raw["board"], raw["tags"], raw.get("drift", {})
         grid, rect, bases = raw.get("grid", {}), raw.get("rectify", {}), raw.get("bases", {})
         ident, terrain, copies = raw.get("ident", {}), raw.get("terrain", {}), raw.get("copies", {})
+        light = raw.get("light", {})
         if "camera" in raw:
             raise ValueError("[camera] moved from the board config to data/camera.toml (focal_35mm, lens calibration)")
         d = {f.name: f.default for f in dataclasses.fields(cls)}  # a key that the file leaves out gets the default above
@@ -146,6 +152,7 @@ class BoardConfig:
             **table("bases", bases, skip=("bases_diameters_mm",)),
             **table("ident", ident),
             **table("copies", copies),
+            **table("light", light),
             **table("terrain", terrain, skip=("terrain_light_mm",)),
             terrain_light_mm=_light_sizes(terrain.get("light_mm"), d["terrain_light_mm"]),
         )

@@ -20,8 +20,9 @@ range rings and the distances between operatives.
 11. ✅ Scoreboard, turn number, CP counter, faction ability counter, show CritOp
 12. ✅ Edit roster: Add / Remove operative from the list
 13. ⏳ Support multiple identical models: copies in the team list, told apart by position (UNTESTED)
-14. ✅ Shoot at measurements
-15. 🚧 Operative states: injured, dead, borrowed, poisioned, etc.
+14. ⏳ Shoot at measurements (UNTESTED)
+15. ⏳ Tomb World light terrain: real outlines, found on the board, cover for Shoot at (UNTESTED)
+16. 🚧 Operative states: injured, dead, borrowed, poisioned, etc.
 optional 🚧 Tokens: find tokens, list operatives in range
 optional 🚧 Turn counter, CritOp (where to put it?)
 
@@ -43,7 +44,8 @@ scissors.
 6. Calibrate the lens (optional).
 7. Take a photo of the empty board (for base detection).
 8. Teach the app your operatives (for operative names).
-9. Change the window layout settings (optional).
+9. Record your light terrain pieces (optional).
+10. Change the window layout settings (optional).
 
 ## Start the app
 
@@ -123,6 +125,15 @@ the board. Use the View check boxes to show or hide these parts:
 - **Drop zones**: the deployment zones.
 - **Terrain keys**: the label of each wall and light terrain piece.
 
+- **Light terrain**: the light terrain pieces.
+
+With recorded light terrain pieces (see Setup), click **Identify terrains**.
+The app finds each piece on the board and draws its outline. If an outline
+is wrong, click the piece and then **Remove ID** in the inspector.
+
+To find one piece, click **Locate terrain**, then click the piece on the
+video. You do not need a layout for this.
+
 Put the board so that it agrees with the layout card: corner card 0 is at
 the top-left corner of the card picture. If the drawing does not sit on the
 real walls, turn the board or the cards.
@@ -184,7 +195,8 @@ move out of these circles.
 To see if terrain is in the way of a shot, select the target operative and
 click **Shoot at** in the inspector. Put the mouse pointer on the shooter.
 White targeting lines go from the pointer to the target. Walls, pillars and
-closed hatchways in the lines show red. The inspector shows **OBSCURED** or
+closed hatchways in the lines show red. Light terrain that gives cover
+shows red too. The inspector shows **OBSCURED** or
 **IN COVER**, and the board under the pointer. Click **Cancel** or push Esc to stop.
 
 ### 4. Track the game
@@ -265,7 +277,7 @@ On the video:
 - White lines from the mouse pointer, red terrain: targeting lines and the terrain in the way.
 - Terrain: white walls, grey pillars, yellow hatchways, orange breach
   points, white rings for objectives, blue rings for teleporter pads, dark
-  areas for light terrain.
+  areas for light terrain and a narrow white outline for each light terrain piece that the app identified.
 
 In the `rosters` layout, the inspector shows the selected operative (team,
 name, base size, photo, wounds, distance slider, "Change ID", "Remove ID" and "Shoot at")

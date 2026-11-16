@@ -270,3 +270,167 @@ def test_light_sizes_from_the_board_file(tmp_path):
     bad.write_text(text.replace("C2 = [62.0, 46.0]", "C2 = [46.0, 62.0]"))
     with pytest.raises(ValueError, match="light_mm.C2"):
         BoardConfig.load(bad)
+
+
+# --- piece files ------------------------------------------------------------------
+
+L_PIECE = [[0, 0], [60, 0], [60, 20], [20, 20], [20, 40], [0, 40]]  # an L, bounding box 60 x 40
+
+
+def piece_text(points=L_PIECE, key="C2", extra="") -> str:
+    return f'schema = 1\nkey = "{key}"\noutline_mm = {points}\n{extra}'
+
+
+def test_piece_file_gives_the_real_outline(tmp_path):
+    import tomllib
+
+    piece = ter.parse_piece(tomllib.loads(piece_text()))
+    assert piece.key == "C2"
+    assert piece.outline.min(axis=0) == pytest.approx((-30.0, -20.0)) and piece.outline.max(axis=0) == pytest.approx((30.0, 20.0))
+    cfg = tomb_world_grid()
+    m = parse(HEAD + '[[light]]\nkey = "C2"\nat_mm = [200, 300]\nlong = "y"\n[[light]]\nkey = "C5"\nat = [3, 3]\n', cfg)
+    c2, c5 = by_kind(ter.shapes(m, cfg, {"C2": piece}), "light")
+    assert len(c2.points) == 4 and not c2.located and c2.center == (200.0, 300.0)  # not found on the board: the card symbol
+    assert (size_along(c2, 0), size_along(c2, 1)) == pytest.approx((46.0, 62.0))  # long = "y"
+    assert len(c5.points) == 4  # no piece file: the card symbol
+    found = ter.shapes(m, cfg, {"C2": piece}, {0: ((250.0, 310.0), 0.0), 1: ((0.0, 0.0), 45.0)})
+    c2, c5 = by_kind(found, "light")
+    assert len(c2.points) == 6 and c2.located and not c5.located
+    assert (size_along(c2, 0), size_along(c2, 1)) == pytest.approx((60.0, 40.0)) and c2.center == (250.0, 310.0)
+    assert c2.points.min(axis=0) == pytest.approx((220.0, 290.0))
+    assert c5.center == pytest.approx(mm(3, 3))  # a pose without a piece file is not used
+    assert [k.center for k in by_kind(found, "light_key")] == [c2.center, c5.center]
+
+
+def test_piece_files_of_a_map_folder(tmp_path):
+    cfg = tomb_world_grid()
+    maps, root = tmp_path / "maps" / "tomb-world", tmp_path / "terrain"
+    maps.mkdir(parents=True)
+    (maps / "a.toml").write_text(HEAD)
+    tmap = ter.load_map(maps / "a.toml", cfg)
+    assert ter.pieces_for(tmap, root) == ({}, [])  # no folder
+    folder = root / "tomb-world"
+    folder.mkdir(parents=True)
+    piece = ter.Piece("C3", ter.piece_frame(np.array(L_PIECE, float)))
+    ter.write_piece(folder / "C3.toml", piece, source="photo.jpg")
+    (folder / "bad.toml").write_text(piece_text(points=[[0, 0], [1, 1]]))
+    pieces, problems = ter.pieces_for(tmap, root)
+    assert list(pieces) == ["C3"]
+    assert np.allclose(pieces["C3"].outline, piece.outline, atol=0.05)
+    assert len(problems) == 1 and "bad.toml" in problems[0] and "3 or more points" in problems[0]
+
+
+@pytest.mark.parametrize(
+    "text, message",
+    [
+        (piece_text().replace("schema = 1", "schema = 2"), "schema"),
+        (piece_text(key=""), "key"),
+        (piece_text(extra="height_mm = 18"), "unknown keys height_mm"),
+        (piece_text(points=[[0, 0], [10, 0], [20, 0]]), "no area"),
+        (piece_text(extra="colour = 1"), "unknown keys colour"),
+    ],
+)
+def test_piece_file_errors(text, message):
+    import tomllib
+
+    with pytest.raises(ter.MapError, match=message):
+        ter.parse_piece(tomllib.loads(text))
+
+
+# --- skill record-terrain: outline.py ---------------------------------------------
+
+
+def outline_tool():
+    import importlib.util
+    import sys
+    from pathlib import Path
+
+    if "record_terrain_outline" not in sys.modules:
+        path = Path(__file__).resolve().parents[1] / ".claude" / "skills" / "record-terrain" / "outline.py"
+        spec = importlib.util.spec_from_file_location("record_terrain_outline", path)
+        mod = importlib.util.module_from_spec(spec)
+        sys.modules["record_terrain_outline"] = mod
+        spec.loader.exec_module(mod)
+    return sys.modules["record_terrain_outline"]
+
+
+def underside_photo(angle_deg=8.0, ppm=6.0, at=(700.0, 500.0)):
+    """A light table with the dark underside of the L piece, turned.
+    Returns the photo and the outline in photo pixels."""
+    import cv2
+
+    a = np.radians(angle_deg)
+    rot = np.array([[np.cos(a), -np.sin(a)], [np.sin(a), np.cos(a)]])
+    px = ((np.array(L_PIECE, float) - (30.0, 20.0)) @ rot.T) * ppm + at
+    img = np.full((1000, 1400, 3), 225, np.uint8)
+    cv2.fillPoly(img, [np.rint(px).astype(np.int32)], (60, 60, 60), cv2.LINE_AA)
+    return img, px
+
+
+def test_underside_outline_is_scaled_and_mirrored():
+    tool = outline_tool()
+    _, px = underside_photo()
+    outline, ratio, off, spread = tool.to_piece(px, 60.0, 40.0)
+    assert ratio < 0.004 and off == pytest.approx(8.0, abs=1.0) and spread < 0.02  # the frame follows the sizes, not the photo
+    assert np.ptp(outline, axis=0) == pytest.approx((60.0, 40.0), abs=0.3)
+    assert outline.min(axis=0) == pytest.approx(-outline.max(axis=0))
+    # One long slanted edge must not turn the frame (the minimum area rectangle does).
+    cut = np.array([[0, 0], [460, 0], [460, 300], [200, 620], [0, 620]], float)
+    assert tool.to_piece(cut, 62.0, 46.0)[2] == pytest.approx(0.0, abs=0.5)
+    # The L seen from above is the mirror image: the turn direction of the points changes.
+    def turn(p):
+        return np.sign(np.dot(p[:, 0], np.roll(p[:, 1], -1)) - np.dot(p[:, 1], np.roll(p[:, 0], -1)))
+
+    assert turn(outline) == -turn(px)
+    # Same shape as the true L or the L turned by 180 degrees, mirrored in x.
+    truth = (np.array(L_PIECE, float) - (30.0, 20.0)) * (-1.0, 1.0)
+    assert any(np.allclose(np.sort(outline, axis=0), np.sort(t, axis=0), atol=1.0) for t in (truth, -truth))
+    # Sizes that do not agree with the outline show in the ratio.
+    assert tool.to_piece(px, 60.0, 30.0)[1] > tool.MAX_RATIO  # no frame angle within 20 degrees agrees
+    with pytest.raises(tool.OutlineError, match="longer"):
+        tool.to_piece(px, 40.0, 60.0)
+
+
+def test_underside_suggest_and_view():
+    import cv2
+
+    tool = outline_tool()
+    photo, px = underside_photo()
+    found = tool.suggest(photo)
+    far = max(abs(cv2.pointPolygonTest(px.astype(np.float32), (float(x), float(y)), True)) for x, y in found)
+    assert far < 4.0  # px: within 0.7 mm of the true edge
+    with pytest.raises(tool.OutlineError, match="no piece"):
+        tool.suggest(np.full((400, 400, 3), 225, np.uint8))
+    img = tool.view(photo, found, box=(400, 250, 1000, 750))
+    assert max(img.shape[:2]) == tool.VIEW_PX
+    assert (img != tool.view(photo, box=(400, 250, 1000, 750))).any()  # the outline is drawn
+    with pytest.raises(tool.OutlineError, match="empty"):
+        tool.view(photo, box=(10, 10, 10, 10))
+
+
+def test_underside_command_writes_a_piece_file(tmp_path, capsys):
+    import json
+
+    import cv2
+
+    tool = outline_tool()
+    photo, px = underside_photo()
+    cv2.imwrite(str(tmp_path / "c2.png"), photo)
+    points = tmp_path / "points.json"
+    assert tool.main(["suggest", str(tmp_path / "c2.png"), "--out", str(points)]) == 0
+    assert tool.main(["view", str(tmp_path / "c2.png"), "--points", str(points), "--out", str(tmp_path / "view.png")]) == 0
+    before = json.loads(points.read_text())
+    assert tool.main(["simplify", str(points), "--length", "60", "--tolerance-mm", "1", "--out", str(points)]) == 0
+    after = json.loads(points.read_text())
+    assert 3 <= len(after) < len(before) and all(p in before for p in after)  # a subset, in the same order
+    save = ["save", str(points), "--key", "C2", "--terrain", "test-world", "--root", str(tmp_path / "terrain"), "--check", str(tmp_path / "check.png")]
+    assert tool.main([*save, "--length", "60", "--width", "40", "--source", "c2.png"]) == 0
+    assert "C2.toml" in capsys.readouterr().out and (tmp_path / "check.png").exists()
+    pieces, problems = ter.load_pieces(tmp_path / "terrain" / "test-world")
+    assert problems == []
+    assert np.ptp(pieces["C2"].outline, axis=0) == pytest.approx((60.0, 40.0), abs=0.2)
+    assert tool.main([*save, "--length", "60", "--width", "30"]) == 1  # the sizes do not agree with the outline
+    points.write_text(json.dumps([[0, 0], [1, 1]]))
+    assert tool.main([*save, "--length", "60", "--width", "40"]) == 2
+    assert tool.main(["simplify", str(points), "--length", "60", "--out", str(points)]) == 2
+    assert tool.main(["view", str(tmp_path / "none.png"), "--out", str(tmp_path / "v.png")]) == 2

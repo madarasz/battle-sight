@@ -189,13 +189,13 @@ class MainWindow(QMainWindow):
         self._restore_map()
 
     def _restore_map(self) -> None:
-        """Choose the terrain map of the last run. The commands run before the first frame."""
-        terrain, layout = self.ui_settings.map_terrain, self.ui_settings.map_layout
-        self.map_choice = [terrain, layout]
+        """Choose the terrain type of the last run. The app starts with no
+        layout: the user chooses the layout of each game. The command runs
+        before the first frame."""
+        terrain = self.ui_settings.map_terrain
+        self.map_choice = [terrain, None]
         if terrain:
             self.worker.submit("map.terrain_type", name=terrain)
-            if layout:
-                self.worker.submit("map.layout", name=layout)
 
     def _save_map(self, action_id: str, name: str | None) -> None:
         """Remember the terrain type and layout that the user chose."""

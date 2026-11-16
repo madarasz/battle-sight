@@ -325,15 +325,16 @@ TARGET_ALPHA = 0.18  # fill between the targeting lines
 INTERVENING_ALPHA = 0.45
 
 
-def draw_targeting_mm(frame: np.ndarray, outline_mm, pieces_mm, to_px, color: tuple[int, int, int] = TARGETING_COLOR) -> None:
+def draw_targeting_mm(frame: np.ndarray, outline_mm, pieces_mm, to_px, color: tuple[int, int, int] = TARGETING_COLOR, light_mm=()) -> None:
     """Targeting lines: `outline_mm` is the start point, then the facing rim
     of the target (`shoot.facing_outline`). A light fill between the outer
     lines, the two outer lines, and each intervening terrain piece
-    (`pieces_mm`, rectangles x0, y0, x1, y1) filled and outlined in red."""
+    (`pieces_mm`, rectangles x0, y0, x1, y1; `light_mm`, outlines (N, 2) of
+    the light terrain that gives cover) filled and outlined in red."""
     s = _scale(frame)
     thick = max(1, round(2 * s))
-    for x0, y0, x1, y1 in np.asarray(pieces_mm, float).reshape(-1, 4):
-        rect = np.array([[x0, y0], [x1, y0], [x1, y1], [x0, y1]])
+    rects = [np.array([[x0, y0], [x1, y0], [x1, y1], [x0, y1]]) for x0, y0, x1, y1 in np.asarray(pieces_mm, float).reshape(-1, 4)]
+    for rect in rects + [np.asarray(p, float).reshape(-1, 2) for p in light_mm]:
         poly = np.rint(to_px(_dense(rect, 5.0))).astype(np.int32).reshape(-1, 1, 2)
         layer = frame.copy()
         cv2.fillPoly(layer, [poly], INTERVENING_COLOR, cv2.LINE_AA)
@@ -484,10 +485,14 @@ def draw_terrain(frame: np.ndarray, shapes, to_px) -> None:
     if light:
         layer = frame.copy()
         for sh in light:
-            cv2.fillPoly(layer, [px(_dense(sh.points))], LIGHT_TERRAIN_COLOR, cv2.LINE_AA)
+            if not sh.located:  # the card symbol
+                cv2.fillPoly(layer, [px(_dense(sh.points))], LIGHT_TERRAIN_COLOR, cv2.LINE_AA)
         cv2.addWeighted(layer, LIGHT_ALPHA, frame, 1 - LIGHT_ALPHA, 0, dst=frame)
         for sh in light:
-            cv2.polylines(frame, [px(_dense(sh.points))], True, OUTLINE_COLOR, thick, cv2.LINE_AA)
+            if sh.located:  # found on the board: only the footprint, a narrow line in the wall colour
+                cv2.polylines(frame, [px(_dense(sh.points))], True, WALL_COLOR, max(1, thick // 2), cv2.LINE_AA)
+            else:
+                cv2.polylines(frame, [px(_dense(sh.points))], True, OUTLINE_COLOR, thick, cv2.LINE_AA)
     floor = frame.copy() if any(sh.open and sh.kind in OPENING_KINDS for sh in shapes) else None
     for sh in shapes:
         if sh.open and sh.kind in OPENING_KINDS:

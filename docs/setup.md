@@ -487,7 +487,34 @@ many wrong photos. Add photos of this operative first.
 The first start downloads the recognition model (about 90 MB). This needs
 the internet one time only.
 
-## 9. Change the window layout settings (optional)
+## 9. Record your light terrain pieces (optional)
+
+The app can use the real outline of each light terrain piece (C1 to C5 of
+the layout cards) for the cover of a shot. Without this step it uses the
+rectangle of the layout card.
+
+For each piece:
+
+1. Put the piece upside down on a light table, its long side along the long
+   side of the photo.
+2. Hold the phone level, straight above the piece, and take one photo. The
+   full rim that touches the board must be in the photo. Use soft light: a
+   dark shadow next to the piece hides the rim.
+3. Measure the rim in mm: its size along the long side, and its size at a
+   right angle to that. A caliper is best.
+4. Give the photo to the AI agent (Claude Code) and ask it to record the
+   terrain piece. Tell it the label of the piece (for example C2) and the
+   two sizes.
+
+The agent writes the outline in `data/terrain/tomb-world/` (for example
+`C2.toml`) and shows you an image of the outline on your photo. Look at the
+image. If a part of the line is not on the rim, tell the agent where.
+
+In the app, choose the layout and click **Identify terrains**. The app
+finds each recorded piece on the board. To find one piece, with or without
+a layout, click **Locate terrain** and then the piece on the video.
+
+## 10. Change the window layout settings (optional)
 
 Push `l` in the app to change the layout. The app writes your choice in the
 file `data/ui.toml`. You do not have to make this file.
@@ -515,7 +542,7 @@ panel_side = "right"
 If a value is not correct, the app starts and shows a red message at the
 bottom of the window. It then uses the default value.
 
-## 10. Change the colours (optional)
+## 11. Change the colours (optional)
 
 All colours of the video marks and of the window are in the file
 `data/color-settings.toml`. Each line is one function, for example

@@ -6,6 +6,12 @@ terrain type. An agent writes it from a photo of the layout card (skill
 or board mm `at_mm = [x, y]`. `load_map` checks the file and turns all points
 into board mm. `shapes` gives the footprints on the board for the overlay,
 with the sizes of `[terrain]` in `data/board.toml`. No window, no camera.
+
+A piece file (`data/terrain/<folder>/<key>.toml`, skill `record-terrain`)
+holds the real outline of one light terrain piece: a polygon in the piece
+frame (origin = centre of its bounding box, x = long side).
+With a piece file, `shapes` gives that polygon in place of the card symbol,
+at the pose found on the board (`poses`, `lightfit`).
 """
 
 from __future__ import annotations
@@ -21,7 +27,9 @@ import numpy as np
 from .config import BoardConfig
 
 DEFAULT_MAPS_ROOT = Path(__file__).resolve().parents[2] / "data" / "maps"
+DEFAULT_PIECES_ROOT = Path(__file__).resolve().parents[2] / "data" / "terrain"
 SCHEMA = 1
+PIECE_SCHEMA = 1
 OPENINGS = ("none", "hatchway", "breach")
 WALL_KEY = re.compile(r"[AB][1-9][0-9]?$")
 LIGHT_EDGE_TOL_MM = 1.0  # light terrain may stick out of the board this much (it touches the edge)
@@ -52,6 +60,25 @@ class Light:
     key: str  # light terrain on the card: C1..C5
     at: tuple[float, float]  # board mm, centre of the footprint
     long_axis: str = "x"  # "x" or "y": the long side of the footprint is along this board axis
+
+    @property
+    def angle_deg(self) -> float:
+        """Angle of the long side from the board x axis, as the card shows it."""
+        return 0.0 if self.long_axis == "x" else 90.0
+
+
+@dataclass(frozen=True)
+class Piece:
+    """The real outline of one light terrain piece (piece file)."""
+
+    key: str
+    outline: np.ndarray  # (N, 2) mm, piece frame: origin = centre of the bounding box, x = long side
+
+    def at(self, center, angle_deg: float) -> np.ndarray:
+        """The outline (N, 2) in board mm at a pose."""
+        a = np.radians(angle_deg)
+        rot = np.array([[np.cos(a), -np.sin(a)], [np.sin(a), np.cos(a)]])
+        return self.outline @ rot.T + np.asarray(center, float)
 
 
 @dataclass(frozen=True)
@@ -90,6 +117,7 @@ class Shape:
     radius: float | None = None
     name: str = field(default="")
     vertical: bool = False  # wall_key: the label of a vertical wall goes to its right
+    located: bool = False  # light: the real outline at the pose found on the board (else the card symbol)
     open: bool = False  # hatchway or breach point: open in the game (the map files hold closed ones)
 
 
@@ -361,6 +389,79 @@ def _to_edge(a, b, grid: _Grid, cfg: BoardConfig) -> tuple[float, float, float, 
     return float(x0), float(y0), float(x1), float(y1)
 
 
+# --- piece files ------------------------------------------------------------------
+
+
+def piece_frame(outline) -> np.ndarray:
+    """Move an outline (N, 2) into the piece frame: origin at the centre of
+    its bounding box. The caller turns the long side onto x before."""
+    pts = np.asarray(outline, float).reshape(-1, 2)
+    return pts - 0.5 * (pts.min(axis=0) + pts.max(axis=0))
+
+
+def parse_piece(raw: dict[str, Any], name: str = "piece") -> Piece:
+    """Check the TOML content of a piece file. Raises MapError."""
+    if raw.get("schema") != PIECE_SCHEMA:
+        raise MapError(f"{name}: schema must be {PIECE_SCHEMA}, not {raw.get('schema')!r}")
+    unknown = sorted(set(raw) - {"schema", "key", "outline_mm", "source"})
+    if unknown:
+        raise MapError(f"{name}: unknown keys {', '.join(unknown)}")
+    key = raw.get("key")
+    if not isinstance(key, str) or not key.strip():
+        raise MapError(f"{name}: key must be the light terrain label, for example \"C1\"")
+    pts = raw.get("outline_mm")
+    ok = isinstance(pts, list) and len(pts) >= 3 and all(
+        isinstance(p, list) and len(p) == 2 and all(isinstance(v, int | float) and not isinstance(v, bool) for v in p) for p in pts
+    )
+    if not ok:
+        raise MapError(f"{name}: outline_mm must be a list of 3 or more points [x, y] in mm")
+    outline = np.asarray(pts, float)
+    x, y = outline[:, 0], outline[:, 1]
+    if abs(float(np.dot(x, np.roll(y, -1)) - np.dot(y, np.roll(x, -1)))) < 2.0:  # twice the area
+        raise MapError(f"{name}: outline_mm has no area")
+    return Piece(key.strip(), piece_frame(outline))
+
+
+def load_pieces(folder: str | Path) -> tuple[dict[str, Piece], list[str]]:
+    """The piece files of one folder (`<folder>/*.toml`) by key, and a
+    problem text for each file that cannot be used. No folder: no pieces."""
+    pieces: dict[str, Piece] = {}
+    problems: list[str] = []
+    for path in sorted(Path(folder).glob("*.toml")):
+        try:
+            with path.open("rb") as fh:
+                piece = parse_piece(tomllib.load(fh), path.name)
+        except MapError as exc:
+            problems.append(str(exc))
+        except (OSError, ValueError) as exc:
+            problems.append(f"{path.name}: {exc}")
+        else:
+            pieces[piece.key] = piece
+    return pieces, problems
+
+
+def pieces_for(tmap: TerrainMap, root: str | Path = DEFAULT_PIECES_ROOT) -> tuple[dict[str, Piece], list[str]]:
+    """The piece files of the terrain type of a map: the folder under
+    `root` with the name of the folder of the map file."""
+    if tmap.path is None:
+        return {}, []
+    return load_pieces(Path(root) / tmap.path.parent.name)
+
+
+def write_piece(path: str | Path, piece: Piece, source: str = "") -> None:
+    """Write a piece file (skill `record-terrain`)."""
+    points = ", ".join(f"[{x:.1f}, {y:.1f}]" for x, y in piece.outline)
+    lines = [
+        "# Light terrain piece: real outline where it touches the board (skill record-terrain).",
+        "# Piece frame: origin = centre of the bounding box, x = long side. All mm.",
+        f"schema = {PIECE_SCHEMA}",
+        f'key = "{piece.key}"',
+        *([f'source = "{source}"'] if source else []),
+        f"outline_mm = [{points}]",
+    ]
+    Path(path).write_text("\n".join(lines) + "\n")
+
+
 # --- find map files ---------------------------------------------------------------
 
 
@@ -427,14 +528,40 @@ def _light_outline(item: Light, cfg: BoardConfig) -> np.ndarray:
     return np.array([(x + dx, y + dy) for dx, dy in corners], float)
 
 
-def shapes(tmap: TerrainMap, cfg: BoardConfig) -> list[Shape]:
-    """All footprints in board mm, in drawing order (zones first, discs last)."""
+def light_rect(item: Light, cfg: BoardConfig, margin_mm: float = 0.0) -> tuple[float, float, float, float]:
+    """Rectangle x0, y0, x1, y1 of the card symbol of a light terrain item, grown by `margin_mm`."""
+    size = cfg.light_size(item.key)
+    assert size is not None
+    hx, hy = _light_half(size, item.long_axis)
+    return item.at[0] - hx - margin_mm, item.at[1] - hy - margin_mm, item.at[0] + hx + margin_mm, item.at[1] + hy + margin_mm
+
+
+def light_outline(item: Light, cfg: BoardConfig, piece: Piece | None = None, pose: tuple[Any, float] | None = None) -> np.ndarray:
+    """Footprint (N, 2) of one light terrain item in board mm: the real
+    outline of the piece file at `pose` = (centre, angle in degrees), found
+    on the board. Without a piece file or a pose: the card symbol at the
+    map position."""
+    if piece is None or pose is None:
+        return _light_outline(item, cfg)
+    return piece.at(*pose)
+
+
+def shapes(tmap: TerrainMap, cfg: BoardConfig, pieces: dict[str, Piece] | None = None, poses: dict[int, tuple[Any, float]] | None = None) -> list[Shape]:
+    """All footprints in board mm, in drawing order (zones first, discs last).
+    `pieces`: piece files by key; `poses`: (centre, angle) of light item k,
+    found on the board. A light item with both gets its real outline
+    (`located`), else the card symbol."""
+    pieces, poses = pieces or {}, poses or {}
     out: list[Shape] = []
     for z in tmap.zones:
         x0, y0, x1, y1 = z.rect
         out.append(Shape("zone", np.array([[x0, y0], [x1, y0], [x1, y1], [x0, y1]], float), name=z.name))
-    for item in tmap.light:  # on the floor, under walls and markers
-        out.append(Shape("light", _light_outline(item, cfg), item.at, name=item.key))
+    centres = []
+    for k, item in enumerate(tmap.light):  # on the floor, under walls and markers
+        piece, pose = pieces.get(item.key), poses.get(k)
+        at = item.at if piece is None or pose is None else (float(pose[0][0]), float(pose[0][1]))
+        centres.append(at)
+        out.append(Shape("light", light_outline(item, cfg, piece, pose), at, name=item.key, located=piece is not None and pose is not None))
     for w in tmap.walls:
         a, b = np.asarray(w.start), np.asarray(w.end)
         length = float(np.linalg.norm(b - a))
@@ -464,7 +591,7 @@ def shapes(tmap: TerrainMap, cfg: BoardConfig) -> list[Shape]:
         anchor = (c[0] + gap, c[1]) if vertical else (c[0], c[1] - gap)  # right of a vertical wall, above a horizontal one
         out.append(Shape("wall_key", np.array([anchor]), c, name=w.key, vertical=vertical))
     out += [Shape("teleporter_key", np.array([p]), p, name="T") for p in tmap.teleporters]
-    out += [Shape("light_key", np.array([item.at]), item.at, name=item.key) for item in tmap.light]
+    out += [Shape("light_key", np.array([at]), at, name=item.key) for item, at in zip(tmap.light, centres)]
     return out
 
 

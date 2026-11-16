@@ -684,7 +684,7 @@ def render_map(tmap, cfg: BoardConfig) -> np.ndarray:
     from .colors import MAP_BOARD_COLOR, MAP_GRID_COLOR, MAP_PAPER_COLOR, MAP_TEXT_COLOR
     from .overlay import draw_grid, draw_terrain
     from .rectify import mm_to_rect
-    from .terrain import shapes
+    from .terrain import pieces_for, shapes
 
     m, ppm = cfg.rectify_margin_mm, cfg.rectify_px_per_mm
     w, h = int(round((cfg.width_mm + 2 * m) * ppm)), int(round((cfg.height_mm + 2 * m) * ppm))
@@ -693,7 +693,9 @@ def render_map(tmap, cfg: BoardConfig) -> np.ndarray:
     board = np.rint(to_px(cfg.board_corners_mm())).astype(np.int32)
     cv2.fillPoly(img, [board], MAP_BOARD_COLOR)
     draw_grid(img, cfg, to_px, color=MAP_GRID_COLOR, outline=MAP_TEXT_COLOR)
-    draw_terrain(img, shapes(tmap, cfg), to_px)
+    pieces = pieces_for(tmap)[0]
+    poses = {k: (item.at, item.angle_deg) for k, item in enumerate(tmap.light) if item.key in pieces}
+    draw_terrain(img, shapes(tmap, cfg, pieces, poses), to_px)  # the recorded outlines of the light terrain, at the card pose
     xs, ys = cfg.grid_lines_mm()
     for k, x in enumerate(xs):
         p = to_px(np.array([[x, -m / 2]]))[0]

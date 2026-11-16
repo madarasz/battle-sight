@@ -13,7 +13,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QAbstractButton, QHBoxLayout, QLabel, QStackedWidget, QToolButton, QVBoxLayout, QWidget
 
 from ...live import ACTIONS, Action
-from ..parts import CandidateList, DebugView, MapPicker, OpeningControl, OperativeList, VideoWidget, WoundsControl, action_control, distance_label, panel_side, ring_controls, show_action_state
+from ..parts import CandidateList, DebugView, LightControl, MapPicker, OpeningControl, OperativeList, VideoWidget, WoundsControl, action_control, distance_label, light_title, panel_side, ring_controls, show_action_state
 
 if TYPE_CHECKING:
     from . import Shell
@@ -32,6 +32,8 @@ def page_for(state: dict[str, Any]) -> str:
         return "selected"
     if state["selected_opening"] is not None:
         return "opening"
+    if state["selected_light"] is not None:
+        return "light"
     return "live" if state["mode"] == "live" else "snapshot"
 
 
@@ -72,12 +74,12 @@ class InspectorLayout:
         column = QVBoxLayout(panel)
         self.map_picker = MapPicker(self.shell.dispatch)
         column.addWidget(self.map_picker)
-        self._add_controls(column, "view.top_down", "view.grid", "view.terrain", "view.zones", "view.keys", "view.marks", "measure.walls")
+        self._add_controls(column, "view.top_down", "view.grid", "view.terrain", "view.zones", "view.keys", "view.light", "view.marks", "measure.walls")
         modes = QHBoxLayout()  # what the video shows
         column.addLayout(modes)
         self._add_controls(modes, "view.live", "view.snapshot", "view.minimap")
         self.stack = QStackedWidget()
-        for name, make in (("live", self._live_page), ("snapshot", self._snapshot_page), ("adding", self._adding_page), ("selected", self._selected_page), ("opening", self._opening_page)):
+        for name, make in (("live", self._live_page), ("snapshot", self._snapshot_page), ("adding", self._adding_page), ("selected", self._selected_page), ("opening", self._opening_page), ("light", self._light_page)):
             self.pages[name] = page = QWidget()
             make(QVBoxLayout(page))
             self.stack.addWidget(page)
@@ -157,6 +159,14 @@ class InspectorLayout:
         self._add_controls(column, "base.deselect")
         column.addStretch(1)
 
+    def _light_page(self, column: QVBoxLayout) -> None:
+        self.light_title = QLabel()
+        column.addWidget(self.light_title)
+        self.light = LightControl(self.shell.dispatch)
+        column.addWidget(self.light)
+        self._add_controls(column, "base.deselect")
+        column.addStretch(1)
+
     def on_state(self, state: dict[str, Any]) -> None:
         for action, control in self.controls:
             show_action_state(control, action, state)
@@ -174,6 +184,9 @@ class InspectorLayout:
         elif page == "opening":
             self.opening_title.setText(OPENING_NAMES.get(state["selected_opening"]["kind"], state["selected_opening"]["kind"]))
             self.opening.show_state(state)
+        elif page == "light":
+            self.light_title.setText(light_title(state))
+            self.light.show_state(state)
         else:
             base = state["bases"][state["selected"]]
             self.base_title.setText(f"{base['diameter_mm']:g} mm base")
