@@ -711,32 +711,67 @@ LIGHT_STATE = {
 }
 
 
+AIM_TEXTS = {  # waiting for a click on the board: (title, hint) of the inspector page with the pointer crop
+    "adding": ("Locate operative", "Click the centre of the base of the operative that was not identified. Push Esc to cancel."),
+    "locating_light": ("Locate terrain", "Click the middle of the light terrain piece. Push Esc to cancel."),
+}
+
+
+def aim_texts(state: dict[str, Any]) -> tuple[str, str]:
+    """Title and hint of the pointer crop page: "Locate operative" or "Locate terrain"."""
+    return AIM_TEXTS["locating_light" if state["locating_light"] else "adding"]
+
+
 def light_title(state: dict[str, Any]) -> str:
     return f"Light terrain {state['selected_light']['key']}"
 
 
 class LightControl(QWidget):
-    """The selected light terrain piece: if it is identified on the board,
-    and "Remove ID" (back to the card symbol)."""
+    """The selected light terrain piece: an identified piece shows its image
+    cut from the board and "Remove ID" (back to the card symbol); a card
+    symbol shows "Identify terrain here" ("Locate terrain" at its place)."""
 
-    def __init__(self, dispatch: Callable[..., Any], parent: QWidget | None = None):
+    def __init__(self, dispatch: Callable[..., Any], crop_px: int = 140, beside: bool = False, parent: QWidget | None = None):
+        """`beside`: the image at the left of the text and the button, a
+        `crop_px` square (a low panel); else above them, `crop_px` high."""
         super().__init__(parent)
-        column = QVBoxLayout(self)
+        outer = QHBoxLayout(self) if beside else QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        self.crop = VideoWidget()
+        if beside:
+            self.crop.setMinimumSize(crop_px, crop_px)
+            self.crop.setFixedSize(crop_px, crop_px)
+            outer.addWidget(self.crop, 0, Qt.AlignmentFlag.AlignTop)
+        else:
+            self.crop.setMinimumSize(80, 80)
+            self.crop.setFixedHeight(crop_px)
+            outer.addWidget(self.crop)
+        column = QVBoxLayout()
         column.setContentsMargins(0, 0, 0, 0)
+        outer.addLayout(column, 1)
         self.pose_label = QLabel()
         self.pose_label.setWordWrap(True)
         column.addWidget(self.pose_label)
-        self._action = next(a for a in ACTIONS if a.id == "light.remove")
-        self.remove = action_control(self._action, dispatch)
+        self._actions = {a.id: a for a in ACTIONS if a.id in ("light.remove", "light.locate_here")}
+        self.remove = action_control(self._actions["light.remove"], dispatch)
         column.addWidget(self.remove)
+        self.identify = action_control(self._actions["light.locate_here"], dispatch)
+        column.addWidget(self.identify)
+        column.addStretch(1)
 
-    def show_state(self, state: dict[str, Any]) -> None:
+    def show_state(self, state: dict[str, Any], crop: np.ndarray | None = None) -> None:
+        """`crop`: the image of the selected identified piece (`LiveFrame.crop`)."""
         piece = state["selected_light"]
         self.setEnabled(piece is not None)
         if piece is None:
             return
         self.pose_label.setText(LIGHT_STATE[piece["located"] if piece["outline"] else None])
-        show_action_state(self.remove, self._action, state)
+        self.crop.setVisible(piece["located"] and crop is not None)
+        self.crop.set_image(crop)
+        self.remove.setVisible(piece["located"])
+        self.identify.setVisible(not piece["located"])
+        show_action_state(self.remove, self._actions["light.remove"], state)
+        show_action_state(self.identify, self._actions["light.locate_here"], state)
 
 
 NO_TAC_OP = "(no Tac Op)"

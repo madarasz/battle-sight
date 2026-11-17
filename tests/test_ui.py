@@ -1169,6 +1169,18 @@ def test_rosters_shoot_at_shows_cancel_the_pointer_crop_and_the_result(idle_rost
     assert layout.shoot.text() == "Shoot at" and layout.ring.isVisibleTo(idle_rosters)
 
 
+def test_locate_terrain_shows_the_pointer_crop_like_locate_operative(idle_rosters, idle_inspector, recorded):
+    snap = recorded[2]["snapshot"]
+    aim = np.full((80, 80, 3), 128, np.uint8)
+    for window, title in ((idle_rosters, lambda layout: layout.title), (idle_inspector, lambda layout: layout.aim_title)):
+        layout = window.current_layout
+        window._on_frame(replace(snap, state=dict(snap.state, locating_light=True), crop=aim), 0)
+        assert layout.stack.currentWidget() is layout.pages["adding"] and layout.aim_crop._array is aim
+        assert title(layout).text() == "Locate terrain" and "light terrain piece" in layout.aim_hint.text()
+        window._on_frame(replace(snap, state=dict(snap.state, adding=True), crop=aim), 0)
+        assert title(layout).text() == "Locate operative" and "base of the operative" in layout.aim_hint.text()
+
+
 def test_rosters_add_operative_shows_the_instruction_and_then_the_name_list(idle_rosters, recorded):
     layout = idle_rosters.current_layout
     frames = recorded[2]
@@ -1204,30 +1216,39 @@ LIGHT_PIECE = {"index": 0, "key": "C2", "center_mm": [100.0, 200.0], "angle_deg"
 
 def test_inspectors_show_a_light_terrain_piece(idle_rosters, idle_inspector, recorded):
     live = recorded[2]["live"]
+    image = np.zeros((60, 80, 3), np.uint8)  # the piece cut from the board (`LiveFrame.crop`)
     for window, title in ((idle_rosters, lambda layout: layout.title), (idle_inspector, lambda layout: layout.light_title)):
         layout = window.current_layout
-        state = dict(live.state, light=[LIGHT_PIECE], selected_light=LIGHT_PIECE, light_can_locate=True)
-        window._on_frame(replace(live, state=state), 0)
+        state = dict(live.state, light=[LIGHT_PIECE], selected_light=LIGHT_PIECE, light_can_locate=True, light_files=["C2"])
+        window._on_frame(replace(live, state=state, crop=image), 0)
         control = layout.light
         assert layout.stack.currentWidget() is layout.pages["light"] and title(layout).text() == "Light terrain C2"
         assert control.pose_label.text() == "Identified on the board." and control.remove.isEnabled() and control.remove.text() == "Remove ID"
+        assert not control.crop.isHidden() and control.crop._array is image
+        if window is idle_rosters:  # the low top bar: the image at the left, no overlap
+            assert control.crop.geometry().right() < control.pose_label.geometry().left() and control.crop.height() <= layout.stack.height()
+        assert not control.remove.isHidden() and control.identify.isHidden()  # no disabled button
         buttons = control.findChildren(QAbstractButton)
-        assert buttons == [control.remove] and control.remove.focusPolicy() == Qt.FocusPolicy.NoFocus  # the one button
+        assert set(buttons) == {control.remove, control.identify} and all(b.focusPolicy() == Qt.FocusPolicy.NoFocus for b in buttons)
         card = dict(LIGHT_PIECE, located=False)
-        window._on_frame(replace(live, state=dict(state, light=[card], selected_light=card)), 0)
-        assert control.pose_label.text().startswith("Not identified") and not control.remove.isEnabled()
-        none = dict(LIGHT_PIECE, located=False, outline=False)  # no piece file
+        window._on_frame(replace(live, state=dict(state, light=[card], selected_light=card), crop=None), 0)
+        assert control.pose_label.text().startswith("Not identified") and control.crop.isHidden()
+        assert control.remove.isHidden() and not control.identify.isHidden() and control.identify.isEnabled() and control.identify.text() == "Identify terrain here"
+        none = dict(LIGHT_PIECE, located=False, outline=False)  # no piece file of its key: the other files are searched
         window._on_frame(replace(live, state=dict(state, light=[none], selected_light=none, light_can_locate=False)), 0)
-        assert "No outline file" in control.pose_label.text() and not control.remove.isEnabled()
+        assert "No outline file" in control.pose_label.text() and control.remove.isHidden() and control.identify.isEnabled()
+        window._on_frame(replace(live, state=dict(state, light=[none], selected_light=none, light_files=[])), 0)
+        assert not control.identify.isEnabled()  # no piece file at all
 
 
-def test_light_control_sends_remove_id(qapp):
+def test_light_control_sends_its_actions(qapp):
     from battlesight.ui.parts import LightControl
 
     sent = []
     control = LightControl(lambda action_id, **args: sent.append((action_id, args)))
     control.remove.click()
-    assert sent == [("light.remove", {})]
+    control.identify.click()
+    assert sent == [("light.remove", {}), ("light.locate_here", {})]
 
 
 def test_rosters_row_slider_and_name_fix_run_actions(rosters):

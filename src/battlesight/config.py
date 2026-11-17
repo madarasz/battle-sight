@@ -89,8 +89,7 @@ class BoardConfig:
     # Light terrain on the board (live app): search for each piece around its place on the layout card.
     light_margin_mm: float = 20.0  # the footprint of a piece is in its rectangle on the layout card, plus this on each side
     light_min_score: float = 0.47  # a piece with an outline score under this is not found (`lightfit.locate`)
-    light_click_mm: float = 40.0  # "Locate terrain": the click can be this far from the centre of the piece
-    light_min_margin: float = 0.1  # "Locate terrain": the best piece must be this much above the next one
+    light_min_margin: float = 0.05  # "Locate terrain": the best piece must be this much above the next one
     # Light terrain (C1..C5 on the layout cards): (key, long side, short side, corner cut), all mm.
     # The footprint of the card symbol; the real pieces have more detailed outlines.
     terrain_light_mm: tuple[tuple[str, float, float, float], ...] = (

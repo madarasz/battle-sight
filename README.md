@@ -21,7 +21,7 @@ range rings and the distances between operatives.
 12. ✅ Edit roster: Add / Remove operative from the list
 13. ⏳ Support multiple identical models: copies in the team list, told apart by position (UNTESTED)
 14. ⏳ Shoot at measurements (UNTESTED)
-15. ⏳ Tomb World light terrain: real outlines, found on the board, cover for Shoot at (UNTESTED)
+15. ✅  Tomb World light terrain: real outlines, found on the board, cover for Shoot at
 16. 🚧 Operative states: injured, dead, borrowed, poisioned, etc.
 optional 🚧 Tokens: find tokens, list operatives in range
 optional 🚧 Turn counter, CritOp (where to put it?)
@@ -128,8 +128,10 @@ the board. Use the View check boxes to show or hide these parts:
 - **Light terrain**: the light terrain pieces.
 
 With recorded light terrain pieces (see Setup), click **Identify terrains**.
-The app finds each piece on the board and draws its outline. If an outline
-is wrong, click the piece and then **Remove ID** in the inspector.
+The app finds each piece on the board and draws its outline. Click a piece
+to see its image in the inspector. If an outline is wrong, click the piece
+and then **Remove ID** in the inspector. If a piece is not found, click its
+rectangle and then **Identify terrain here**.
 
 To find one piece, click **Locate terrain**, then click the piece on the
 video. You do not need a layout for this.

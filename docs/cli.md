@@ -23,6 +23,7 @@ uv run battlesight --version
 | `tools/make_charuco.py` | none | Lens calibration sheet: `data/print/charuco.pdf`. |
 | `tools/bench_bases.py` | test photos | Bases benchmark: metrics, parameter sweeps, baseline check. |
 | `tools/bench_ident.py` | test photos | Identification benchmark: name metrics, baseline check. |
+| `tools/bench_light.py` | test photos | Light terrain search: "Locate terrain" clicks and "Identify terrains" card searches against `<name>.light.json` (`docs/testing.md`). |
 | `tools/annotate_bases.py` | one test photo | Click the base ground truth of a test photo, and assign the operative names. |
 
 ## Option rule
@@ -1229,8 +1230,11 @@ uses only the outline and the edges of the image, not the colour of the
 piece (each owner paints differently):
 
 1. Edge maps at 2 px per mm of the card rectangle plus `margin_mm`: Canny
-   edges (60, 150) of each Lab channel after a blur of 1 px, in 12
-   direction classes, each grown by 0.75 mm.
+   edges of each Lab channel after a blur of 1 px, in 12 direction
+   classes, each grown by 0.75 mm. The high Canny threshold of a channel is
+   the 90th percentile of its gradient (|gx| + |gy|) in this area, at least
+   30; the low one is 0.4 of it. So a dark piece on the dark board and a
+   blurred photo also give edges (fixed thresholds 60 and 150 lost them).
 2. Raw score of a pose: the part of the outline points that are on an edge
    of their direction class (or a class next to it).
 3. Coarse pass: all angles in 4 degree steps, positions in 1 mm steps, only
@@ -1246,43 +1250,65 @@ No parallax correction. `[light]` in `data/board.toml`:
 |---|---|---|
 | `margin_mm` | `20.0` | The footprint of a piece is in its rectangle on the layout card, plus this on each side. |
 | `min_score` | `0.47` | A score under this: the piece is not found, the card symbol stays. |
-| `click_mm` | `40.0` | "Locate terrain": the click can be this far from the centre of the piece. |
-| `min_margin` | `0.1` | "Locate terrain": the score of the best piece must be this much above the next piece. Not measured as a limit. |
-
-Measured with the C2 outline on 2 test photos (2 different paints): right
-pose 0.81 and 0.50 (piece at the board edge under an objective ring); C2
-searched where another piece or bare board is: 0.44 at most. With the 6
-layout files: found in the right layout of each photo, not found in the 10
-other searches (0.32 at most). The margin between 0.50 and 0.44 is small.
+| `min_margin` | `0.05` | "Locate terrain": the score of the best piece must be this much above the next piece. |
 
 "Locate terrain" (action `light.locate_at`, enabled with a piece file of the
 terrain type, also with no layout; `state["locating_light"]`, `Esc` stops
-it): the next left click is on a piece, at most `click_mm` from its centre.
-Each piece file of the terrain type (`state["light_files"]`, loaded with
-the terrain type) is searched with the same `lightfit.locate`, the outline
-in a square around the click (largest outline radius plus `click_mm` each
-side). A piece is found with a score of `min_score` or more. The found
-piece with the best score must have the click in its outline, and its
-score must be `min_margin` above the next found piece. Else nothing changes
-and the reason goes to standard output (also the score of each piece). The
-click ends the mode. With a layout the pose goes to the nearest light item
-of that key with no pose; else, and with no layout, the piece is a piece of
-its own (`LiveSession.loose_light`, after the layout items in
-`state["light"]`; "Remove ID" takes it away). A click on an identified
-piece does nothing. A layout load or change drops all poses and these
-pieces.
+it): the next left click is on a piece. While it waits, the inspector shows
+the same page as "Locate operative": what to click and the board under the
+pointer with a cross (`LiveFrame.crop`, `_aim_crop`, the largest piece file
+plus 16 mm each side), cut from the top-down image taken at the start (the
+snapshot, else the frame then); the click searches that image. `lightfit.locate_at` searches each
+piece file of the terrain type (`state["light_files"]`, loaded with the
+terrain type) with the same `lightfit.locate`, but only at poses with the
+click in the outline (`hold_mm`), in a square of twice the largest outline
+radius each side of the click. Without this, a strong edge next to the
+piece (an objective ring, a base) took the search away from the clicked
+piece. A piece is found with a score of `min_score` or more. The found
+piece with the best score must be `min_margin` above the next found piece.
+Else nothing changes and a notice tells why ("no light terrain piece found
+there" or "not sure: C2 or C4"); the score of each piece goes to standard
+output. The click ends the mode. With a layout the pose goes to the
+nearest light item of that key with no pose; else, and with no layout, the
+piece is a piece of its own (`LiveSession.loose_light`, after the layout
+items in `state["light"]`; "Remove ID" takes it away). A click on an
+identified piece does nothing. A layout load or change drops all poses and
+these pieces.
 
-Measured on the 2 test photos with 5 piece files, no layout, `click_mm` 40,
-on the 5 pieces that "Identify terrains" finds (C1, C2 on photo 1; C1, C2,
-C3 on photo 2): clicks at the centre and 10 mm from it in 8 directions: 42
-of 45 found, all with the right key (the 3 misses: C2 of photo 2, at the
-board edge, score near the limit). Clicks 20 mm from the centre: 29 of 40
-(some are not on the piece). One result more than 3 mm from the pose of
-"Identify terrains" (C1, click 30 mm from the centre). A reach of 20 mm
-found fewer of the clicks 30 mm from the centre; 60 mm lost the weak C2 and
-took twice the time. About 0.5 s per piece file and click (2.3 s with 5
-files). On photo 2 the piece C5 lies at the card place of C4 (put there
-by mistake): a click there gives C5 (0.54, C4 0.23), which is correct.
+"Identify terrain here" (action `light.locate_here`, in the inspector of a
+selected card symbol, enabled with a piece file of the terrain type): the
+same search (`LiveSession._locate_light_mm`) at the centre of the card
+symbol, not a click. The found piece is then selected. The inspector of an
+identified piece shows its image (`LiveFrame.crop`, `_light_crop`): the
+outline bounding box, square, with 16 mm of board each side, from the
+snapshot while it is on the screen, else from the frame at the selection.
+A card symbol with an identified piece on it (the centre of one in the
+other; for example a piece of another key, or a piece of "Locate terrain")
+is `covered` (`terrain.Shape.covered`, `LiveSession._cover_card_symbols`):
+the symbol and its key are not drawn, a click does not select it, and it
+gives no cover.
+
+Measured with `tools/bench_light.py` on the 5 test photos with a
+`<name>.light.json` (21 pieces, all 5 piece files, 23 points with no piece:
+bases, markers, prints, walls, bare board; `docs/testing.md`), 2026-11-17:
+
+| | Before | Now |
+|---|---|---|
+| "Locate terrain", click at the centre | 16 of 21 | 21 of 21 |
+| "Locate terrain", clicks 7 mm from the centre | about 61 of 84 | 84 of 84 |
+| "Locate terrain", wrong key | 0 | 0 |
+| "Locate terrain", click with no piece: a piece found | 1 of 23 | 1 of 23 |
+| "Identify terrains", card-sized square | 17 of 21 | 21 of 21 |
+| "Identify terrains", no piece there: found | 0 of 115 | 3 of 115 |
+
+The misses before: dark or blurred pieces (scores 0.31 to 0.44 at the right
+pose) and a C4 next to an objective marker (the search went to the
+marker). The false find of "Locate terrain" is a pink cut-out frame that
+is no light terrain; the 3 of "Identify terrains" are at 0.47 to 0.52 on
+bases. Rejected: a tolerance only to the outside of the outline (a high
+piece leans out in the top-down image): it matched everything; a colour
+contrast across the outline: bases and markers have the same. About 0.4 s
+per piece file and click.
 
 Other actions: `view.light` ("Light terrain", on at the start, enabled with
 a layout or a located piece: shows the card symbols, the outlines and the light terrain keys),

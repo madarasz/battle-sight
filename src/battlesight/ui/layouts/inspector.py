@@ -13,7 +13,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QAbstractButton, QHBoxLayout, QLabel, QStackedWidget, QToolButton, QVBoxLayout, QWidget
 
 from ...live import ACTIONS, Action
-from ..parts import CandidateList, DebugView, LightControl, MapPicker, OpeningControl, OperativeList, VideoWidget, WoundsControl, action_control, distance_label, light_title, panel_side, ring_controls, show_action_state
+from ..parts import CandidateList, DebugView, LightControl, MapPicker, OpeningControl, OperativeList, VideoWidget, WoundsControl, action_control, aim_texts, distance_label, light_title, panel_side, ring_controls, show_action_state
 
 if TYPE_CHECKING:
     from . import Shell
@@ -26,7 +26,7 @@ OPENING_NAMES = {"hatchway": "Hatchway", "breach": "Breach point"}
 
 def page_for(state: dict[str, Any]) -> str:
     """The base page also in the live video: the bases of the last snapshot stay there."""
-    if state["adding"]:
+    if state["adding"] or state["locating_light"]:
         return "adding"
     if state["selected"] is not None:
         return "selected"
@@ -118,9 +118,11 @@ class InspectorLayout:
         self._add_controls(column, "base.add", "names.accept", "names.undo", "snapshot.name", "frame.save")
 
     def _adding_page(self, column: QVBoxLayout) -> None:
-        hint = QLabel("Click the centre of the base of the operative that was not identified. Push Esc to cancel.")
-        hint.setWordWrap(True)
-        column.addWidget(hint)
+        self.aim_title = QLabel()
+        column.addWidget(self.aim_title)
+        self.aim_hint = QLabel()
+        self.aim_hint.setWordWrap(True)
+        column.addWidget(self.aim_hint)
         self.aim_crop = VideoWidget()
         self.aim_crop.setMinimumSize(100, 100)
         self.aim_crop.setFixedHeight(CROP_HEIGHT)
@@ -162,7 +164,7 @@ class InspectorLayout:
     def _light_page(self, column: QVBoxLayout) -> None:
         self.light_title = QLabel()
         column.addWidget(self.light_title)
-        self.light = LightControl(self.shell.dispatch)
+        self.light = LightControl(self.shell.dispatch, CROP_HEIGHT)
         column.addWidget(self.light)
         self._add_controls(column, "base.deselect")
         column.addStretch(1)
@@ -180,13 +182,16 @@ class InspectorLayout:
             self.summary.setText(summary_text(state))
             self.operatives.show_state(state)
         elif page == "adding":
+            title, hint = aim_texts(state)
+            self.aim_title.setText(title)
+            self.aim_hint.setText(hint)
             self.aim_crop.set_image(self.shell.selected_crop())
         elif page == "opening":
             self.opening_title.setText(OPENING_NAMES.get(state["selected_opening"]["kind"], state["selected_opening"]["kind"]))
             self.opening.show_state(state)
         elif page == "light":
             self.light_title.setText(light_title(state))
-            self.light.show_state(state)
+            self.light.show_state(state, self.shell.selected_crop())
         else:
             base = state["bases"][state["selected"]]
             self.base_title.setText(f"{base['diameter_mm']:g} mm base")

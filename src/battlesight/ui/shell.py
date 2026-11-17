@@ -334,13 +334,13 @@ class MainWindow(QMainWindow):
 
     def _on_hover(self, at) -> None:
         """The pointer moved. The movement measurement, "Locate operative"
-        (the board under the pointer) and "Shoot at" use it. One position is with the worker
+        and "Locate terrain" (the board under the pointer) and "Shoot at" use it. One position is with the worker
         at a time; the newest waits."""
         state = self.state
         if state is None:
             return
         moving = state.get("movement") and state["ring_in"] is not None and state["selected"] is not None
-        if not moving and not state.get("adding") and not state.get("shooting"):
+        if not moving and not state.get("adding") and not state.get("shooting") and not state.get("locating_light"):
             return
         self._hover_next = (at,)
         self._send_hover()

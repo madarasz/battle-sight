@@ -1,0 +1,13 @@
+{
+ "schema": 1,
+ "terrain": "tomb-world",
+ "source": "locate_at result at a click on each piece, reviewed on the image (2026-11-17)",
+ "pieces": [
+  {"key": "C1", "center_mm": [205.3, 208.3], "angle_deg": 357.5},
+  {"key": "C3", "center_mm": [495.6, 110.4], "angle_deg": 166.5},
+  {"key": "C4", "center_mm": [111.8, 401.8], "angle_deg": 179.0},
+  {"key": "C5", "center_mm": [423.5, 306.9], "angle_deg": 351.5},
+  {"key": "C2", "center_mm": [399.4, 402.0], "angle_deg": 167.0}
+ ],
+ "not_pieces": [[545.0, 157.5], [145.0, 495.0], [157.5, 40.0], [155.0, 332.5], [545.0, 255.0], [255.0, 447.5]]
+}

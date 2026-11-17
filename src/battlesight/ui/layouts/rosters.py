@@ -5,7 +5,7 @@ Commands, Inspector and Reference. The inspector shows the selected operative
 (name, crop, wounds, ring slider, name fix, remove a false base, shoot at it)
 or the selected hatchway or breach point (open or closed). While "Shoot at" is
 on, the crop is the board under the pointer, and OBSCURED and IN COVER show
-what the terrain in the targeting lines gives. While "Locate operative" waits for a click, it shows what to click and
+what the terrain in the targeting lines gives. While "Locate operative" or "Locate terrain" waits for a click, it shows what to click and
 the board under the pointer; the base that this finds opens with its name
 list. While the name list is open, it takes the place of the wounds, ring
 and distance. Each team list shows the operatives of one team, their wounds and
@@ -23,7 +23,7 @@ from PySide6.QtWidgets import QAbstractButton, QCheckBox, QComboBox, QGridLayout
 
 from ...live import ACTIONS, Action, shown_view
 from ...colors import MESSAGE_NONE_COLOR, MODE_LIVE_COLOR, MODE_MINIMAP_COLOR, MODE_SNAPSHOT_COLOR, SHOT_IN_COVER_COLOR, SHOT_OBSCURED_COLOR
-from ..parts import CandidateList, LightControl, MapPicker, OpeningControl, RingSlider, ScoreCounter, TeamRoster, VideoWidget, WoundsControl, action_control, distance_label, light_title, show_action_state
+from ..parts import CandidateList, LightControl, MapPicker, OpeningControl, RingSlider, ScoreCounter, TeamRoster, VideoWidget, WoundsControl, action_control, aim_texts, distance_label, light_title, show_action_state
 
 if TYPE_CHECKING:
     from . import Shell
@@ -60,13 +60,12 @@ def roster_operative_title(state: dict[str, Any]) -> str:
     return f"{team} - {name}" + ("" if size is None else f" ({size:g}mm)")
 
 
-ADD_HINT = "Click the centre of the base of the operative that was not identified. Push Esc to cancel."
 MEASURE_HINT = "Right click a second base to measure to."
 SHOOT_HINT = "Point at the shooter. Push Cancel or Esc to stop."
 
 
 def inspector_page(state: dict[str, Any]) -> str:
-    if state["adding"]:
+    if state["adding"] or state["locating_light"]:
         return "adding"
     if state["selected"] is not None:
         return "operative"
@@ -254,9 +253,9 @@ class RostersLayout:
         self.aim_crop.setMinimumSize(80, 80)
         self.aim_crop.setFixedSize(CROP_SIZE, CROP_SIZE)
         row.addWidget(self.aim_crop, 0, Qt.AlignmentFlag.AlignTop)
-        hint = QLabel(ADD_HINT)
-        hint.setWordWrap(True)
-        row.addWidget(hint, 1, Qt.AlignmentFlag.AlignTop)
+        self.aim_hint = QLabel()
+        self.aim_hint.setWordWrap(True)
+        row.addWidget(self.aim_hint, 1, Qt.AlignmentFlag.AlignTop)
 
     def _operative_page(self, page: QWidget) -> None:
         row = QHBoxLayout(page)
@@ -341,7 +340,8 @@ class RostersLayout:
 
     def _light_page(self, page: QWidget) -> None:
         column = QVBoxLayout(page)
-        self.light = LightControl(self.shell.dispatch)
+        column.setContentsMargins(0, 0, 0, 0)
+        self.light = LightControl(self.shell.dispatch, CROP_SIZE, beside=True)
         column.addWidget(self.light)
         column.addStretch(1)
 
@@ -378,7 +378,9 @@ class RostersLayout:
         if page == "empty":
             self.title.setText("Nothing selected")
         elif page == "adding":
-            self.title.setText("Locate operative")
+            title, hint = aim_texts(state)
+            self.title.setText(title)
+            self.aim_hint.setText(hint)
             self.aim_crop.set_image(self.shell.selected_crop())
         elif page == "roster_operative":
             self.title.setText(roster_operative_title(state))
@@ -388,7 +390,7 @@ class RostersLayout:
             self.opening.show_state(state)
         elif page == "light":
             self.title.setText(light_title(state))
-            self.light.show_state(state)
+            self.light.show_state(state, self.shell.selected_crop())
         else:
             self.title.setText(operative_title(state))
             crop = self.shell.selected_crop()

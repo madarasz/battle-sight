@@ -119,6 +119,7 @@ class Shape:
     vertical: bool = False  # wall_key: the label of a vertical wall goes to its right
     located: bool = False  # light: the real outline at the pose found on the board (else the card symbol)
     open: bool = False  # hatchway or breach point: open in the game (the map files hold closed ones)
+    covered: bool = False  # light, light_key: a card symbol under an identified piece: not drawn, not clicked, no cover
 
 
 # --- grid points ------------------------------------------------------------------

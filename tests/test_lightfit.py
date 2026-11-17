@@ -27,13 +27,14 @@ def board(seed: int = 2) -> np.ndarray:
     return img
 
 
-def put(img: np.ndarray, center_mm, angle_deg: float, paint: int = 1, outline: np.ndarray = OUTLINE, ppm: float = PPM) -> np.ndarray:
+def put(img: np.ndarray, center_mm, angle_deg: float, paint: int = 1, outline: np.ndarray = OUTLINE, ppm: float = PPM, colors=(40, 230)) -> np.ndarray:
     """Draw a piece with the outline on the image at a pose (pixel (0, 0) =
-    board mm (0, 0)). `paint`: seed of its colour pattern."""
+    board mm (0, 0)). `paint`: seed of its colour pattern, values in
+    `colors`."""
     rng = np.random.default_rng(paint)
     out = img.copy()
     h, w = out.shape[:2]
-    small = rng.integers(40, 230, (h // 24 + 1, w // 24 + 1, 3)).astype(np.uint8)
+    small = rng.integers(*colors, (h // 24 + 1, w // 24 + 1, 3)).astype(np.uint8)
     pattern = cv2.resize(small, (w, h), interpolation=cv2.INTER_CUBIC)
     mask = np.zeros((h, w), np.uint8)
     cv2.fillPoly(mask, [np.rint(Piece("C1", outline).at(center_mm, angle_deg) * ppm).astype(np.int32)], 255, cv2.LINE_AA)
@@ -70,7 +71,7 @@ def test_outline_points_turn_as_the_piece_outline():
 def test_no_piece_gives_the_nominal_pose_not_confirmed():
     pose = find(board(), nominal=(131.0, 129.0))
     assert not pose.confirmed and pose.center_mm == (131.0, 129.0) and pose.angle_deg == 0.0
-    assert pose.score < 0.3
+    assert pose.score < 0.4  # the limit is 0.47
 
 
 def test_another_piece_is_not_confirmed():
@@ -102,3 +103,28 @@ def test_low_resolution_image():
     img = cv2.resize(put(board(), (128.0, 133.0), 33.0), None, fx=ppm / PPM, fy=ppm / PPM, interpolation=cv2.INTER_AREA)
     pose = find(img, ppm=ppm)
     assert pose.confirmed and np.linalg.norm(np.subtract(pose.center_mm, (128.0, 133.0))) < 1.5 and turn(pose.angle_deg, 33.0) <= 2.0
+
+
+def test_dark_piece_on_the_dark_board_is_found():
+    """Paint near the board colour: the Canny thresholds come from the
+    searched area, not from fixed values."""
+    img = cv2.GaussianBlur(put(board(), (131.0, 128.0), 25.0, colors=(35, 75)), (0, 0), 2.0)  # also a blurred photo
+    pose = find(img)
+    assert pose.confirmed and np.linalg.norm(np.subtract(pose.center_mm, (131.0, 128.0))) < 1.5 and turn(pose.angle_deg, 25.0) <= 2.0
+
+
+def test_hold_point_keeps_the_search_on_the_clicked_piece():
+    """A better match next to the clicked piece (here a second piece, the
+    clicked one partly under a base) wins without the click point; with it
+    the outline stays on the clicked piece."""
+    img = put(put(board(), (95.0, 130.0), 10.0), (100.0, 190.0), 0.0, paint=3)
+    cv2.circle(img, (int(112 * PPM), int(138 * PPM)), int(18 * PPM), (20, 20, 20), -1)
+    click = (90.0, 132.0)
+    reach = 2.0 * float(np.linalg.norm(OUTLINE, axis=1).max())
+    rect = (click[0] - reach, click[1] - reach, click[0] + reach, click[1] + reach)
+    free = find(img, nominal=click, rect=rect)
+    assert free.confirmed and np.linalg.norm(np.subtract(free.center_mm, (100.0, 190.0))) < 1.5
+    pose = find(img, nominal=click, rect=rect, hold_mm=click)
+    assert pose.confirmed and np.linalg.norm(np.subtract(pose.center_mm, (95.0, 130.0))) < 1.5 and turn(pose.angle_deg, 10.0) <= 1.0
+    held = Piece("C1", OUTLINE).at(pose.center_mm, pose.angle_deg).astype(np.float32).reshape(-1, 1, 2)
+    assert cv2.pointPolygonTest(held, click, False) >= 0
