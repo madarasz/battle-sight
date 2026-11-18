@@ -24,7 +24,6 @@ range rings and the distances between operatives.
 15. ✅  Tomb World light terrain: real outlines, found on the board, cover for Shoot at
 16. 🚧 Operative states: injured, dead, borrowed, poisioned, etc.
 optional 🚧 Tokens: find tokens, list operatives in range
-optional 🚧 Turn counter, CritOp (where to put it?)
 
 ✅ done · ⏳ next · 🚧 not started
 
@@ -62,177 +61,63 @@ for the built-in camera. To use only two teams, add their names:
 uv run battlesight --team kommandos veterans
 ```
 
-## The window
-
-Every control has a key. Hold the mouse pointer on a control to see its
-key. Push `h` to see all key bindings.
-
-The window has three layouts. Use the menu View > Layout to change the
-layout. The app keeps your choice.
-
-| Layout | Panel |
-|---|---|
-| `rosters` (default) | A control bar above the video, and one team list at each side. |
-| `inspector` | The panel at the right changes with your work. |
-| `panel` | The panel at the right is always the same and has all the controls. |
-
-The "Live", "Snapshot" and "Minimap" buttons at the bottom of the View
-section select what the video shows. "Snapshot" shows the last result.
-Before the first result it stops the video on the current picture. The
-top-right corner of the video shows the mode:
-
-- Red circle, "Live": the live video.
-- Blue pause sign, "Snapshot": a result.
-- Green square, "Minimap": the minimap.
-
-### Team lists
-
-In the `rosters` layout, choose the team of each player in the lists at the
-sides of the video. The operatives of the team show below the list. The
-wounds show at the right end of each line, for example `12/15`. A mark in
-front of each name shows the identification:
-
-- Eye: the name is confirmed.
-- Percentage, for example `78%`: the app found this operative, but nobody
-  confirmed the name.
-- `?`: the app did not find this operative.
-
-An identified operative shows in the colour of its team. Click an operative
-to select it: its line gets a grey background and the inspector shows it. For
-an operative that the app did not find, the inspector shows only its name
-and wounds. After you change a team, click "Identify all operatives" again.
-
-The team list starts with all operatives of the team. To remove an operative
-that does not play, select it and click "Remove operative". The app then does
-not give its name to a base. To add it again, click "Add operative" and
-click its name. Click "Identify all operatives" again after a change.
-
-Some operatives can be in a team more than once, for example `Boy 1` and
-`Boy 2`. To add one more copy, click "Add operative" and click its name. The
-app tells the copies apart by where they were in the last snapshot. When it
-is not sure, the names show as unsure. To swap two copies, right click one
-base and click the correct copy.
+Hold the mouse pointer on a control to see its key. Push `h` to see all key
+bindings. Use the menu View > Layout to change the window layout.
 
 ## Use the app
 
-### 1. Choose the map
+### 1. Before the game
 
-Choose the **Terrain type** and the **Layout** (the layout card). The app
-draws the walls, hatchways, breach points, objectives and other terrain on
-the board. Use the View check boxes to show or hide these parts:
+1. Choose the terrain type and the layout card. Put the board so that corner
+   card 0 is at the top-left corner of the card picture.
+2. Set up the terrain and the tokens, then click "Take empty-board
+   reference". This helps the app find the bases.
+3. If you recorded light terrain pieces, click "Identify all terrain".
+4. Choose the team of each player.
+5. Remove the operatives that do not play ("Remove operative"). To add a
+   copy of an operative, click "Add operative".
 
-- **Layout**: the terrain.
-- **Drop zones**: the deployment zones.
-- **Terrain keys**: the label of each wall and light terrain piece.
-
-- **Light terrain**: the light terrain pieces.
-
-With recorded light terrain pieces (see Setup), click **Identify all terrain**.
-The app finds each piece on the board and draws its outline. Click a piece
-to see its image in the inspector. If an outline is wrong, click the piece
-and then **Remove ID** in the inspector. If a piece is not found, click its
-rectangle and then **Identify terrain here**.
-
-To find one piece, click **Locate terrain**, then click the piece on the
-video. You do not need a layout for this.
-
-Put the board so that it agrees with the layout card: corner card 0 is at
-the top-left corner of the card picture. If the drawing does not sit on the
-real walls, turn the board or the cards.
-
-To add a layout, give a photo of the layout card to the AI agent (Claude
+To add a new layout card, give a photo of the card to the AI agent (Claude
 Code) and ask it to record the map.
 
 ### 2. Find the operatives
 
-1. Before the operatives go on the board, set up the terrain and the tokens,
-   and click "Take empty-board reference" (Reference section). The app keeps this photo
-   of the empty board and finds the bases more easily.
-2. Put the operatives on the board.
-3. Click "Identify all operatives". The app finds the bases and writes the name of the
-   operative under each base. Green: sure. Yellow: not sure, check it. Red
-   `?`: unknown.
-4. If a name is wrong, click the base and choose the correct name. In the
-   `rosters` layout, click "Change ID" first ("Cancel" closes the list). The
-   app learns from each correction.
-5. If the app found an operative where there is none, click it and click
-   "Remove ID".
-6. If an operative has no base on the video, click "Locate operative", then
-   click the centre of its base. The inspector shows the board under the
-   pointer. The app finds the base and shows a list of names. Choose the
-   correct name. Click "Cancel" to stop. You can also do this before
-   "Identify all operatives", to add each operative yourself.
-7. Click "Live". The circles and names stay until the next
-   "Identify all operatives".
+1. Put the operatives on the board.
+2. Click "Identify all operatives". Check the names with a percentage or a
+   `?`.
+3. If a name is wrong, click the base and choose the correct name. The app
+   learns from each correction.
+4. If the app found an operative where there is none, click "Remove ID".
+5. If a base is not found, click "Locate operative", then click the centre
+   of the base.
+6. To swap two copies of the same operative, right click one base and choose
+   the correct copy.
 
-To find the bases without names, use the menu item "Find bases only".
+Click "Identify all operatives" again after the operatives move or after a
+change to the teams. The names stay on the live video until then.
 
 ### 3. Measure
 
-You can measure after "Identify all operatives" or "Find bases only".
+1. Click a base to select it. Set the distance to see a range ring.
+2. Right click a second base to see the distance between the two bases.
 
-1. Click a base. A white circle shows the selected base.
-2. Move the "Distance" slider in the inspector. The app draws a ring that
-   many inches from the edge of the base. Set the slider to `Off` to remove
-   it.
-3. Right click a second base. The app draws a line between the two base edges and
-   shows the distance in inches in the status line.
-4. Right click the second base again to remove the line. Click another
-   base to select it. Click the selected base, or an empty part of the
-   board, to stop.
+With a layout, measurements go around walls and closed hatchways. Clear
+"Measure around walls" to measure in a straight line.
 
-With a layout, the **Measure around walls** check box is on. The
-distance follows the shortest path around walls and closed hatchways, and
-the ring becomes an area. The status line shows `no path` when all paths are
-closed. Clear the check box to measure in a straight line.
+"Measure movement" shows where the selected operative can move. Put the
+mouse pointer in the area to see the best move. "Avoid control range" keeps
+the move out of enemy control range.
 
-The **Measure movement** check box shows the area that the
-selected operative can move to with the distance that you set. Move the
-mouse pointer in the area to see the best move to that point, with the
-inches of each part. A yellow dashed circle shows 1 in around each enemy
-operative. A white crossed swords sign on an enemy shows that the move goes
-into its circle. Set the **Avoid control range** check box to keep the area and the
-move out of these circles.
-
-To see if terrain is in the way of a shot, select the target operative and
-click **Shoot at** in the inspector. Put the mouse pointer on the shooter.
-White targeting lines go from the pointer to the target. Walls, pillars and
-closed hatchways in the lines show red. Light terrain that gives cover
-shows red too. The inspector shows **OBSCURED** or
-**IN COVER**, and the board under the pointer. Click **Cancel** or push Esc to stop.
+"Shoot at" (with the target selected): put the mouse pointer on the shooter.
+The terrain in the way shows red. Push Esc to stop.
 
 ### 4. Track the game
 
-- **Wounds.** Click an operative that has a name. Click `-` or `+` in the
-  inspector, or type a number in the "Wounds" box and push Return. A health bar above the operative shows its
-  wounds, and the team list shows them as `12/15`.
-- **Score.** Choose the Tac Op
-  and the Primary. Click the skulls to give victory points for Crit Op and
-  Tac Op in each turning point, and for Kill Op. Click the last lit skull to
-  remove a point. Click `-` or `+` at the top to change the command points
-  (CP). The Primary points show at the end of the Primary line. The total
-  shows at the bottom, in the team colour. The counters start again at each app start.
-- **Hatchways and breach points.** All start closed. Click one, then click
-  "Open" or "Close" in the inspector. The measurements follow. A yellow line
-  shows 1 in around it, a yellow dashed line 2 in. Operatives within 2 in get
-  a yellow circle on their base.
-- **Control marks** (View check box, off at the start). Yellow crossed swords
-  show two operatives of different teams in melee. Yellow arrow heads show
-  an operative in control range of an objective. Operatives without a name
-  get no marks.
+Click an operative to change its wounds. Click a hatchway or breach point to
+open or close it. All start closed.
 
-### 5. Other views
-
-- **Minimap** (View button). Shows a drawing of the board in place of the camera image,
-  with a disc for each operative. Clicks and measurements work as on the
-  camera image. It needs a layout.
-- **Adjust perspective** check box. On: the board from straight above. Off:
-  the camera image with the four corner cards. Use "off" to put the camera
-  and the board in position before a game.
-- **Save screenshot** button. Saves the camera image to `data/snapshots/`.
-
-When you move the board or the camera, the app finds the new position by
-itself. Keep the board still for a moment after the move.
+Turn, Crit Op, Tac Op, Primary, victory points and command points are in the
+game bar and below each team list. They start again at each app start.
 
 ### Saved photos
 
@@ -246,80 +131,51 @@ add `--team kommandos veterans`.
 
 ## What you see
 
-The status line at the bottom of the window shows the board status, the ring
-size and the distance. While the app finds the bases, it shows "working ...",
-and the keys do not work. The status line also shows the result of your last
-key or click for 6 seconds (red: it did not work, yellow: do the next step,
-green: done).
+- Name colour: green = sure, yellow = not sure, check it, red `?` = unknown.
+- Health bar: green = unharmed, orange = wounded, red = injured.
+- Magenta: range ring and distance.
+- Yellow lines around a hatchway: 1 in and 2 in from it.
+- Yellow crossed swords: melee. Yellow arrow heads: objective control.
 
 | Status line | Meaning | What to do |
 |---|---|---|
 | Yellow "locking reference" | The app learns the board position. | Do not touch the board. |
-| Green "4 corners OK" | All four cards are visible. | Play. |
 | Yellow "BOARD MOVED" | A card moved. | Keep the board still. |
-| Green "board position updated" | The app saved the new board position. | Play. |
 | Red "CARD MOVED" | One card is not on its board corner now. | Put the card back against the board corner. |
-| Red "TAG LOST" | The camera cannot see a card. | Remove what covers the card (a hand, a model, a dice tray). |
-| Red "camera down" | The app gets no image from the camera. It tries again by itself. | Check the camera and its cable or network. |
-| Red "CORNERS NOT SEEN" | "Identify all operatives" cannot find the board. The line names the cards. | Remove what covers the card, or move the camera. |
-
-On the video:
-
-- Green circle with a number: a base that the app found, and its size in mm.
-- Name under a base: the operative. With teams chosen, the circle and name
-  are red for the left team, blue for the right team, and grey with `?` for
-  an unknown operative.
-- Health bar above an operative: green = unharmed, orange = wounded, red =
-  injured, empty with a red edge = no wounds left.
-- White circle: the selected base. White outline: the selected hatchway or
-  breach point.
-- Magenta circle or area: the range ring.
-- Magenta line with a number: the distance between two bases, in inches.
-- Grey circles with lines: the move to the mouse pointer.
-- White lines from the mouse pointer, red terrain: targeting lines and the terrain in the way.
-- Terrain: white walls, grey pillars, yellow hatchways, orange breach
-  points, white rings for objectives, blue rings for teleporter pads, dark
-  areas for light terrain and a narrow white outline for each light terrain piece that the app identified.
-
-In the `rosters` layout, the inspector shows the selected operative (team,
-name, base size, photo, wounds, distance slider, "Change ID", "Remove ID" and "Shoot at")
-or the selected hatchway or breach point (name, status, "Open"/"Close").
+| Red "TAG LOST" | The camera cannot see a card. | Remove what covers the card. |
+| Red "camera down" | The app gets no image from the camera. | Check the camera and its cable or network. |
+| Red "CORNERS NOT SEEN" | "Identify all operatives" cannot find the board. | Remove what covers the named card, or move the camera. |
 
 ## Problems
 
-- **"BOARD MOVED" does not go away.** Something moves the cards, for example
-  a hand or a shaking table. Keep the board still for a moment. If "CARD
-  MOVED" shows, put the named card back on its board corner.
 - **The board slid but there is no warning.** The app measures from the
-  cards, not from the board. Lift the corner and put it back against the
-  black L of the card.
+  cards, not from the board. Put the board corner back against the black L
+  of the card.
 - **Error that width and height are the wrong way round.** Change
   `width_mm` and `height_mm` in `data/board.toml`. See
   [docs/setup.md](docs/setup.md), step 5.
 - **The camera does not start.** Make sure that the Terminal app has camera
   permission (System Settings > Privacy & Security > Camera). Find the
-  correct camera number with `uv run tools/list_cameras.py`. If Camo does
-  not show, or you use a Wi-Fi stream or scrcpy, see
-  [docs/setup.md](docs/setup.md), Troubleshooting.
+  correct camera number with `uv run tools/list_cameras.py`. For Camo, a
+  Wi-Fi stream or scrcpy, see [docs/setup.md](docs/setup.md),
+  Troubleshooting.
+- **The terrain drawing does not sit on the real walls.** Turn the board or
+  the cards.
 - **A base is not found.** The app must see at least half of the black edge
   of the base. Move the camera nearer to the top of the board, or turn the
-  model. Click "Take empty-board reference" to help the app.
-- **A base of a new operative is not found.** Teach the app this operative
-  (setup step 8) with its base size.
-- **A token or a terrain part shows as a base.** Click "Take empty-board reference"
-  after you set up the terrain and the tokens, before the operatives
-  go on the board.
-- **An operative gets the wrong name.** Click the base and choose the
-  correct name. If it happens frequently, add more photos of the operatives
-  (setup step 8).
-- **The name list is empty.** The gallery has no operative with this base
-  size. Teach the app this operative (setup step 8).
+  model. Take an empty-board reference.
+- **A base of a new operative is not found, or the name list is empty.**
+  Teach the app this operative (setup step 8) with its base size.
+- **A token or a terrain part shows as a base.** Take the empty-board
+  reference after you set up the terrain and the tokens.
+- **An operative gets the wrong name frequently.** Add more photos of the
+  operatives (setup step 8).
 - **The inspector shows "has no maximum wounds".** Add the wounds of the
   operative: `uv run battlesight enroll --team kommandos --operative "Boss Nob" --wounds 12`,
-  close the window, then start the app again.
+  then start the app again.
 - **The size of a base is wrong.** Check `base_mm` of each operative in
   `data/teams/<team>/team.toml`.
-- **The first "Identify all operatives" is slow.** The app downloads the recognition model one
-  time.
+- **The first "Identify all operatives" is slow.** The app downloads the
+  recognition model one time.
 - **The grid does not sit on the printed lines.** Check the map settings
   ([docs/setup.md](docs/setup.md), step 5). Then calibrate the lens (step 6).

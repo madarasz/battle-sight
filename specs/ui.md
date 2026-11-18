@@ -260,6 +260,8 @@ The state dict is JSON-safe. The worker sends it with each frame.
 | `selected` | Index of the selected base, or `null`. Also without names (after `b`), and in the live view after "Go back to Live". |
 | `selected_opening` | `{index, kind}` of the selected hatchway or breach point (`kind` is `hatchway` or `breach`), or `null`. Only one of `selected` and `selected_opening` is set. |
 | `team_choices`, `team_slots`, `rosters` | Gallery teams; the team of each side (2 entries, `null` = none); per side `null` or `{team, operatives: [{label, name, base_mm, base_index, score, confirmed}]}`. |
+| `scores` | Per side: skull cells, points, Tac Op and its choices, Primary, CP, total. |
+| `turn`, `turns`, `crit_op`, `crit_ops` | Game state of both sides: turning point (1 to 4) and its range; Crit Op (`null` = none) and its choices. |
 | `target` | Index of the second base of a distance, or `null`. |
 | `ring_in` | Ring on the selected base, in inches (1 to 9), or `null`. |
 | `distance` | Rim to rim from `selected` to `target`: `{mm, in}`, or `null`. Layouts show only the inches, for example `5.93"`. |

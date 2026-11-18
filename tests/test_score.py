@@ -7,6 +7,11 @@ import pytest
 from battlesight import score as sc
 
 
+def test_crit_ops_come_from_the_approved_ops_file():
+    assert sc.CRIT_OPS[0] == "Secure" and len(sc.CRIT_OPS) == 9
+    assert sc.TURNS == (1, 2, 3, 4)
+
+
 def test_tac_ops_come_from_the_approved_ops_file():
     assert set(sc.TAC_OPS) == {"Recon", "Security", "Seek and Destroy", "Infiltration"}
     assert all(len(ops) == 3 for ops in sc.TAC_OPS.values())

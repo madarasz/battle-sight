@@ -521,9 +521,12 @@ class TeamRoster(QWidget):
     Below the list: "Add operative" opens a list of the team's operatives
     that are not in the team list (the button is then "Cancel"); a click on
     a name puts it at the end of the team list and closes the chooser.
-    "Remove operative" takes the selected operative out of the list."""
+    "Remove operative" takes the selected operative out of the list.
 
-    def __init__(self, slot: int, dispatch: Callable[..., Any], parent: QWidget | None = None):
+    `team_on_top = False` keeps the team choice (`self.team`) out of the
+    widget: the layout puts it in another place."""
+
+    def __init__(self, slot: int, dispatch: Callable[..., Any], parent: QWidget | None = None, team_on_top: bool = True):
         super().__init__(parent)
         self.slot = slot
         self.dispatch = dispatch
@@ -537,7 +540,8 @@ class TeamRoster(QWidget):
         self.team.setToolTip("Team on this side of the board")
         _larger_font(self.team)
         self.team.activated.connect(lambda i: self.dispatch("team.set", slot=self.slot, name=None if i == 0 else self.team.itemText(i)))
-        column.addWidget(self.team)
+        if team_on_top:
+            column.addWidget(self.team)
         self.operatives = _RosterList(dispatch, team_color(slot))
         _larger_font(self.operatives)
         column.addWidget(self.operatives, 1)
@@ -1002,3 +1006,61 @@ class ScoreCounter(QGroupBox):
         self.cp_minus.setEnabled(score["cp"] > 0)
         self.bonus.setText(f"+{score['primary_bonus']}")
         self.total.setText(total_text(score))
+
+
+NO_CRIT_OP = "(no Crit Op)"
+
+
+class GameControl(QWidget):
+    """State of the game for both sides: `TURN: - X +` (the turning point,
+    1 to 4) and the Crit Op choice."""
+
+    def __init__(self, dispatch: Callable[..., Any], parent: QWidget | None = None):
+        super().__init__(parent)
+        self.dispatch = dispatch
+        self.shown_crit_ops: list[str] | None = None
+        row = QHBoxLayout(self)
+        row.setContentsMargins(0, 0, 0, 0)
+        row.setSpacing(4)
+        label = QLabel("TURN:")
+        _larger_font(label)
+        row.addWidget(label)
+        self.turn_minus = QPushButton("-")
+        self.turn_plus = QPushButton("+")
+        self.turn = QLabel()
+        self.turn.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        font = self.turn.font()
+        font.setBold(True)
+        font.setPointSizeF(font.pointSizeF() * 1.6)
+        self.turn.setFont(font)
+        self.turn.setMinimumWidth(24)
+        self.turn.setToolTip("Turning point")
+        for button, delta in ((self.turn_minus, -1), (self.turn_plus, 1)):
+            button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+            button.setFixedWidth(32)
+            button.clicked.connect(lambda _checked=False, d=delta: self.dispatch("game.turn", delta=d))
+        for widget in (self.turn_minus, self.turn, self.turn_plus):
+            row.addWidget(widget)
+        row.addSpacing(24)
+        crit_label = QLabel("Crit Op:")
+        _larger_font(crit_label)
+        row.addWidget(crit_label)
+        self.crit_op = _no_focus_combo(QComboBox())
+        self.crit_op.setToolTip("Crit Op of the game")
+        self.crit_op.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToContents)
+        _larger_font(self.crit_op)
+        self.crit_op.activated.connect(lambda i: self.dispatch("game.crit_op", name=None if i == 0 else self.crit_op.itemText(i)))
+        row.addWidget(self.crit_op)
+
+    def show_state(self, state: dict[str, Any]) -> None:
+        turn, turns = state["turn"], state["turns"]
+        self.turn.setText(str(turn))
+        self.turn_minus.setEnabled(turn > turns[0])
+        self.turn_plus.setEnabled(turn < turns[-1])
+        if state["crit_ops"] != self.shown_crit_ops:
+            self.shown_crit_ops = list(state["crit_ops"])
+            self.crit_op.blockSignals(True)
+            self.crit_op.clear()
+            self.crit_op.addItems([NO_CRIT_OP, *self.shown_crit_ops])
+            self.crit_op.blockSignals(False)
+        self.crit_op.setCurrentIndex(max(0, self.crit_op.findText(state["crit_op"])) if state["crit_op"] is not None else 0)

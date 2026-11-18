@@ -1,4 +1,9 @@
-"""Layout `rosters`: a control bar on top, the video, and a team list each side.
+"""Layout `rosters`: a control bar on top, a game bar, the video, and a team
+list each side.
+
+The game bar between the control bar and the video holds the team choice of
+each side (above its team list) and, in the centre, the turn (1 to 4) and the
+Crit Op of the game.
 
 The control bar has separate sections: View, Commands (with the Debug check box
 at the bottom), Inspector and Reference. The inspector shows the selected operative
@@ -23,13 +28,14 @@ from PySide6.QtWidgets import QAbstractButton, QCheckBox, QComboBox, QGridLayout
 
 from ...live import ACTIONS, Action, shown_view
 from ...colors import MESSAGE_NONE_COLOR, MODE_LIVE_COLOR, MODE_MINIMAP_COLOR, MODE_SNAPSHOT_COLOR, SHOT_IN_COVER_COLOR, SHOT_OBSCURED_COLOR
-from ..parts import CandidateList, LightControl, MapPicker, OpeningControl, RingSlider, ScoreCounter, TeamRoster, VideoWidget, WoundsControl, action_control, aim_texts, distance_label, light_title, show_action_state
+from ..parts import CandidateList, GameControl, LightControl, MapPicker, OpeningControl, RingSlider, ScoreCounter, TeamRoster, VideoWidget, WoundsControl, action_control, aim_texts, distance_label, light_title, show_action_state
 
 if TYPE_CHECKING:
     from . import Shell
 
 ACTION_BY_ID = {a.id: a for a in ACTIONS}
 TOP_HEIGHT = 175
+GAME_BAR_STYLE = "#game_bar { border-top: 1px solid palette(mid); border-bottom: 1px solid palette(mid); }"
 ROSTER_WIDTH = 240
 CROP_SIZE = 96
 OPENING_NAMES = {"hatchway": "Hatchway", "breach": "Breach point"}
@@ -99,8 +105,9 @@ class RostersLayout:
         column = QVBoxLayout(root)
         column.setContentsMargins(4, 4, 4, 0)
         column.addWidget(self._top_bar(), 0)
+        self.rosters = [TeamRoster(slot, shell.dispatch, team_on_top=False) for slot in (0, 1)]
+        column.addWidget(self._game_bar(), 0)
         row = QHBoxLayout()
-        self.rosters = [TeamRoster(slot, shell.dispatch) for slot in (0, 1)]
         self.counters = [ScoreCounter(slot, shell.dispatch) for slot in (0, 1)]
         sides = []
         for roster, counter in zip(self.rosters, self.counters):
@@ -133,6 +140,27 @@ class RostersLayout:
         row.addWidget(self._commands_box(), 0)
         row.addWidget(self._inspector_box(), 1)
         row.addWidget(self._reference_box(), 0)
+        return bar
+
+    def _game_bar(self) -> QWidget:
+        """The bar between the top bar and the video: the team choice of each
+        side above its team list, the turn and the Crit Op in the centre."""
+        bar = QWidget()
+        bar.setObjectName("game_bar")
+        bar.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        bar.setStyleSheet(GAME_BAR_STYLE)
+        row = QHBoxLayout(bar)
+        row.setContentsMargins(0, 2, 0, 2)
+        row.setSpacing(6)
+        self.game = GameControl(self.shell.dispatch)
+        left, right = (roster.team for roster in self.rosters)
+        for team in (left, right):
+            team.setFixedWidth(ROSTER_WIDTH)
+        row.addWidget(left, 0)
+        row.addStretch(1)
+        row.addWidget(self.game, 0)
+        row.addStretch(1)
+        row.addWidget(right, 0)
         return bar
 
     @staticmethod
@@ -357,6 +385,7 @@ class RostersLayout:
             roster.show_state(state)
         for counter in self.counters:
             counter.show_state(state)
+        self.game.show_state(state)
         self.video.set_badge(*MODE_BADGE[shown_mode(state)])
         self._show_inspector(state)
 

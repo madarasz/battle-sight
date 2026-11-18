@@ -321,6 +321,8 @@ ACTIONS: tuple[Action, ...] = (
     Action("score.tac_op", "Tac Op", args=("slot", "name")),
     Action("score.primary", "Primary", args=("slot", "value")),
     Action("score.cp", "Command points", args=("slot", "delta")),
+    Action("game.turn", "Turning point", args=("delta",)),
+    Action("game.crit_op", "Crit Op", args=("name",)),
     Action("opening.toggle", "Open / close", "o", enabled=lambda s: s["selected_opening"] is not None),
     Action("light.locate", "Identify all terrain", enabled=lambda s: s["light_can_locate"]),
     Action("light.locate_at", "Locate terrain", enabled=_can_locate_light),
@@ -473,6 +475,8 @@ class LiveSession:
         self.wounds: dict[str, int] = {}
         # Score of each side of the board (not of a team): it stays when the team changes.
         self.scores = [sc.Score() for _ in range(TEAM_SLOTS)]
+        self.turn = sc.TURNS[0]  # turning point of the game, shared by both sides
+        self.crit_op: str | None = None  # Crit Op of the game, shared by both sides
 
         self._handlers: dict[str, Callable[..., None]] = {
             "snapshot.name": lambda: self._snapshot(name=True),
@@ -517,6 +521,8 @@ class LiveSession:
             "score.tac_op": self._score_tac_op,
             "score.primary": self._score_primary,
             "score.cp": self._score_cp,
+            "game.turn": self._game_turn,
+            "game.crit_op": self._game_crit_op,
             "opening.toggle": self._toggle_opening,
             "light.locate": self._locate_light,
             "light.locate_at": self._start_locating_light,
@@ -1070,6 +1076,10 @@ class LiveSession:
             "team_slots": list(self.team_slots),
             "rosters": self._rosters_state(),
             "scores": [x.to_dict(self._tac_ops_of(slot)) for slot, x in enumerate(self.scores)],
+            "turn": self.turn,
+            "turns": list(sc.TURNS),
+            "crit_op": self.crit_op,
+            "crit_ops": list(sc.CRIT_OPS),
             "reference_set": self.pipe.has_reference,
             "snapshot_ok": None if self.result is None else bool(self.result.ok),
             "naming": s is not None,
@@ -1429,6 +1439,20 @@ class LiveSession:
             self.notice.error(f"delta must be a whole number, not {delta!r}")
             return
         score.add_cp(delta)
+
+    def _game_turn(self, delta: int) -> None:
+        """Add `delta` to the turning point, kept in `score.TURNS`."""
+        if isinstance(delta, bool) or not isinstance(delta, int):
+            self.notice.error(f"delta must be a whole number, not {delta!r}")
+            return
+        self.turn = min(max(self.turn + delta, sc.TURNS[0]), sc.TURNS[-1])
+
+    def _game_crit_op(self, name: str | None) -> None:
+        """The Crit Op of the game, or None. Only a name of `score.CRIT_OPS`."""
+        if name is not None and name not in sc.CRIT_OPS:
+            self.notice.error(f"{name!r} is not a Crit Op")
+            return
+        self.crit_op = name
 
     def _set_wounds(self, value: int, label: str | None = None) -> None:
         """Set the current wounds of an operative (default: the selected

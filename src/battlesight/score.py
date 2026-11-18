@@ -23,6 +23,7 @@ TURNING_POINTS = (2, 3, 4)  # turning points with score cells of Crit Op and Tac
 CATEGORY_MAX = 6
 SKULLS_PER_TP = CATEGORY_MAX // len(TURNING_POINTS)
 CP_START = 3
+TURNS = (1, 2, 3, 4)  # turning points of a game
 
 
 def load_tac_ops(path: Path = APPROVED_OPS_FILE) -> dict[str, tuple[str, ...]]:
@@ -31,7 +32,14 @@ def load_tac_ops(path: Path = APPROVED_OPS_FILE) -> dict[str, tuple[str, ...]]:
         return {k: tuple(v) for k, v in tomllib.load(fh)["tac_ops"].items()}
 
 
+def load_crit_ops(path: Path = APPROVED_OPS_FILE) -> tuple[str, ...]:
+    """Crit Op names from `[crit_ops] names` of the approved ops file."""
+    with path.open("rb") as fh:
+        return tuple(tomllib.load(fh)["crit_ops"]["names"])
+
+
 TAC_OPS = load_tac_ops()
+CRIT_OPS = load_crit_ops()
 
 
 def tac_ops_for(archetypes: tuple[str, ...] | list[str]) -> list[str]:

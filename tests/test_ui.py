@@ -1465,6 +1465,34 @@ def test_rosters_score_counter(qapp, tmp_path, named):
         win.close()
 
 
+def test_rosters_game_bar(qapp, tmp_path, named):
+    from battlesight import score as sc
+
+    cfg, frame = named
+    win = started_window(tmp_path, cfg, frame, "rosters")
+    try:
+        layout = win.current_layout
+        game = layout.game
+        left, right = (roster.team for roster in layout.rosters)
+        wait_until(lambda: game.turn.text() == "1")
+        assert left.isVisibleTo(win) and right.isVisibleTo(win) and game.isVisibleTo(win)
+        assert left.parentWidget() is right.parentWidget() is game.parentWidget()  # one bar
+        assert left.geometry().right() < game.geometry().left() and game.geometry().right() < right.geometry().left()
+        assert not game.turn_minus.isEnabled()
+        for _ in range(3):
+            game.turn_plus.click()
+        wait_until(lambda: game.turn.text() == "4" and not game.turn_plus.isEnabled())
+        game.turn_minus.click()
+        wait_until(lambda: win.state["turn"] == 3 and game.turn.text() == "3")
+        assert [game.crit_op.itemText(i) for i in range(1, game.crit_op.count())] == list(sc.CRIT_OPS)
+        game.crit_op.activated.emit(2)
+        wait_until(lambda: win.state["crit_op"] == sc.CRIT_OPS[1] and game.crit_op.currentIndex() == 2)
+        game.crit_op.activated.emit(0)
+        wait_until(lambda: win.state["crit_op"] is None)
+    finally:
+        win.close()
+
+
 def test_rosters_select_an_operative_from_the_team_list(qapp, tmp_path, named):
     from battlesight import ident as idt
     from battlesight.ui.parts import COLORS, team_color

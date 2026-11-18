@@ -2026,6 +2026,29 @@ def test_score_counter_of_each_side(tmp_path):
     assert left["total"] == 6 and left["tac_op"] is None and left["tac_ops"] == list(sc.TAC_OPS["Recon"])
 
 
+def test_turn_and_crit_op_of_the_game(tmp_path):
+    from battlesight import score as sc
+
+    cfg = ident_cfg()
+    session = make_session(tmp_path, cfg, paint_board(cfg, GAME))
+    s = session.state()
+    assert_json_safe(s)
+    assert s["turn"] == 1 and s["turns"] == [1, 2, 3, 4] and s["crit_op"] is None and s["crit_ops"] == list(sc.CRIT_OPS)
+    session.dispatch("game.turn", delta=-1)  # not below 1
+    assert session.state()["turn"] == 1
+    for _ in range(5):
+        session.dispatch("game.turn", delta=1)
+    assert session.state()["turn"] == 4  # not above 4
+    session.dispatch("game.turn", delta=True)
+    assert "whole number" in session.state()["notice"]["text"] and session.state()["turn"] == 4
+    session.dispatch("game.crit_op", name="Loot")
+    assert session.state()["crit_op"] == "Loot"
+    session.dispatch("game.crit_op", name="Rout")  # a Tac Op
+    assert "not a Crit Op" in session.state()["notice"]["text"] and session.state()["crit_op"] == "Loot"
+    session.dispatch("game.crit_op", name=None)
+    assert session.state()["crit_op"] is None
+
+
 def test_select_an_operative_from_a_team_list(tmp_path, named):
     from battlesight import ident as idt
 
