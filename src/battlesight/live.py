@@ -38,7 +38,7 @@ from .calib import DriftMonitor, DriftReport, DriftStatus, TagDetector, board_co
 from .camera import CameraSettings
 from .config import BoardConfig
 from .colors import MEASURE_COLOR, MINIMAP_BACK_COLOR, MINIMAP_BOARD_COLOR, MOVE_MELEE_COLOR, NAME_SURE_COLOR, NO_TEAM_COLOR, POINTER_CROSS_COLOR, POINTER_CROSS_EDGE_COLOR, RANGE_ZONE_COLOR, SELECTED_COLOR, STATUS_ERROR_COLOR, STATUS_HINT_COLOR, STATUS_OK_COLOR, TEAM_COLORS
-from .overlay import draw_base_discs, draw_bases, draw_board_corners, draw_circle_mm, draw_dashed_circle_mm, draw_dashed_outline_mm, draw_grid, draw_health_bars, draw_idents, draw_melee_sign, draw_objective_arrows, draw_move_mm, draw_outline_mm, draw_path_mm, draw_range_mm, draw_rim_line, draw_tags, draw_targeting_mm, draw_terrain, fit_to_width
+from .overlay import draw_base_discs, draw_bases, draw_board_corners, draw_circle_mm, draw_dashed_circle_mm, draw_dead_marks, draw_dashed_outline_mm, draw_grid, draw_health_bars, draw_idents, draw_melee_sign, draw_objective_arrows, draw_move_mm, draw_outline_mm, draw_path_mm, draw_range_mm, draw_rim_line, draw_tags, draw_targeting_mm, draw_terrain, fit_to_width
 from .pipeline import BASES_MARGIN_MM, Pipeline, base_crops, bases_config, bases_image, find_base_near
 from .rectify import fit_view, mm_to_rect, rect_transform, warp_board
 
@@ -715,6 +715,7 @@ class LiveSession:
                 if maximum is not None:
                     bars.append((c.center_mm, c.diameter_mm, current, maximum))
             draw_health_bars(img, bars, to_px)
+            draw_dead_marks(img, [(c.center_mm, c.diameter_mm) for c, x in zip(found, self.session.idents) if self._is_dead(x.label)], to_px)
             if control:
                 for i, j in control["melee"]:
                     _, start, end = measure.rim_gap(found[i].center_mm, found[i].diameter_mm, found[j].center_mm, found[j].diameter_mm)
@@ -777,15 +778,16 @@ class LiveSession:
         """`melee`: pairs of base indexes of named operatives of two teams
         within 1 in (rim to rim); `objectives`: [base index, objective index]
         of named operatives within 1 in of an objective marker (needs a
-        layout). None without names."""
+        layout). None without names. Dead operatives are in no melee."""
         if self.session is None or not found:
             return None
         teams = [None if x.label is None else x.label.partition("/")[0] for x in self.session.idents]
         centers, diameters = [c.center_mm for c in found], [c.diameter_mm for c in found]
+        alive = [None if self._is_dead(x.label) else t for x, t in zip(self.session.idents, teams)]
         named = [i for i, t in enumerate(teams) if t is not None]
         contacts = measure.objective_contacts([centers[i] for i in named], [diameters[i] for i in named], self._objectives(), self.cfg.terrain_objective_mm, self.cfg.terrain_objective_range_mm)
         return {
-            "melee": [[i, j] for i, j in measure.melee_pairs(centers, diameters, teams)],
+            "melee": [[i, j] for i, j in measure.melee_pairs(centers, diameters, alive)],
             "objectives": [[named[i], k] for i, k in contacts],
         }
 
@@ -1044,6 +1046,7 @@ class LiveSession:
             self._snapshot_image()  # brings the scale and the view up to date
         s = self.session
         current = self.notice.current()
+        self._update_kill_scores()
         return {
             "mode": "snapshot" if self.frozen else "live",
             "busy": self.busy,
@@ -1169,6 +1172,7 @@ class LiveSession:
                 "confirmed": x is not None and bool(x.confirmed),
                 "wounds": self._wounds_of(None if x is None else x.label)[0],
                 "max_wounds": self._wounds_of(None if x is None else x.label)[1],
+                "dead": x is not None and self._is_dead(x.label),
                 "position_px": p,
             }
             for i, (c, x, p) in enumerate(zip(found, idents, positions))
@@ -1237,6 +1241,7 @@ class LiveSession:
                         "confirmed": x is not None and bool(x.confirmed),
                         "wounds": self._wounds_of(op.label)[0],
                         "max_wounds": op.wounds,
+                        "dead": self._is_dead(op.label),
                     }
                 )
             in_play = self._copies_in_play()
@@ -1373,6 +1378,24 @@ class LiveSession:
         if maximum is None:
             return None, None
         return min(self.wounds.get(label, maximum), maximum), maximum
+
+    def _is_dead(self, label: str | None) -> bool:
+        """An operative with 0 wounds is dead."""
+        return self._wounds_of(label)[0] == 0
+
+    def _kill_grades(self) -> list[int]:
+        """Kill grade of each side: from the not expendable operatives in the
+        enemy team list (starting number) and how many of them are dead."""
+        grades = []
+        for slot in range(TEAM_SLOTS):
+            enemy = [op for op in self._listed(TEAM_SLOTS - 1 - slot) if not op.expendable]
+            grades.append(sc.kill_grade(len(enemy), sum(self._is_dead(op.label) for op in enemy)))
+        return grades
+
+    def _update_kill_scores(self) -> None:
+        """Kill Op of each side is automatic (`score.kill_scores`)."""
+        for score, (grade, bonus) in zip(self.scores, sc.kill_scores(self._kill_grades())):
+            score.kill_grade, score.kill_bonus = grade, bonus
 
     def _selected_label(self) -> str | None:
         """Label of the selected base, else of the operative selected in a team list."""
@@ -2095,7 +2118,7 @@ class LiveSession:
     def _choose(self, label: str, index: int | None = None) -> None:
         """Set the name of base `index` (default: the selected base). A front
         end can give the index, so the order of a close and a choice of its
-        popup does not matter."""
+        popup does not matter. Base `index` is selected after it."""
         s = self.session
         index = self.selected if index is None else index
         if s is None or index is None:
@@ -2109,7 +2132,8 @@ class LiveSession:
         for k, x in enumerate(s.idents):  # the chosen copy and the copy of a swap are where the user says
             if x.label is not None and idt.copy_number(x.label) is not None and x.label in (label, old) and k < len(found):
                 self.positions[x.label] = np.asarray(found[k].center_mm, float)
-        self._set_selected(None)
+        self.new_base = None
+        self._set_selected(index)  # the named base stays selected
         name = idt.display_name(label)
         if path is None:
             print(f"named {label}: the gallery has this photo already, no photo added")

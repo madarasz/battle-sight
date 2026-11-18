@@ -311,7 +311,7 @@ def test_name_fix_flow(tmp_path, named, display_width):
 
     session.dispatch("base.choose", label=label)
     s = session.step(frame).state
-    assert s["selected"] is None and s["can_undo"]
+    assert s["selected"] == 1 and s["can_undo"]  # the named base stays selected
     assert s["bases"][1]["label"] == label and s["bases"][1]["confirmed"]
 
     session.dispatch("names.undo")
@@ -397,7 +397,7 @@ def test_add_operative_finds_a_removed_base_and_opens_its_name_list(tmp_path, na
     label = session.state()["candidates"][0]["label"]
     session.dispatch("base.choose", label=label)
     s = session.step(frame).state
-    assert s["bases"][2]["label"] == label and s["bases"][2]["confirmed"] and s["new_base"] is None
+    assert s["bases"][2]["label"] == label and s["bases"][2]["confirmed"] and s["new_base"] is None and s["selected"] == 2
     session.dispatch("names.undo")
     assert session.state()["bases"][2]["label"] is None or not session.state()["bases"][2]["confirmed"]
 
@@ -420,6 +420,8 @@ def test_add_operative_before_identification_starts_an_empty_snapshot(tmp_path, 
     s = session.step(frame).state
     assert len(s["bases"]) == 1 and s["selected"] == 0 and s["new_base"] == 0 and s["candidates"]
     session.dispatch("base.choose", label=s["candidates"][0]["label"])
+    s = session.state()
+    assert s["selected"] == 0 and s["new_base"] is None and s["bases"][0]["confirmed"]  # the located operative stays selected
     session.dispatch("base.add")  # a second operative in the same snapshot
     x, y = where[1]["position_px"]
     session.dispatch("board.click", x=x, y=y)
@@ -845,7 +847,7 @@ def test_choosing_a_name_clears_the_measurement(tmp_path, named):
     label = session.state()["candidates"][0]["label"]
     session.dispatch("base.choose", label=label, index=0)
     s = session.state()
-    assert s["selected"] is None and s["target"] is None and s["bases"][0]["confirmed"]
+    assert s["selected"] == 0 and s["target"] is None and s["bases"][0]["confirmed"]
 
 
 SMALL_MAP = """schema = 1
@@ -1241,6 +1243,27 @@ def test_wounds_start_at_the_maximum_and_stay_in_range(tmp_path, named):
     session.dispatch("snapshot.name")  # a new snapshot keeps the wounds
     assert session.step(frame).state["bases"][nob]["wounds"] == 1
     assert_json_safe(session.state())
+
+
+def test_dead_operatives_give_the_kill_op_of_the_other_side(tmp_path, named):
+    set_wounds(tmp_path, {"Nob": 5, "Burna": 12, "Grot": 3})
+    session, frame, state = named_session(tmp_path, named)
+    assert state["team_slots"][0] == "orks" and state["team_slots"][1] is None
+    assert [(x["kill_grade"], x["kill_bonus"]) for x in state["scores"]] == [(0, 0), (0, 0)]
+    assert not any(r["dead"] for r in state["rosters"][0]["operatives"])
+    session.dispatch("base.select", index=base_of(state, "Nob"))
+    session.dispatch("wounds.set", value=0)
+    s = session.state()
+    rows = {r["name"]: r for r in s["rosters"][0]["operatives"]}
+    assert rows["Nob"]["dead"] and not rows["Burna"]["dead"] and s["bases"][base_of(s, "Nob")]["dead"]
+    # 3 orks: row 5 of the table, 1 dead = grade 1, and 1 more for the higher grade
+    assert s["scores"][1]["points"]["kill"] == 2 and s["scores"][1]["total"] == 2 and s["scores"][0]["points"]["kill"] == 0
+    team = tmp_path / "gallery" / "orks"
+    idt.save_team_file(team, "orks", idt.load_team_file(team), {"Nob": 5, "Burna": 12, "Grot": 3}, None, ["Nob"])  # an expendable operative does not count
+    session._team_ops.clear()
+    assert session.state()["scores"][1]["points"]["kill"] == 0
+    session.dispatch("wounds.set", value=1)
+    assert session.state()["scores"][1]["points"]["kill"] == 0
 
 
 def test_wounds_of_an_operative_with_no_maximum_give_a_warning(tmp_path, named):
@@ -1958,6 +1981,19 @@ def test_no_melee_in_one_team(tmp_path):
     assert live.state["control"] == {"melee": [], "objectives": []} and yellow_pixels(live.image) == 0
 
 
+def test_dead_operatives_are_in_no_melee(tmp_path):
+    session, frame, index = close_session(tmp_path)
+    session._max_wounds = lambda label: 5  # all operatives have 5 wounds
+    alive = session.step(frame)
+    assert alive.state["control"]["melee"] == [sorted([index["Nob"], index["Grot"]])]
+    session.wounds["elves/Grot"] = 0
+    session.dirty = True
+    dead = session.step(frame)
+    assert dead.state["control"]["melee"] == [] and dead.state["bases"][index["Grot"]]["dead"]
+    assert not dead.state["bases"][index["Nob"]]["dead"]
+    assert int(np.sum(np.all(dead.image == overlay.DEAD_MARK_COLOR, axis=2))) > int(np.sum(np.all(alive.image == overlay.DEAD_MARK_COLOR, axis=2)))
+
+
 def test_objective_arrows_need_a_layout(tmp_path):
     write_map(tmp_path / "maps", file="objective.toml", text=OBJECTIVE_MAP)
     session, frame, index = close_session(tmp_path)
@@ -2005,13 +2041,15 @@ def test_score_counter_of_each_side(tmp_path):
     assert left["cp"] == right["cp"] == 3 and left["total"] == 0 and left["primary"] == "hidden"
 
     session.dispatch("score.skull", slot=0, category="crit", tp=2, skull=2)
-    session.dispatch("score.skull", slot=0, category="kill", tp=None, skull=3)
+    session.dispatch("score.skull", slot=0, category="tac", tp=3, skull=2)
     session.dispatch("score.primary", slot=0, value="crit")
     session.dispatch("score.cp", slot=0, delta=-1)
     session.dispatch("score.tac_op", slot=0, name="Rout")
     left = session.state()["scores"][0]
-    assert left["cells"]["crit"] == [2, 0, 0] and left["points"] == {"crit": 2, "tac": 0, "kill": 3}
-    assert left["primary_bonus"] == 1 and left["total"] == 6 and left["cp"] == 2 and left["tac_op"] == "Rout"
+    assert left["cells"]["crit"] == [2, 0, 0] and left["points"] == {"crit": 2, "tac": 2, "kill": 0}
+    assert left["primary_bonus"] == 1 and left["total"] == 5 and left["cp"] == 2 and left["tac_op"] == "Rout"
+    session.dispatch("score.skull", slot=0, category="kill", tp=None, skull=3)  # Kill Op is automatic
+    assert "automatic" in session.state()["notice"]["text"] and session.state()["scores"][0]["points"]["kill"] == 0
     assert session.state()["scores"][1]["total"] == 0
 
     session.dispatch("score.tac_op", slot=0, name="Flank")  # a Recon op: not for orks
@@ -2023,7 +2061,7 @@ def test_score_counter_of_each_side(tmp_path):
 
     session.dispatch("team.set", slot=0, name="elves")  # the score stays, the Tac Op of orks goes
     left = session.state()["scores"][0]
-    assert left["total"] == 6 and left["tac_op"] is None and left["tac_ops"] == list(sc.TAC_OPS["Recon"])
+    assert left["total"] == 5 and left["tac_op"] is None and left["tac_ops"] == list(sc.TAC_OPS["Recon"])
 
 
 def test_turn_and_crit_op_of_the_game(tmp_path):

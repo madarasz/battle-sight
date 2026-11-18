@@ -27,7 +27,7 @@ from ..colors import (
     qt_hex,
 )
 from ..live import ACTIONS, Action
-from ..score import CATEGORIES, CATEGORY_MAX, CATEGORY_NAMES, PRIMARIES, SKULLS_PER_TP, TURNING_POINTS
+from ..score import CATEGORIES, CATEGORY_NAMES, KILL_GRADE_MAX, PRIMARIES, SKULLS_PER_TP, TURNING_POINTS
 
 ACTION_GROUPS = {"wounds": "Game", "score": "Game", "operative": "Snapshot", "opening": "Game", "light": "Snapshot", "team": "View", "map": "View", "snapshot": "Snapshot", "base": "Snapshot", "names": "Snapshot", "frame": "Snapshot", "ring": "Measure", "measure": "Measure", "view": "View", "reference": "Reference", "app": "Help"}
 RING_COLUMNS = 5
@@ -388,6 +388,7 @@ class RingSlider(QWidget):
 
 NO_TEAM = "-"
 EYE = "\U0001F441"  # identified and confirmed
+DEAD = "\U0001F480"  # skull: dead operative (0 wounds)
 
 
 IDENT_ROLE = Qt.ItemDataRole.UserRole + 1  # identification mark in front of the name in a team list row
@@ -404,8 +405,8 @@ def wounds_text(current: int | None, maximum: int | None) -> str:
 
 
 def roster_row(operative: dict[str, Any]) -> tuple[str, str, str, str]:
-    """Name, identification mark (eye, percentage or `?`), wounds and level
-    of one operative of a team list."""
+    """Name, identification mark (eye, percentage or `?`; a skull for a dead
+    operative), wounds and level of one operative of a team list."""
     wounds = wounds_text(operative.get("wounds"), operative.get("max_wounds"))
     if operative["base_index"] is None:
         mark, level = "?", "none"
@@ -414,6 +415,8 @@ def roster_row(operative: dict[str, Any]) -> tuple[str, str, str, str]:
     else:
         score = operative["score"]
         mark, level = "" if score is None else percent(score), "warn"
+    if operative.get("dead"):
+        mark = DEAD
     return operative["name"], mark, wounds, level
 
 
@@ -499,7 +502,7 @@ class _RosterList(_ActionList):
         return bool(self.item(row).data(SELECTED_ROLE))
 
     def mark(self, row: int) -> str:
-        """Identification mark of a row: eye, percentage or `?`."""
+        """Identification mark of a row: eye, percentage, `?` or skull."""
         return self.item(row).data(IDENT_ROLE)
 
     def wounds(self, row: int) -> str:
@@ -783,6 +786,7 @@ PRIMARY_NAMES = {"hidden": "Hidden", "crit": "Crit Op", "tac": "Tac Op", "kill":
 SHORT_NAMES = {"crit": "Crit", "tac": "Tac", "kill": "Kill"}
 SKULL_PX = 16  # icon size of one skull
 SKULL_BUTTON = "QToolButton { border: none; padding: 1px; }"
+KILL_BONUS_GAP = 8  # px between the kill grade skulls and the bonus skull
 
 
 def skull_path(size: float) -> QPainterPath:
@@ -860,7 +864,9 @@ class ScoreCounter(QGroupBox):
     Tac Op and Primary choices (the Primary bonus at the end of its row), a skull
     grid (Crit and Tac per turning point 2 to 4, Kill in one cell), command
     total in a big font, in the colour of the side's team. A click on a skull fills
-    its cell up to it; a click on the last lit skull turns it off."""
+    its cell up to it; a click on the last lit skull turns it off. Kill Op is
+    automatic, no clicks: the kill grade skulls, then (a bit apart) the bonus
+    skull for the higher kill grade."""
 
     def __init__(self, slot: int, dispatch: Callable[..., Any], parent: QWidget | None = None):
         super().__init__(parent)
@@ -910,7 +916,7 @@ class ScoreCounter(QGroupBox):
             name.setContentsMargins(0, 0, 4, 0)
             grid.addWidget(name, row, 0)
             if category == "kill":
-                grid.addWidget(self._cell(category, None, CATEGORY_MAX), row, 1, 1, len(TURNING_POINTS), Qt.AlignmentFlag.AlignHCenter)
+                grid.addWidget(self._cell(category, None, KILL_GRADE_MAX + 1), row, 1, 1, len(TURNING_POINTS), Qt.AlignmentFlag.AlignHCenter)
             else:
                 for k, tp in enumerate(TURNING_POINTS, start=1):
                     grid.addWidget(self._cell(category, tp, SKULLS_PER_TP), row, k)
@@ -964,6 +970,9 @@ class ScoreCounter(QGroupBox):
         row.setSpacing(0)
         row.addStretch(1)
         buttons = []
+        automatic = category == "kill"
+        if automatic:
+            cell.setToolTip("Kill Op: automatic, from the dead enemy operatives. The last skull: a higher kill grade than the opponent.")
         for skull in range(1, count + 1):
             button = QToolButton()
             button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
@@ -971,7 +980,12 @@ class ScoreCounter(QGroupBox):
             button.setIconSize(QSize(SKULL_PX, SKULL_PX))
             button.setIcon(skull_icon(SKULL_OFF_COLOR))
             button.setProperty("lit", False)
-            button.clicked.connect(lambda _checked=False, s=skull: self.dispatch("score.skull", slot=self.slot, category=category, tp=tp, skull=s))
+            if automatic:  # shows the score only
+                button.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
+                if skull == count:
+                    row.addSpacing(KILL_BONUS_GAP)
+            else:
+                button.clicked.connect(lambda _checked=False, s=skull: self.dispatch("score.skull", slot=self.slot, category=category, tp=tp, skull=s))
             row.addWidget(button)
             buttons.append(button)
         row.addStretch(1)
@@ -985,9 +999,13 @@ class ScoreCounter(QGroupBox):
     def show_state(self, state: dict[str, Any]) -> None:
         score = state["scores"][self.slot]
         for (category, tp), buttons in self.skulls.items():
-            value = score["cells"][category][0 if tp is None else TURNING_POINTS.index(tp)]
-            for k, button in enumerate(buttons, start=1):
-                lit = k <= value
+            if category == "kill":
+                grade, bonus = score["kill_grade"], score["kill_bonus"]
+                on = [k <= grade for k in range(1, KILL_GRADE_MAX + 1)] + [bool(bonus)]
+            else:
+                value = score["cells"][category][TURNING_POINTS.index(tp)]
+                on = [k <= value for k in range(1, len(buttons) + 1)]
+            for button, lit in zip(buttons, on):
                 if bool(button.property("lit")) != lit:
                     button.setProperty("lit", lit)
                     button.setIcon(skull_icon(SKULL_ON_COLOR if lit else SKULL_OFF_COLOR))

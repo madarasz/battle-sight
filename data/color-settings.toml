@@ -51,6 +51,8 @@ health_empty = "#3c3c3c"     # lost wounds part of a health bar
 health_unharmed = "#50dc50"  # all wounds left
 health_wounded = "#ffaa3c"   # half of the wounds or more left
 health_injured = "#e63c3c"   # fewer than half of the wounds left, edge of an empty bar
+dead_mark = "#ffffff"        # skull on the base of a dead operative
+dead_back = "#000000"        # disc behind the skull of a dead operative
 
 # --- measurement -----------------------------------------------------------------
 

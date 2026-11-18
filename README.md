@@ -22,7 +22,8 @@ range rings and the distances between operatives.
 13. ⏳ Support multiple identical models: copies in the team list, told apart by position (UNTESTED)
 14. ⏳ Shoot at measurements (UNTESTED)
 15. ✅  Tomb World light terrain: real outlines, found on the board, cover for Shoot at
-16. 🚧 Operative states: injured, dead, borrowed, poisioned, etc.
+16. ✅ KillOp calculation, dead operatives
+17. 🚧 Operative states: injured, dead, borrowed, poisioned, etc.
 optional 🚧 Tokens: find tokens, list operatives in range
 
 ✅ done · ⏳ next · 🚧 not started
@@ -113,11 +114,13 @@ The terrain in the way shows red. Push Esc to stop.
 
 ### 4. Track the game
 
-Click an operative to change its wounds. Click a hatchway or breach point to
-open or close it. All start closed.
+Click an operative to change its wounds. An operative with 0 wounds is dead.
+Click a hatchway or breach point to open or close it. All start closed.
 
 Turn, Crit Op, Tac Op, Primary, victory points and command points are in the
 game bar and below each team list. They start again at each app start.
+The app counts the Kill Op from the dead enemy operatives. The last Kill Op
+skull is the point for more kills than the opponent.
 
 ### Saved photos
 
@@ -133,6 +136,7 @@ add `--team kommandos veterans`.
 
 - Name colour: green = sure, yellow = not sure, check it, red `?` = unknown.
 - Health bar: green = unharmed, orange = wounded, red = injured.
+- Skull on a base or in a team list: dead operative.
 - Magenta: range ring and distance.
 - Yellow lines around a hatchway: 1 in and 2 in from it.
 - Yellow crossed swords: melee. Yellow arrow heads: objective control.

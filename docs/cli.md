@@ -346,11 +346,23 @@ per side, not per team, so a team change keeps it; no save, an app start
 gives the start values):
 
 - Cells: Crit Op and Tac Op have one cell per turning point of
-  `TURNING_POINTS` (2, 3, 4) with `SKULLS_PER_TP` (2) skulls; Kill Op has one
-  cell with `CATEGORY_MAX` (6) skulls (manual now; later from the dead
-  status of operatives). Points of a category = sum of its cells, at most 6.
-- `score.skull(slot, category, tp, skull)`: `category` = `crit` / `tac` /
-  `kill`, `tp` = 2..4 (`None` for `kill`), `skull` = 1..cell size. The cell
+  `TURNING_POINTS` (2, 3, 4) with `SKULLS_PER_TP` (2) skulls. Points of a
+  category = sum of its cells, at most 6.
+- Kill Op is automatic (no action). An operative with 0 wounds is dead
+  (`LiveSession._is_dead`; `dead` in `bases` and `rosters`). Starting number
+  = the operatives in the enemy team list (each copy counts) that are not
+  `expendable`; dead = how many of them have 0 wounds. `score.kill_grade`
+  reads the row of the starting number in `[kill_grade]` of
+  `data/kill-op.toml` (below the first row: first row, above the last row:
+  last row): grade = the number of row values that the dead count reaches
+  (0..5). `score.kill_scores`: the side with the higher grade gets 1 more
+  (`kill_bonus`). `LiveSession._update_kill_scores` sets `Score.kill_grade` /
+  `kill_bonus` at each `state()`. Kill points = grade + bonus, at most 6.
+- Dead operatives: no melee control mark (`_control`), a skull on a disc at
+  the base centre (`overlay.draw_dead_marks`, colours `dead_mark` /
+  `dead_back`), a skull in front of the name in the team list.
+- `score.skull(slot, category, tp, skull)`: `category` = `crit` / `tac`
+  (`kill` gives an error notice: automatic), `tp` = 2..4, `skull` = 1..2. The cell
   fills up to that skull; a click on the last lit skull turns it off
   (`score.skull_value`). A bad value gives an error notice, no change.
 - `score.tac_op(slot, name)`: `None` or a Tac Op of the side's team:
@@ -360,8 +372,8 @@ gives the start values):
 - `score.primary(slot, value)`: `hidden` / `crit` / `tac` / `kill`. Bonus =
   ceil(points of that category / 2); `hidden` = 0.
 - `score.cp(slot, delta)`: command points, start `CP_START` (3), never below 0.
-- State: `scores` = one entry per side: `{cells: {crit: [..3], tac: [..3],
-  kill: [n]}, points: {crit, tac, kill}, tac_op, tac_ops, primary,
+- State: `scores` = one entry per side: `{cells: {crit: [..3], tac: [..3]},
+  kill_grade, kill_bonus, points: {crit, tac, kill}, tac_op, tac_ops, primary,
   primary_bonus, cp, total}`, `total` = crit + tac + kill + primary_bonus.
 - UI: `ui/parts.ScoreCounter` below each `TeamRoster` in the `rosters` layout
   (no title): CP on top, Tac Op, Primary with `+bonus` at the row end, skull
@@ -444,7 +456,7 @@ Fixes (plan priority 4, "user confirms or fixes with one click"): after
 in `panel`, the panel list in `inspector`). A right click with no base
 selected, or on the selected base, replaces the selection (`state["right_click"]`
 = "name": the shell opens the popup); a right click on another base sets the
-target of the distance (`right_click` = "measure", no popup). A name choice clears the selection. The list has the
+target of the distance (`right_click` = "measure", no popup). A name choice selects the named base (no ring, no target) and clears `new_base`. The list has the
 operatives of this base size, best score first, then the operatives without
 gallery photos. The crop of the base goes into the gallery of that operative.
 A name that another base held moves to the clicked base; the other base

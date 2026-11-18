@@ -103,6 +103,8 @@ HEALTH_EMPTY_COLOR = _get("health_empty")
 HEALTH_UNHARMED_COLOR = _get("health_unharmed")
 HEALTH_WOUNDED_COLOR = _get("health_wounded")
 HEALTH_INJURED_COLOR = _get("health_injured")
+DEAD_MARK_COLOR = _get("dead_mark")
+DEAD_BACK_COLOR = _get("dead_back")
 
 # --- measurement
 MEASURE_COLOR = _get("measure")

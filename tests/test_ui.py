@@ -246,7 +246,7 @@ def test_right_click_on_a_base_opens_names_and_choice_sets_it(window):
     action.trigger()
     popup.close()
     wait_until(lambda: window.state["bases"][1]["confirmed"])
-    assert window.state["bases"][1]["label"] == label and window.state["selected"] is None
+    assert window.state["bases"][1]["label"] == label and window.state["selected"] == 1  # the named base stays selected
 
 
 def test_closing_the_popup_keeps_the_selection(window):
@@ -885,9 +885,9 @@ def test_inspector_right_click_shows_crop_and_list_and_no_popup(inspector):
     label = inspector.state["candidates"][0]["label"]
     assert layout.candidates.item(0).text().startswith(label)
     row_click(layout.candidates, 0)
-    wait_until(lambda: inspector.state["bases"][1]["confirmed"] and inspector.state["selected"] is None)
+    wait_until(lambda: inspector.state["bases"][1]["confirmed"] and inspector.state["selected"] == 1)  # the named base stays selected
     assert inspector.state["bases"][1]["label"] == label
-    wait_until(lambda: layout.stack.currentWidget() is layout.pages["snapshot"])
+    wait_until(lambda: layout.stack.currentWidget() is layout.pages["selected"])
 
 
 def test_inspector_operative_row_selects_the_base_and_esc_goes_back(inspector):
@@ -1124,7 +1124,7 @@ def test_rosters_inspector_shows_the_operative(idle_rosters, recorded):
     assert layout.ring.slider.value() == 6 and layout.ring.value.text() == '6"'
     assert not layout.candidates.isVisibleTo(idle_rosters) and layout.close.isVisibleTo(idle_rosters)
     layout.change.click()
-    assert layout.candidates.isVisibleTo(idle_rosters) and layout.candidates.item(0).text().endswith("%")
+    assert layout.candidates.isVisibleTo(idle_rosters) and not layout.distance.isVisibleTo(idle_rosters) and layout.game.isVisibleTo(idle_rosters) and layout.candidates.item(0).text().endswith("%")
     idle_rosters._on_frame(recorded[2]["target"], 0)  # same base: the list stays open
     assert layout.candidates.isVisibleTo(idle_rosters) and layout.distance.text().startswith("Rim to rim: ")
     assert layout.change.text() == "Cancel"
@@ -1195,11 +1195,17 @@ def test_rosters_add_operative_shows_the_instruction_and_then_the_name_list(idle
     state = dict(frames["base selected"].state, new_base=frames["base selected"].state["selected"])
     idle_rosters._on_frame(replace(frames["base selected"], state=state), 0)
     assert layout.stack.currentWidget() is layout.pages["operative"] and layout.change.isChecked()
-    assert layout.candidates.isVisibleTo(idle_rosters) and not layout.game.isVisibleTo(idle_rosters)
+    assert layout.candidates.isVisibleTo(idle_rosters) and not layout.details.isVisibleTo(idle_rosters) and not layout.wounds.isVisibleTo(idle_rosters) and layout.game.isVisibleTo(idle_rosters)
     assert layout.change.text() == "Cancel"
     layout.change.click()  # Cancel: the name list closes, wounds, ring and distance come back
-    assert not layout.candidates.isVisibleTo(idle_rosters) and layout.game.isVisibleTo(idle_rosters)
+    assert not layout.candidates.isVisibleTo(idle_rosters) and layout.details.isVisibleTo(idle_rosters) and layout.wounds.isVisibleTo(idle_rosters)
     assert layout.change.text() == "Change ID"
+    # A name choice closes the list; the operative stays in the inspector.
+    idle_rosters._on_frame(replace(frames["base selected"], state=state), 0)
+    layout.change.setChecked(True)
+    layout.candidates.itemClicked.emit(layout.candidates.item(0))
+    assert not layout.change.isChecked() and layout.details.isVisibleTo(idle_rosters)
+    assert layout.stack.currentWidget() is layout.pages["operative"]
 
 
 def test_rosters_inspector_shows_an_opening(idle_rosters, recorded):
@@ -1324,13 +1330,14 @@ def test_rosters_debug_goes_to_the_status_bar(idle_rosters, recorded):
 
 
 def test_roster_row_shows_the_wounds():
-    from battlesight.ui.parts import roster_row, wounds_text
+    from battlesight.ui.parts import DEAD, roster_row, wounds_text
 
     row = {"name": "Nob", "base_index": None, "score": None, "confirmed": False, "wounds": 7, "max_wounds": 12}
     assert wounds_text(7, 12) == "7/12" and wounds_text(None, None) == ""
     assert roster_row(row) == ("Nob", "?", "7/12", "none")
     assert roster_row(dict(row, base_index=1, score=0.78)) == ("Nob", "78%", "7/12", "warn")
     assert roster_row(dict(row, wounds=None, max_wounds=None)) == ("Nob", "?", "", "none")
+    assert roster_row(dict(row, wounds=0, base_index=1, confirmed=True, dead=True)) == ("Nob", DEAD, "0/12", "ok")  # skull for a dead operative
 
 
 @pytest.fixture
@@ -1449,11 +1456,13 @@ def test_rosters_score_counter(qapp, tmp_path, named):
         wait_until(lambda: win.state["scores"][0]["cells"]["crit"] == [0, 2, 0] and left.lit("crit", 3) == 2)
         left.skulls[("crit", 3)][1].click()  # the last lit skull turns off
         wait_until(lambda: left.lit("crit", 3) == 1 and left.points["crit"].text() == "1")
-        assert len(left.skulls[("kill", None)]) == 6
-        left.skulls[("kill", None)][4].click()
-        wait_until(lambda: left.total.text() == "6 VP")
-        left.primary.activated.emit(sc.PRIMARIES.index("kill"))
-        wait_until(lambda: left.total.text() == "9 VP" and left.bonus.text() == "+3")
+        assert len(left.skulls[("kill", None)]) == sc.KILL_GRADE_MAX + 1  # grades and the bonus skull
+        left.skulls[("tac", 2)][1].click()
+        wait_until(lambda: left.total.text() == "3 VP")
+        left.primary.activated.emit(sc.PRIMARIES.index("tac"))
+        wait_until(lambda: left.total.text() == "4 VP" and left.bonus.text() == "+1")
+        left.show_state({"scores": [dict(win.state["scores"][0], kill_grade=2, kill_bonus=1), win.state["scores"][1]]})
+        assert left.lit("kill", None) == 3 and left.skulls[("kill", None)][-1].property("lit")  # Kill Op is automatic
         assert right.bonus.text() == "+0" and "#e63c3c" in left.total.styleSheet() and not left.title()
         left.tac_op.activated.emit(2)
         wait_until(lambda: win.state["scores"][0]["tac_op"] == sc.TAC_OPS["Recon"][1])

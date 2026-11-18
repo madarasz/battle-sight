@@ -294,8 +294,8 @@ class RostersLayout:
         row.addWidget(self.crop, 0, Qt.AlignmentFlag.AlignTop)
         column = QVBoxLayout()
         column.setSpacing(2)
-        self.game = QWidget()  # wounds, ring, movement and distance: hidden while the name list is open
-        game = QVBoxLayout(self.game)
+        self.details = QWidget()  # wounds, ring, movement and distance: hidden while the name list is open
+        game = QVBoxLayout(self.details)
         game.setContentsMargins(0, 0, 0, 0)
         game.setSpacing(2)
         self.wounds = WoundsControl(self.shell.dispatch)
@@ -337,9 +337,10 @@ class RostersLayout:
         shot.addWidget(self.shot_text)
         self.shot.setVisible(False)
         game.addWidget(self.shot)
-        column.addWidget(self.game)
+        column.addWidget(self.details)
         self.candidates = CandidateList(self.shell.dispatch)
         self.candidates.setVisible(False)
+        self.candidates.itemClicked.connect(lambda _item: self.change.setChecked(False))  # a name choice closes the list
         column.addWidget(self.candidates, 1)
         column.addStretch(0)
         row.addLayout(column, 1)
@@ -350,7 +351,7 @@ class RostersLayout:
         self.change.setText("Cancel" if on else "Change ID")
         self.change.setToolTip("Close the name list, keep the name" if on else "Choose another name for this operative")
         self.candidates.setVisible(on)
-        self.game.setVisible(not on)
+        self.details.setVisible(not on)
 
     def _roster_operative_page(self, page: QWidget) -> None:
         """An operative selected in a team list that has no base: only its wounds."""

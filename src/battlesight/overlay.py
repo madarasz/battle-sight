@@ -15,6 +15,8 @@ from .colors import (
     BOARD_FOUND_COLOR,
     BREACH_COLOR,
     CORNER_LOST_COLOR,
+    DEAD_BACK_COLOR,
+    DEAD_MARK_COLOR,
     DROP_ZONE_GREY_COLOR,
     DROP_ZONE_ORANGE_COLOR,
     GRID_BOARD_EDGE_COLOR,
@@ -561,6 +563,36 @@ def draw_health_bars(frame: np.ndarray, bars, to_px) -> None:
         if part > 0:
             cv2.fillPoly(frame, [poly(x0, x0 + length * part)], health_color(current, maximum), cv2.LINE_AA)
         cv2.polylines(frame, [poly(x0, x0 + length)], True, HEALTH_INJURED_COLOR if current <= 0 else OUTLINE_COLOR, thick, cv2.LINE_AA)
+
+
+DEAD_DISC_PART = 0.32  # radius of the dead mark disc / base diameter
+
+
+def draw_dead_marks(frame: np.ndarray, marks, to_px) -> None:
+    """A skull on a disc at the centre of the base of each dead operative.
+    `marks`: (centre mm, base diameter mm). The mark stays upright; its size
+    follows the base and the board scale."""
+    for center, diameter in marks:
+        c = np.asarray(to_px(np.asarray(center, float).reshape(1, 2)), float).reshape(2)
+        R = max(8.0, DEAD_DISC_PART * diameter * _px_per_mm(to_px, center))
+        cv2.circle(frame, tuple(int(v) for v in np.rint(c)), int(round(R)), DEAD_BACK_COLOR, -1, cv2.LINE_AA)
+        s = 1.25 * R  # skull in an s x s square, centred on the disc
+        x0, y0 = c[0] - 0.5 * s, c[1] - 0.5 * s
+
+        def pt(u: float, v: float) -> tuple[int, int]:
+            return int(round(x0 + u * s)), int(round(y0 + v * s))
+
+        def ln(u: float) -> int:
+            return max(1, int(round(u * s)))
+
+        cv2.ellipse(frame, pt(0.5, 0.37), (ln(0.42), ln(0.35)), 0, 0, 360, DEAD_MARK_COLOR, -1, cv2.LINE_AA)  # cranium
+        cv2.rectangle(frame, pt(0.26, 0.50), pt(0.74, 0.96), DEAD_MARK_COLOR, -1, cv2.LINE_AA)  # jaw
+        for u in (0.33, 0.67):  # eye holes
+            cv2.circle(frame, pt(u, 0.43), ln(0.11), DEAD_BACK_COLOR, -1, cv2.LINE_AA)
+        nose = np.array([pt(0.5, 0.56), pt(0.44, 0.68), pt(0.56, 0.68)], np.int32).reshape(-1, 1, 2)
+        cv2.fillPoly(frame, [nose], DEAD_BACK_COLOR, cv2.LINE_AA)
+        for u in (0.38, 0.5, 0.62):  # teeth gaps
+            cv2.line(frame, pt(u, 0.80), pt(u, 0.96), DEAD_BACK_COLOR, ln(0.04), cv2.LINE_AA)
 
 
 # --- control marks ----------------------------------------------------------------
