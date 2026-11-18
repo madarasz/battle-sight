@@ -1304,7 +1304,7 @@ def test_rosters_debug_goes_to_the_status_bar(idle_rosters, recorded):
     idle_rosters._on_frame(recorded[2]["live"], 0)
     assert not idle_rosters.debug_label.isVisible()
     assert layout.debug_toggle.text() == "Debug" and not layout.debug_toggle.isChecked()
-    assert layout.debug_toggle.parent().title() == "View"  # the last check box of View, no Debug section
+    assert layout.debug_toggle.parent().title() == "Commands"  # the last control of Commands, no Debug section
     assert "Debug" not in [box.title() for box in idle_rosters.findChildren(QGroupBox)]
     layout.debug_toggle.click()
     assert idle_rosters.debug_label.isVisible() and idle_rosters.debug_label.text().startswith("fit ")

@@ -279,7 +279,7 @@ class Action:
 
 
 ACTIONS: tuple[Action, ...] = (
-    Action("snapshot.name", "Identify operatives", "space", enabled=lambda s: not s["busy"]),
+    Action("snapshot.name", "Identify all operatives", "space", enabled=lambda s: not s["busy"]),
     Action("snapshot.bases", "Find bases only", "b", enabled=lambda s: not s["busy"], control=False),
     Action("snapshot.back", "Go back to Live", "Esc", control=False),
     Action("view.top_down", "Adjust perspective", "v", checked=lambda s: s["top_down"]),
@@ -322,7 +322,7 @@ ACTIONS: tuple[Action, ...] = (
     Action("score.primary", "Primary", args=("slot", "value")),
     Action("score.cp", "Command points", args=("slot", "delta")),
     Action("opening.toggle", "Open / close", "o", enabled=lambda s: s["selected_opening"] is not None),
-    Action("light.locate", "Identify terrains", enabled=lambda s: s["light_can_locate"]),
+    Action("light.locate", "Identify all terrain", enabled=lambda s: s["light_can_locate"]),
     Action("light.locate_at", "Locate terrain", enabled=_can_locate_light),
     Action("light.remove", "Remove ID", enabled=_light_located),
     Action("light.locate_here", "Identify terrain here", enabled=_can_locate_selected_light),
@@ -1703,7 +1703,7 @@ class LiveSession:
         return bases_image(self.frame, self.view, self.cfg)
 
     def _locate_light(self) -> None:
-        """"Identify terrains": search each light terrain piece of the
+        """"Identify all terrain": search each light terrain piece of the
         layout that has a piece file and no pose yet. A piece that was
         found keeps its pose (later a model can hide it) until "Remove ID"."""
         if self.terrain_map is None:

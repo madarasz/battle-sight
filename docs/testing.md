@@ -549,7 +549,7 @@ walls, bare board).
 | wrong | Another key or another place. |
 | missed | No piece, or no clear result. |
 | false | A click on a `not_pieces` point that gives a piece. |
-| cards found | "Identify terrains" in a square of the card size plus `margin_mm` around the true centre. |
+| cards found | "Identify all terrain" in a square of the card size plus `margin_mm` around the true centre. |
 | false | Each `not_pieces` point with each piece file: a confirmed pose. |
 
 `-v` prints one line per miss, wrong key and false find with the score of

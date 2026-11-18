@@ -100,12 +100,12 @@ front of each name shows the identification:
 An identified operative shows in the colour of its team. Click an operative
 to select it: its line gets a grey background and the inspector shows it. For
 an operative that the app did not find, the inspector shows only its name
-and wounds. After you change a team, click "Identify operatives" again.
+and wounds. After you change a team, click "Identify all operatives" again.
 
 The team list starts with all operatives of the team. To remove an operative
 that does not play, select it and click "Remove operative". The app then does
 not give its name to a base. To add it again, click "Add operative" and
-click its name. Click "Identify operatives" again after a change.
+click its name. Click "Identify all operatives" again after a change.
 
 Some operatives can be in a team more than once, for example `Boy 1` and
 `Boy 2`. To add one more copy, click "Add operative" and click its name. The
@@ -127,7 +127,7 @@ the board. Use the View check boxes to show or hide these parts:
 
 - **Light terrain**: the light terrain pieces.
 
-With recorded light terrain pieces (see Setup), click **Identify terrains**.
+With recorded light terrain pieces (see Setup), click **Identify all terrain**.
 The app finds each piece on the board and draws its outline. Click a piece
 to see its image in the inspector. If an outline is wrong, click the piece
 and then **Remove ID** in the inspector. If a piece is not found, click its
@@ -149,7 +149,7 @@ Code) and ask it to record the map.
    and click "Take empty-board reference" (Reference section). The app keeps this photo
    of the empty board and finds the bases more easily.
 2. Put the operatives on the board.
-3. Click "Identify operatives". The app finds the bases and writes the name of the
+3. Click "Identify all operatives". The app finds the bases and writes the name of the
    operative under each base. Green: sure. Yellow: not sure, check it. Red
    `?`: unknown.
 4. If a name is wrong, click the base and choose the correct name. In the
@@ -161,15 +161,15 @@ Code) and ask it to record the map.
    click the centre of its base. The inspector shows the board under the
    pointer. The app finds the base and shows a list of names. Choose the
    correct name. Click "Cancel" to stop. You can also do this before
-   "Identify operatives", to add each operative yourself.
+   "Identify all operatives", to add each operative yourself.
 7. Click "Live". The circles and names stay until the next
-   "Identify operatives".
+   "Identify all operatives".
 
 To find the bases without names, use the menu item "Find bases only".
 
 ### 3. Measure
 
-You can measure after "Identify operatives" or "Find bases only".
+You can measure after "Identify all operatives" or "Find bases only".
 
 1. Click a base. A white circle shows the selected base.
 2. Move the "Distance" slider in the inspector. The app draws a ring that
@@ -261,7 +261,7 @@ green: done).
 | Red "CARD MOVED" | One card is not on its board corner now. | Put the card back against the board corner. |
 | Red "TAG LOST" | The camera cannot see a card. | Remove what covers the card (a hand, a model, a dice tray). |
 | Red "camera down" | The app gets no image from the camera. It tries again by itself. | Check the camera and its cable or network. |
-| Red "CORNERS NOT SEEN" | "Identify operatives" cannot find the board. The line names the cards. | Remove what covers the card, or move the camera. |
+| Red "CORNERS NOT SEEN" | "Identify all operatives" cannot find the board. The line names the cards. | Remove what covers the card, or move the camera. |
 
 On the video:
 
@@ -319,7 +319,7 @@ or the selected hatchway or breach point (name, status, "Open"/"Close").
   close the window, then start the app again.
 - **The size of a base is wrong.** Check `base_mm` of each operative in
   `data/teams/<team>/team.toml`.
-- **The first "Identify operatives" is slow.** The app downloads the recognition model one
+- **The first "Identify all operatives" is slow.** The app downloads the recognition model one
   time.
 - **The grid does not sit on the printed lines.** Check the map settings
   ([docs/setup.md](docs/setup.md), step 5). Then calibrate the lens (step 6).

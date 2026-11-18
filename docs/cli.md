@@ -23,7 +23,7 @@ uv run battlesight --version
 | `tools/make_charuco.py` | none | Lens calibration sheet: `data/print/charuco.pdf`. |
 | `tools/bench_bases.py` | test photos | Bases benchmark: metrics, parameter sweeps, baseline check. |
 | `tools/bench_ident.py` | test photos | Identification benchmark: name metrics, baseline check. |
-| `tools/bench_light.py` | test photos | Light terrain search: "Locate terrain" clicks and "Identify terrains" card searches against `<name>.light.json` (`docs/testing.md`). |
+| `tools/bench_light.py` | test photos | Light terrain search: "Locate terrain" clicks and "Identify all terrain" card searches against `<name>.light.json` (`docs/testing.md`). |
 | `tools/annotate_bases.py` | one test photo | Click the base ground truth of a test photo, and assign the operative names. |
 
 ## Option rule
@@ -508,7 +508,7 @@ only with `unconfirmed > 0`, "Locate operative" = `base.add` (the inspector show
 ring, movement and distance, and the button reads "Cancel": it closes the list), "Remove ID" = `base.remove`, "Shoot at" = `measure.shoot`
 (reads "Cancel" while `shooting`; the crop is the board under the pointer, OBSCURED / IN COVER from `state["shot"]` take the place of the ring, movement and distance);
 opening: "Hatchway" / "Breach point" and `OpeningControl`
-(state and Open / Close button); `✕` = `base.deselect`) and Reference. The last check box of View is "Debug" (debug values in the status bar).
+(state and Open / Close button); `✕` = `base.deselect`) and Reference. The last check box of Commands is "Debug" (debug values in the status bar).
 A `TeamRoster` each side of the video; the mark of a row starts with
 `current/max` wounds when the operative has a maximum. `WoundsControl`
 (`parts.py`, also in `inspector`): `-` and `+` buttons and a `QSpinBox` with
@@ -1221,7 +1221,7 @@ outline, wrong size, camera tilt). The command also prints the scale range
 of all frame angles that agree equally. Exit 2: bad input. The points file
 is a JSON list of `[x, y]`. `view --no-grid` draws only marks at the edge.
 
-"Identify terrains" (action `light.locate`, enabled with a layout that has a
+"Identify all terrain" (action `light.locate`, enabled with a layout that has a
 light item with a piece file) finds the pieces on the board
 (`lightfit.locate`): each light item with a piece file and no pose yet. The
 image is the top-down image of the snapshot while it is on the screen, else
@@ -1298,13 +1298,13 @@ bases, markers, prints, walls, bare board; `docs/testing.md`), 2026-11-17:
 | "Locate terrain", clicks 7 mm from the centre | about 61 of 84 | 84 of 84 |
 | "Locate terrain", wrong key | 0 | 0 |
 | "Locate terrain", click with no piece: a piece found | 1 of 23 | 1 of 23 |
-| "Identify terrains", card-sized square | 17 of 21 | 21 of 21 |
-| "Identify terrains", no piece there: found | 0 of 115 | 3 of 115 |
+| "Identify all terrain", card-sized square | 17 of 21 | 21 of 21 |
+| "Identify all terrain", no piece there: found | 0 of 115 | 3 of 115 |
 
 The misses before: dark or blurred pieces (scores 0.31 to 0.44 at the right
 pose) and a C4 next to an objective marker (the search went to the
 marker). The false find of "Locate terrain" is a pink cut-out frame that
-is no light terrain; the 3 of "Identify terrains" are at 0.47 to 0.52 on
+is no light terrain; the 3 of "Identify all terrain" are at 0.47 to 0.52 on
 bases. Rejected: a tolerance only to the outside of the outline (a high
 piece leans out in the top-down image): it matched everything; a colour
 contrast across the outline: bases and markers have the same. About 0.4 s
@@ -1314,7 +1314,7 @@ Other actions: `view.light` ("Light terrain", on at the start, enabled with
 a layout or a located piece: shows the card symbols, the outlines and the light terrain keys),
 a left click on a piece selects it (`state["selected_light"]`),
 `light.remove` ("Remove ID", enabled for a selected piece with a pose: back
-to the card symbol; "Identify terrains" searches it again). State: `light` =
+to the card symbol; "Identify all terrain" searches it again). State: `light` =
 list of `{index, key, center_mm, angle_deg, located, outline}` (`outline`:
 it has a piece file), `selected_light`, `light_can_locate`, `light_shown`,
 `light_files`, `locating_light`.

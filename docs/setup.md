@@ -510,7 +510,7 @@ The agent writes the outline in `data/terrain/tomb-world/` (for example
 `C2.toml`) and shows you an image of the outline on your photo. Look at the
 image. If a part of the line is not on the rim, tell the agent where.
 
-In the app, choose the layout and click **Identify terrains**. The app
+In the app, choose the layout and click **Identify all terrain**. The app
 finds each recorded piece on the board. To find one piece, with or without
 a layout, click **Locate terrain** and then the piece on the video.
 

@@ -1507,7 +1507,7 @@ def test_shoot_at_light_terrain_gives_cover_not_obscured(tmp_path):
     session = make_session(tmp_path, cfg, frame)
     session.dispatch("map.layout", name="Light")
     assert [len(p) for p in session._light_outlines()] == [4]  # not identified: the card symbol
-    session.light_poses[0] = ((300.0, 300.0), 0.0)  # as "Identify terrains" sets it
+    session.light_poses[0] = ((300.0, 300.0), 0.0)  # as "Identify all terrain" sets it
     session._build_shapes()
     assert [len(p) for p in session._light_outlines()] == [5]  # the piece file
     settled(session, frame)

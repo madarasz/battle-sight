@@ -1,7 +1,7 @@
 """Layout `rosters`: a control bar on top, the video, and a team list each side.
 
-The control bar has separate sections: View (with the Debug check box),
-Commands, Inspector and Reference. The inspector shows the selected operative
+The control bar has separate sections: View, Commands (with the Debug check box
+at the bottom), Inspector and Reference. The inspector shows the selected operative
 (name, crop, wounds, ring slider, name fix, remove a false base, shoot at it)
 or the selected hatchway or breach point (open or closed). While "Shoot at" is
 on, the crop is the board under the pointer, and OBSCURED and IN COVER show
@@ -163,10 +163,6 @@ class RostersLayout:
         toggles.setHorizontalSpacing(14)
         for k, action_id in enumerate(("view.top_down", "view.grid", "view.terrain", "view.zones", "view.keys", "view.light", "measure.walls", "view.marks")):
             toggles.addWidget(self._control(action_id), k // 4, k % 4)
-        self.debug_toggle = _no_focus(QCheckBox("Debug"))
-        self.debug_toggle.setToolTip("Debug values in the status bar")
-        self.debug_toggle.toggled.connect(self.shell.show_debug)
-        toggles.addWidget(self.debug_toggle, 1, 3)  # the last check box
         column.addLayout(toggles)
         column.addStretch(1)
         modes = QHBoxLayout()  # bottom row: what the video shows, one third each
@@ -191,6 +187,10 @@ class RostersLayout:
         self.locate_terrain.setToolTip("Click a light terrain piece on the video: the app finds which piece it is")
         column.addWidget(self.locate_terrain)
         column.addStretch(1)
+        self.debug_toggle = _no_focus(QCheckBox("Debug"))
+        self.debug_toggle.setToolTip("Debug values in the status bar")
+        self.debug_toggle.toggled.connect(self.shell.show_debug)
+        column.addWidget(self.debug_toggle)  # at the bottom of the section
         return box
 
     def _reference_box(self) -> QGroupBox:
