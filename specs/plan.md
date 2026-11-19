@@ -123,7 +123,7 @@ Later option: FastAPI plus browser front end over WebSocket for a tablet at the 
 
 ## 7. Repository layout
 
-`CLAUDE.md` ("Layout" and "Architecture") has the current layout and the job of each module. Data for later priorities:
+`CLAUDE.md` ("Where to find what") has the current layout, and `src/battlesight/CLAUDE.md` the job of each module. Data for later priorities:
 
 - Priority 7: token diameters (20 and 40 mm) go in a new `[tokens]` table of `data/board.toml`, beside `[bases]`. All sizes are config values.
 

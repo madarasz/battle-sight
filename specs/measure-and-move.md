@@ -2,7 +2,7 @@
 
 Status: in code 2026-11-11 (`walls.py`, `moves.py`, live actions, all three layouts). Not checked with a tape measure on the real board. Extends priority 5 (rings and distances) of `specs/plan.md` with the terrain of priority 6.
 
-Read first: `CLAUDE.md` (`walls.py`, `moves.py`, `measure.py`, `terrain.py`), `docs/cli.md` "Rings and distances", `README.md` "Measure rings and distances".
+Read first: `docs/dev/walls-moves-shoot.md`, `docs/dev/live-session.md` (`measure.py`), `docs/dev/terrain.md`, `docs/cli.md` "Rings and distances", `README.md` "Measure rings and distances".
 
 ## 1. Goal
 

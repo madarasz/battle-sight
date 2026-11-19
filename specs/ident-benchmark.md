@@ -2,7 +2,7 @@
 
 Status: parts 1 to 4 (sections 5 to 10, 12) done 2026-11-09, first baseline written. Section 11: steps 1 (first row) and 2 done 2026-11-10 (see 11.1). New photos and a holdout are still open. Date: 2026-11-10. Priority 4 of `specs/plan.md`.
 
-Read first: `CLAUDE.md`, `specs/plan.md` (priority 4 row and section 9),
+Read first: `docs/dev/bases-and-ident.md`, `specs/plan.md` (priority 4 row and section 9),
 `specs/bases-benchmark.md`, `docs/cli.md` "Operative identity",
 `docs/testing.md` "Operative names" and "Identification benchmark".
 
@@ -412,7 +412,7 @@ Before, with the copies in use: 23 of 34 (0.68), 1 of 4 photos passed.
   metrics, the baseline rules, the gallery rule, the printed table.
 - `docs/cli.md`: a section for `tools/bench_ident.py`, the `--team` part of
   `tools/annotate_bases.py`.
-- `CLAUDE.md`: the tool commands, `ident_bench.py` in the architecture list,
+- `CLAUDE.md`: the tool commands, `ident_bench.py` in the module map of `src/battlesight/CLAUDE.md` and in `docs/dev/bases-and-ident.md`,
   the baseline rule, a link to this file.
 - `specs/plan.md` section 9, priority 4: the baseline numbers (open).
 - `README.md`: no change (developer tools).
