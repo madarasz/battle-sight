@@ -251,6 +251,7 @@ class RostersLayout:
         self.shoot = _no_focus(QPushButton("Shoot at"))  # "Cancel" while it is on
         self.shoot.clicked.connect(lambda: self.shell.dispatch("measure.shoot"))
         header.addWidget(self.shoot, 0)
+        self.header = header  # "Remove ID" of a light terrain piece goes here too
         header.addStretch(1)
         self.close = _no_focus(QToolButton())
         self.close.setText("✕")
@@ -370,7 +371,7 @@ class RostersLayout:
     def _light_page(self, page: QWidget) -> None:
         column = QVBoxLayout(page)
         column.setContentsMargins(0, 0, 0, 0)
-        self.light = LightControl(self.shell.dispatch, CROP_SIZE, beside=True)
+        self.light = LightControl(self.shell.dispatch, CROP_SIZE, beside=True, title_row=self.header)
         column.addWidget(self.light)
         column.addStretch(1)
 
@@ -397,6 +398,8 @@ class RostersLayout:
         self.change.setVisible(page == "operative")
         self.remove.setVisible(page == "operative")
         self.shoot.setVisible(page == "operative")
+        if page != "light":
+            self.light.remove.setVisible(False)
         self.shoot.setEnabled(ACTION_BY_ID["measure.shoot"].enabled(state))
         self.shoot.setText("Cancel" if state["shooting"] else "Shoot at")
         self.shoot.setToolTip("Stop the targeting lines (Esc)" if state["shooting"] else "Targeting lines from the pointer to this operative")

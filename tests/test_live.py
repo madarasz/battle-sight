@@ -739,6 +739,26 @@ def test_ring_is_drawn_at_base_radius_plus_inches(tmp_path, inches):
     assert cleared.state["ring_in"] is None and np.array_equal(cleared.image, before)
 
 
+def test_ring_colors_the_other_bases_in_its_distance(tmp_path):
+    cfg = ident_cfg()
+    frame = paint_board(cfg, GAME)
+    session, state = bases_snapshot(tmp_path, cfg, frame)
+    click_base(session, state, 0)
+    plain = session.step(frame)
+    assert plain.state["in_ring"] == []
+    found = session._found()
+    a = found[0]
+    gaps = [measure.rim_gap(a.center_mm, a.diameter_mm, c.center_mm, c.diameter_mm)[0] for c in found]
+    inches = next(n for n in range(1, 10) if any(g <= n * measure.MM_PER_INCH for g in gaps[1:]))
+    session.dispatch(f"ring.{inches}")
+    live = session.step(frame)
+    expected = [i for i in range(1, len(found)) if gaps[i] <= inches * measure.MM_PER_INCH]
+    assert live.state["in_ring"] == expected and expected
+    assert_json_safe(live.state)
+    session.dispatch("measure.move")
+    assert session.step(frame).state["in_ring"] == []
+
+
 def test_second_base_gives_rim_to_rim_distance_within_2_mm(tmp_path):
     cfg = ident_cfg()
     frame = paint_board(cfg, GAME)

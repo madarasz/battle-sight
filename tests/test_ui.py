@@ -1229,12 +1229,16 @@ def test_inspectors_show_a_light_terrain_piece(idle_rosters, idle_inspector, rec
         window._on_frame(replace(live, state=state, crop=image), 0)
         control = layout.light
         assert layout.stack.currentWidget() is layout.pages["light"] and title(layout).text() == "Light terrain C2"
-        assert control.pose_label.text() == "Identified on the board." and control.remove.isEnabled() and control.remove.text() == "Remove ID"
+        assert control.pose_label.isHidden() and control.remove.isEnabled() and control.remove.text() == "Remove ID"
+        heading = title(layout)
+        centre_y = lambda w: w.mapTo(window, w.rect().center()).y()
+        assert control.remove.parent() is not control and abs(centre_y(control.remove) - centre_y(heading)) < control.remove.height()  # in the title line
+        assert control.remove.mapTo(window, control.remove.rect().topLeft()).x() > heading.mapTo(window, heading.rect().topRight()).x()  # after the title
         assert not control.crop.isHidden() and control.crop._array is image
         if window is idle_rosters:  # the low top bar: the image at the left, no overlap
-            assert control.crop.geometry().right() < control.pose_label.geometry().left() and control.crop.height() <= layout.stack.height()
+            assert control.crop.geometry().right() < control.width() and control.crop.height() <= layout.stack.height()
         assert not control.remove.isHidden() and control.identify.isHidden()  # no disabled button
-        buttons = control.findChildren(QAbstractButton)
+        buttons = control.findChildren(QAbstractButton) + [control.remove]
         assert set(buttons) == {control.remove, control.identify} and all(b.focusPolicy() == Qt.FocusPolicy.NoFocus for b in buttons)
         card = dict(LIGHT_PIECE, located=False)
         window._on_frame(replace(live, state=dict(state, light=[card], selected_light=card), crop=None), 0)
@@ -1245,6 +1249,9 @@ def test_inspectors_show_a_light_terrain_piece(idle_rosters, idle_inspector, rec
         assert "No outline file" in control.pose_label.text() and control.remove.isHidden() and control.identify.isEnabled()
         window._on_frame(replace(live, state=dict(state, light=[none], selected_light=none, light_files=[])), 0)
         assert not control.identify.isEnabled()  # no piece file at all
+        window._on_frame(replace(live, state=state), 0)
+        window._on_frame(replace(live, state=dict(live.state, selected_light=None)), 0)
+        assert not control.remove.isVisible()  # not in the title line of another page
 
 
 def test_light_control_sends_its_actions(qapp):

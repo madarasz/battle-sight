@@ -425,6 +425,7 @@ class LiveSession:
         self._navigator: tuple[Any, walls.Navigator] | None = None  # for the layout and its open openings
         self._wall_path: tuple[Any, Any] | None = None  # last path around walls, with its key
         self._wall_range: tuple[Any, Any] | None = None  # last range area, with its key
+        self._ring_bases: tuple[Any, list[int]] | None = None  # bases in the ring distance, with its key
         self.maps_root = Path(maps_root)
         self.pieces_root = Path(pieces_root)  # piece files: real outlines of the light terrain
         self.terrain_map: ter.TerrainMap | None = None
@@ -757,6 +758,8 @@ class LiveSession:
             draw_range_mm(img, self._range_around(a), to_px, MEASURE_COLOR)
         elif self.ring_in is not None:
             draw_circle_mm(img, a.center_mm, measure.ring_radius_mm(a.diameter_mm, self.ring_in), to_px, MEASURE_COLOR)
+        for i in self._in_ring(found):  # other bases in the ring distance
+            draw_circle_mm(img, found[i].center_mm, 0.5 * found[i].diameter_mm, to_px, RANGE_ZONE_COLOR)
         if self.target is not None:
             b = found[self.target]
             draw_circle_mm(img, b.center_mm, 0.5 * b.diameter_mm, to_px, MEASURE_COLOR)
@@ -1001,6 +1004,31 @@ class LiveSession:
             self._wall_range = (key, nav.reach(a.center_mm, a.diameter_mm, self.ring_in * measure.MM_PER_INCH))
         return self._wall_range[1]
 
+    def _in_ring(self, found: list) -> list[int]:
+        """Indexes of the other bases with the rim within the ring distance of
+        the selected base (around the walls when that is on). Empty while
+        movement is measured."""
+        if self.selected is None or not self.ring_in or self.movement or not found:
+            return []
+        a, reach = found[self.selected], self.ring_in * measure.MM_PER_INCH
+        others = [i for i in range(len(found)) if i != self.selected]
+        around = self._walls_on()
+        nav_key, nav = self._nav() if around else (None, None)
+        key = (nav_key, self.selected, self.ring_in, tuple(self._base_key(c) for c in found))
+        if self._ring_bases is None or self._ring_bases[0] != key:
+            inside = []
+            for i in others:
+                b = found[i]
+                if around:
+                    path = nav.path(a.center_mm, a.diameter_mm, b.center_mm, b.diameter_mm)
+                    gap = np.inf if path is None else path[0]
+                else:
+                    gap = measure.rim_gap(a.center_mm, a.diameter_mm, b.center_mm, b.diameter_mm)[0]
+                if gap <= reach:
+                    inside.append(i)
+            self._ring_bases = (key, inside)
+        return self._ring_bases[1]
+
     def _toggle_around_walls(self) -> None:
         self.around_walls = not self.around_walls
         self.dirty = True
@@ -1104,6 +1132,7 @@ class LiveSession:
             "selected_wounds": self._selected_wounds_state(),
             "target": self.target,
             "ring_in": self.ring_in,
+            "in_ring": self._in_ring(self._found()),
             "distance": self._distance_state(),
             "candidates": self._candidates_state(),
             "can_undo": s is not None and bool(s.added),

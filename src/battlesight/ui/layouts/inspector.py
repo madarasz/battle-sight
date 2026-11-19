@@ -162,9 +162,12 @@ class InspectorLayout:
         column.addStretch(1)
 
     def _light_page(self, column: QVBoxLayout) -> None:
+        row = QHBoxLayout()
         self.light_title = QLabel()
-        column.addWidget(self.light_title)
-        self.light = LightControl(self.shell.dispatch, CROP_HEIGHT)
+        row.addWidget(self.light_title, 0)
+        row.addStretch(1)
+        column.addLayout(row)
+        self.light = LightControl(self.shell.dispatch, CROP_HEIGHT, title_row=row)
         column.addWidget(self.light)
         self._add_controls(column, "base.deselect")
         column.addStretch(1)

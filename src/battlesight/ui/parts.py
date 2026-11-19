@@ -712,7 +712,7 @@ class OpeningControl(QWidget):
 
 
 LIGHT_STATE = {
-    True: "Identified on the board.",
+    True: "",  # the piece image and "Remove ID" say it
     False: "Not identified: the place and size are from the layout card.",
     None: "No outline file for this piece: the place and size are from the layout card.",
 }
@@ -738,9 +738,11 @@ class LightControl(QWidget):
     cut from the board and "Remove ID" (back to the card symbol); a card
     symbol shows "Identify terrain here" ("Locate terrain" at its place)."""
 
-    def __init__(self, dispatch: Callable[..., Any], crop_px: int = 140, beside: bool = False, parent: QWidget | None = None):
+    def __init__(self, dispatch: Callable[..., Any], crop_px: int = 140, beside: bool = False, title_row: QHBoxLayout | None = None, parent: QWidget | None = None):
         """`beside`: the image at the left of the text and the button, a
-        `crop_px` square (a low panel); else above them, `crop_px` high."""
+        `crop_px` square (a low panel); else above them, `crop_px` high.
+        `title_row`: "Remove ID" goes in it before its stretch (the inspector
+        title line, as for an operative); the layout hides it on other pages."""
         super().__init__(parent)
         outer = QHBoxLayout(self) if beside else QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
@@ -761,7 +763,11 @@ class LightControl(QWidget):
         column.addWidget(self.pose_label)
         self._actions = {a.id: a for a in ACTIONS if a.id in ("light.remove", "light.locate_here")}
         self.remove = action_control(self._actions["light.remove"], dispatch)
-        column.addWidget(self.remove)
+        if title_row is None:
+            column.addWidget(self.remove)
+        else:  # before the stretch of the row: next to the title
+            at = next((i for i in range(title_row.count()) if title_row.itemAt(i).spacerItem() is not None), title_row.count())
+            title_row.insertWidget(at, self.remove, 0)
         self.identify = action_control(self._actions["light.locate_here"], dispatch)
         column.addWidget(self.identify)
         column.addStretch(1)
@@ -772,7 +778,9 @@ class LightControl(QWidget):
         self.setEnabled(piece is not None)
         if piece is None:
             return
-        self.pose_label.setText(LIGHT_STATE[piece["located"] if piece["outline"] else None])
+        text = LIGHT_STATE[piece["located"] if piece["outline"] else None]
+        self.pose_label.setText(text)
+        self.pose_label.setVisible(bool(text))
         self.crop.setVisible(piece["located"] and crop is not None)
         self.crop.set_image(crop)
         self.remove.setVisible(piece["located"])
