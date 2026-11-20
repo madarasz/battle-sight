@@ -1,32 +1,15 @@
 # Battle Sight
 
-Battle Sight helps you measure in Warhammer 40k: Kill Team. A camera above
-the table looks down on the board. A window on your computer shows the live
-video with measurements on top of it: the map grid, the operative bases, the
-range rings and the distances between operatives.
+Battle Sight is an augmented reality helper for Warhammer 40k: Kill Team. A
+camera above the table looks down on the board. A window on your computer
+shows the live video, with extra information drawn on top of it, as if it
+was on the real table.
 
-## Work in Progress
+You do not need a tape measure. The app shows the distances between your
+operatives, and how far each one can move or how each shot goes. It can recognize  your operatives, track their status. It also keeps the score of the game.
 
-1. ✅ Board corners: AprilTag cards, drift warning
-2. ✅ Undistort and rectify: lens calibration, top-down board image, map grid
-3. ✅ Bases: find round bases, size and position
-4. ✅ Operative ID: name each base from a photo gallery
-5. ✅ Rings and distances: range rings, rim-to-rim distance
-6. ✅ Terrain layouts: walls, hatchways, objectives and drop zones of each layout card
-7. ✅ Team layout: operative list inspector
-8. ✅ Game state: operative health, open/closed status of hatchways and breach points
-9. ✅ Measurement around walls, movement measurement
-10. ✅ Minimap, Control marks (contesting objective, melee engagement)
-11. ✅ Scoreboard, turn number, CP counter, faction ability counter, show CritOp
-12. ✅ Edit roster: Add / Remove operative from the list
-13. ⏳ Support multiple identical models: copies in the team list, told apart by position (UNTESTED)
-14. ⏳ Shoot at measurements (UNTESTED)
-15. ✅  Tomb World light terrain: real outlines, found on the board, cover for Shoot at
-16. ✅ KillOp calculation, dead operatives
-17. 🚧 Operative states: injured, dead, borrowed, poisioned, etc.
-optional 🚧 Tokens: find tokens, list operatives in range
-
-✅ done · ⏳ next · 🚧 not started
+The project is under development. See [docs/dev-log.md](docs/dev-log.md)
+for the finished and planned features.
 
 ## Setup
 
@@ -150,36 +133,6 @@ add `--team kommandos veterans`.
 | Red "camera down" | The app gets no image from the camera. | Check the camera and its cable or network. |
 | Red "CORNERS NOT SEEN" | "Identify all operatives" cannot find the board. | Remove what covers the named card, or move the camera. |
 
-## Problems
+## Fixing common issues
 
-- **The board slid but there is no warning.** The app measures from the
-  cards, not from the board. Put the board corner back against the black L
-  of the card.
-- **Error that width and height are the wrong way round.** Change
-  `width_mm` and `height_mm` in `data/board.toml`. See
-  [docs/setup.md](docs/setup.md), step 5.
-- **The camera does not start.** Make sure that the Terminal app has camera
-  permission (System Settings > Privacy & Security > Camera). Find the
-  correct camera number with `uv run tools/list_cameras.py`. For Camo, a
-  Wi-Fi stream or scrcpy, see [docs/setup.md](docs/setup.md),
-  Troubleshooting.
-- **The terrain drawing does not sit on the real walls.** Turn the board or
-  the cards.
-- **A base is not found.** The app must see at least half of the black edge
-  of the base. Move the camera nearer to the top of the board, or turn the
-  model. Take an empty-board reference.
-- **A base of a new operative is not found, or the name list is empty.**
-  Teach the app this operative (setup step 8) with its base size.
-- **A token or a terrain part shows as a base.** Take the empty-board
-  reference after you set up the terrain and the tokens.
-- **An operative gets the wrong name frequently.** Add more photos of the
-  operatives (setup step 8).
-- **The inspector shows "has no maximum wounds".** Add the wounds of the
-  operative: `uv run battlesight enroll --team kommandos --operative "Boss Nob" --wounds 12`,
-  then start the app again.
-- **The size of a base is wrong.** Check `base_mm` of each operative in
-  `data/teams/<team>/team.toml`.
-- **The first "Identify all operatives" is slow.** The app downloads the
-  recognition model one time.
-- **The grid does not sit on the printed lines.** Check the map settings
-  ([docs/setup.md](docs/setup.md), step 5). Then calibrate the lens (step 6).
+For fixes to common problems, see [docs/fixing-problems.md](docs/fixing-problems.md).

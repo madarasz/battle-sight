@@ -1,6 +1,6 @@
 ---
 name: write-user-docs
-description: Rules for the Battle Sight user documents README.md and docs/setup.md (non-technical reader, ASD-STE100, what goes in and what stays out, Work in Progress list). Use before you write or change README.md or docs/setup.md, also when a new feature, mode, key, overlay or setup step needs a user-facing line.
+description: Rules for the Battle Sight user documents README.md and docs/setup.md (non-technical reader, ASD-STE100, what goes in and what stays out, development log). Use before you write or change README.md or docs/setup.md, also when a new feature, mode, key, overlay or setup step needs a user-facing line.
 ---
 
 # Write the user documents
@@ -22,9 +22,9 @@ Teach with UI elements: name the button, check box, list or menu item to use, ne
 
 A new function gets a short entry in the workflow ("Use the app"), and a line in "What you see" only when it draws a mark with a meaning that is not clear. Do not describe it in several places.
 
-### Work in Progress list
+### Development log
 
-`README.md` starts with a "Work in Progress" list: one line per priority with a status emoji (✅ done, ⏳ in progress or next, 🚧 not started). Update it when a priority starts or passes its done test. Keep each line short. Also update the priority table in the root `CLAUDE.md`.
+`README.md` only says that the project is under development and links to `docs/dev-log.md`. That file holds the list: one line per priority with a status emoji (✅ done, ⏳ in progress or next, 🚧 not started). Update it when a priority starts or passes its done test. Keep each line short. Also update the priority table in the root `CLAUDE.md`.
 
 ### Setup
 

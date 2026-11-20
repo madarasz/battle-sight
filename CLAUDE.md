@@ -62,7 +62,7 @@ When you change code, update the file of its topic in "Where to find what" in th
 - A subcommand, option, stage, or JSON field: `docs/cli.md`.
 - A test file or a stage: `docs/testing.md` and `tests/CLAUDE.md`.
 - A rule or model of measurement or movement: `docs/specs/measure-and-move.md`.
-- A priority status: the table above and the README "Work in Progress" list.
+- A priority status: the table above and the list in `docs/dev-log.md`.
 - A user-facing mode, overlay or setup step: `README.md` or `docs/setup.md` (skill `write-user-docs`).
 
 ## User documents
