@@ -30,7 +30,7 @@ names in <name>.ident.json, and <name>.expected.json when it is missing. Keys:
     s              save
     q, Esc         quit (asks to save when there are changes)
 
-Plan: specs/bases-benchmark.md section 8. Docs: docs/cli.md, docs/testing.md.
+Plan: docs/specs/bases-benchmark.md section 8. Docs: docs/cli.md, docs/testing.md.
 """
 
 from __future__ import annotations

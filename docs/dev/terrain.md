@@ -33,7 +33,7 @@ Design rule: walls and openings are not detected. Each layout is a map file, wri
 - `outline_points`, `origin_box` (poses with the outline in the card rectangle plus `[light] margin_mm`).
 - `locate`: coarse 4 degrees and 1 mm, fine 0.5 degrees and 0.5 mm; score = (part of the outline on edges - median over the angles) / (1 - median); under `[light] min_score` (0.47) the nominal pose, `confirmed = False`; `hold_mm` = a point the outline must hold.
 - `locate_at`: "Locate terrain" search of all piece files around a click, `ClickResult`.
-- Ground truth `tests/images/<name>.light.json` (pieces: key, centre, angle; `not_pieces` points). `tools/bench_light.py` measures both searches; do not change the limit or the edge values without that measurement (`specs/measure-and-move.md` section 10).
+- Ground truth `tests/images/<name>.light.json` (pieces: key, centre, angle; `not_pieces` points). `tools/bench_light.py` measures both searches; do not change the limit or the edge values without that measurement (`docs/specs/measure-and-move.md` section 10).
 
 ## LiveSession light terrain
 

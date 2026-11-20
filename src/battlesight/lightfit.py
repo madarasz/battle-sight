@@ -20,7 +20,7 @@ the outline must hold, so a strong edge next to the piece (an objective
 ring, a base) does not pull the search away.
 
 No window, no camera. Measured on the 5 test photos (2026-11): see
-`specs/measure-and-move.md` section 10. An image of the piece as a
+`docs/specs/measure-and-move.md` section 10. An image of the piece as a
 template gave similar results but needs a photo of each owner's paint; a
 colour mask of "not board" pixels, a fixed Canny threshold, and an edge
 tolerance only to the outside of the outline (a high piece leans out)

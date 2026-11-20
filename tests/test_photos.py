@@ -235,7 +235,7 @@ def bench_scores(request, results) -> list[bench.PhotoScore]:
 @needs_photos
 def test_bases_benchmark_no_worse(cfg, bench_scores):
     """Benchmark not worse than tests/images/bases_baseline.json
-    (rules in specs/bases-benchmark.md section 7.2)."""
+    (rules in docs/specs/bases-benchmark.md section 7.2)."""
     if not bench_scores:
         pytest.skip("no photo with <name>.bases.json")
     if not BASELINE.is_file():

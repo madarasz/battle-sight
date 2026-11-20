@@ -1,8 +1,8 @@
 # Bases benchmark: implementation plan
 
-Status: parts 1 to 4 (sections 5 to 10, 12) done 2026-11-03, first baseline written. Section 11 (tuning): first two changes done 2026-11-10 (roster sizes, fixed-radius fit with known sizes; see 11.1). New photos and a holdout (11 step 2) are still open. Date: 2026-11-03. Priority 3 of `specs/plan.md`.
+Status: parts 1 to 4 (sections 5 to 10, 12) done 2026-11-03, first baseline written. Section 11 (tuning): first two changes done 2026-11-10 (roster sizes, fixed-radius fit with known sizes; see 11.1). New photos and a holdout (11 step 2) are still open. Date: 2026-11-03. Priority 3 of `docs/specs/plan.md`.
 
-Read first: `docs/dev/bases-and-ident.md`, `specs/plan.md` (priority 3 row and section 9),
+Read first: `docs/dev/bases-and-ident.md`, `docs/specs/plan.md` (priority 3 row and section 9),
 `docs/cli.md` "Base detection", `docs/testing.md` "Photo tests".
 
 ## 1. Goal
@@ -530,7 +530,7 @@ a teleporter), 1 false base (a round barricade on `tomb-world-1`).
 - `docs/setup.md` step 7: the rules for a game pair (section 3).
 - `CLAUDE.md`: the two tool commands, `bench.py` in the module map of `src/battlesight/CLAUDE.md` and in `docs/dev/bases-and-ident.md`,
   the baseline rule.
-- `specs/plan.md` section 9, priority 3: the baseline numbers.
+- `docs/specs/plan.md` section 9, priority 3: the baseline numbers.
 - `README.md`: no change (developer tools).
 
 ## 13. Work order

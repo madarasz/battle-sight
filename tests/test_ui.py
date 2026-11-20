@@ -430,7 +430,7 @@ def test_layout_modules_do_not_import_the_vision_code(path):
 
 @pytest.fixture
 def recorded(tmp_path, named):
-    """Session and frames for each state of the done test of specs/ui.md, section 11."""
+    """Session and frames for each state of the done test of docs/specs/ui.md, section 11."""
     cfg, frame = named
     session = make_session(tmp_path, cfg, frame, teams=("orks",))
     frames = {"before the first frame": session.current()}

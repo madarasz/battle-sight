@@ -4,7 +4,7 @@ A front end reads frames from the camera and gives each one to
 `LiveSession.step`. It shows the returned image and state, and it sends the
 user's commands with `LiveSession.dispatch`.
 
-The contract between the core and a front end (specs/ui.md, section 8):
+The contract between the core and a front end (docs/specs/ui.md, section 8):
 
 - `ACTIONS` lists all things that the user can do.
 - `LiveSession.state()` is a JSON-safe dict with all that the user can see.

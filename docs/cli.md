@@ -245,7 +245,7 @@ change.
   the base could not move at all. `state["avoid_melee"]`.
 - `measure.shoot` ("Shoot at" in the inspector, no key, enabled with a
   selected base; again, `Esc` or a new selection stops it): targeting lines
-  from the pointer to the selected base (`shoot.aim`, `specs/measure-and-move.md`
+  from the pointer to the selected base (`shoot.aim`, `docs/specs/measure-and-move.md`
   section 10). Yellow dashed 1 in circles around the target and the shooter
   base under the pointer, white lines to the tangent points with a light fill,
   intervening heavy terrain and the light terrain that gives cover in red
@@ -414,7 +414,7 @@ can go in the list (not in it, or fewer copies than `max`). UI
 of `missing` above the buttons and is "Cancel" while it is open; "Remove
 operative" is enabled when the selected operative is in that list.
 
-Copies (`specs/operative-copies.md`): an operative with `max = N` (N > 1) in
+Copies (`docs/specs/operative-copies.md`): an operative with `max = N` (N > 1) in
 `team.toml` can be in a team list N times. Each copy has a copy label
 `<team>/<operative>#<k>` (`ident.copy_label`, `type_of`, `copy_number`,
 `display_name` = "Boy 2"); an operative with `max = 1` keeps its type label.
@@ -496,7 +496,7 @@ selected. `Esc` clears the selected base.
 The README section "What you see" tells what the overlay shows. The game
 logic is in `live.LiveSession`: it has no window and no camera. `live.ACTIONS`
 lists what the user can do, and `LiveSession.state()` is a JSON-safe dict of
-what the user can see (`specs/ui.md`, section 8). The window is PySide6:
+what the user can see (`docs/specs/ui.md`, section 8). The window is PySide6:
 `ui/shell.py` has the worker thread (camera and `LiveSession`), the keys, the
 menu generated from `ACTIONS`, the status bar, the name popup and the layout
 change. `ui/parts.py` has the shared widgets. The other commands keep their
@@ -512,7 +512,7 @@ layout uses only `shell.dispatch`, `shell.new_video` (one time in `build`),
 of the status bar; off at each layout change). It must not import `pipeline`,
 `ident`, `calib` or `camera`.
 
-`rosters` (Option 3 of `specs/ui.md`): a top bar with the sections View
+`rosters` (Option 3 of `docs/specs/ui.md`): a top bar with the sections View
 (`MapPicker`, view toggles and `measure.walls`, bottom row: radio buttons `view.live`, `view.snapshot`, `view.minimap`; `Action.radio` gives a `QRadioButton`, one set per parent widget), Commands (`snapshot.name`, `names.accept` shown
 only with `unconfirmed > 0`, "Locate operative" = `base.add` (the inspector shows the instruction while `adding`)), Inspector (operative: title `Team - Name (40mm)`, crop,
 `WoundsControl`, `RingSlider`, `measure.move`, distance, "Change ID" that shows a
@@ -1395,7 +1395,7 @@ Then update the photo test expected files (see [testing.md](testing.md),
 
 ## `tools/bench_bases.py`: bases benchmark
 
-Plan: `specs/bases-benchmark.md`. The tool measures the `bases` stage on
+Plan: `docs/specs/bases-benchmark.md`. The tool measures the `bases` stage on
 photos with ground truth (`<name>.bases.json`). It gives numbers, not only
 pass or fail. Use it to tune `[bases]` and to stop changes that make the
 result worse.
@@ -1480,7 +1480,7 @@ uv run tools/bench_bases.py --baseline tests/images/bases_baseline.json
 
 ## `tools/bench_ident.py`: identification benchmark
 
-Plan: `specs/ident-benchmark.md`. The tool measures the operative names on photos with `<name>.ident.json`. It
+Plan: `docs/specs/ident-benchmark.md`. The tool measures the operative names on photos with `<name>.ident.json`. It
 gives numbers, not only the pass or fail of the done test. Use it to tune
 `[ident]` and to stop changes that make the names worse.
 

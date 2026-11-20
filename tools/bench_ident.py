@@ -12,7 +12,7 @@ Prints one row per photo, the total, and one line per wrong name, unknown
 name, wrong base size and missed base.
 
 Exit codes: 0 done, 1 worse than --baseline, 2 bad input or a baseline of
-another gallery. Plan: specs/ident-benchmark.md. Docs: docs/cli.md, docs/testing.md.
+another gallery. Plan: docs/specs/ident-benchmark.md. Docs: docs/cli.md, docs/testing.md.
 """
 
 from __future__ import annotations

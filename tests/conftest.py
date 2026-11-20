@@ -267,7 +267,7 @@ def pytest_terminal_summary(terminalreporter, exitstatus, config):
     did not run."""
     table = _TABLES.get("bench_table")
     if table:
-        terminalreporter.write_sep("=", "bases benchmark (specs/bases-benchmark.md)")
+        terminalreporter.write_sep("=", "bases benchmark (docs/specs/bases-benchmark.md)")
         terminalreporter.write_line(table)
     table = _TABLES.get("ident_table")
     if table:

@@ -1,9 +1,9 @@
 # Identification benchmark: implementation plan
 
-Status: parts 1 to 4 (sections 5 to 10, 12) done 2026-11-09, first baseline written. Section 11: steps 1 (first row) and 2 done 2026-11-10 (see 11.1). New photos and a holdout are still open. Date: 2026-11-10. Priority 4 of `specs/plan.md`.
+Status: parts 1 to 4 (sections 5 to 10, 12) done 2026-11-09, first baseline written. Section 11: steps 1 (first row) and 2 done 2026-11-10 (see 11.1). New photos and a holdout are still open. Date: 2026-11-10. Priority 4 of `docs/specs/plan.md`.
 
-Read first: `docs/dev/bases-and-ident.md`, `specs/plan.md` (priority 4 row and section 9),
-`specs/bases-benchmark.md`, `docs/cli.md` "Operative identity",
+Read first: `docs/dev/bases-and-ident.md`, `docs/specs/plan.md` (priority 4 row and section 9),
+`docs/specs/bases-benchmark.md`, `docs/cli.md` "Operative identity",
 `docs/testing.md` "Operative names" and "Identification benchmark".
 
 ## 1. Goal
@@ -370,7 +370,7 @@ All use the colour-histogram embedder. No model download.
    other light, other camera positions, other operative positions. Name each
    with `annotate_bases.py`.
 4. Add holdout photos: `"holdout"` in the baseline, as in
-   `specs/bases-benchmark.md` section 11.
+   `docs/specs/bases-benchmark.md` section 11.
 5. One change at a time. For each: run the benchmark, keep the change only
    when the totals are better and the holdout is not worse. Write the
    baseline with the change, commit both.
@@ -378,7 +378,7 @@ All use the colour-histogram embedder. No model download.
 
    | Error | Change |
    |---|---|
-   | Missed bases, wrong sizes (9 of 12 lost names) | Bases tuning first (`specs/bases-benchmark.md` section 11). Measure the gain here too. |
+   | Missed bases, wrong sizes (9 of 12 lost names) | Bases tuning first (`docs/specs/bases-benchmark.md` section 11). Measure the gain here too. |
    | Wrong size stops the true name | Add `--sizes-from truth` (section 13) to measure the gain. Then let the gallery give a known size a second, relaxed search. |
    | Felltalon, Prime and Tremorscythe confused | First examine the masks and the gallery photos. Sweep `crop_pad_mm`, `top_k`, `input_px`. Then try `facebook/dinov2-base`. |
    | No mask on photos without a reference | Take a reference for each game. Compare `mask` true and false on the same photos. |
@@ -389,7 +389,7 @@ All use the colour-histogram embedder. No model download.
 
 | Finding | Action |
 |---|---|
-| 9 of 12 lost names came from detection. | Bases changes of `specs/bases-benchmark.md` 11.1 (roster, fixed radius). |
+| 9 of 12 lost names came from detection. | Bases changes of `docs/specs/bases-benchmark.md` 11.1 (roster, fixed radius). |
 | The gallery held 29 crops of the two 4K test photos (name fixes in the live app with `--image-source`), 13 of them identical extra files. Right names on these photos scored 1.00. | The benchmark does not use a gallery photo that shows the same frame as a found base of the photo (`copies_of`, metric `hidden`, 17 now). `Gallery.add` refuses the same crop two times for one operative. The 13 extra files are out of the gallery. |
 | Naming alone, true base positions and sizes: 31 of 34 right, also without the copies. The 3 wrong names are Raveners on `tomb-world-2` (no reference, margins under 0.01). | No `[ident]` change. |
 | `[ident]` sweeps on the true bases are noise with 34 bases: `crop_pad_mm` 10, 15, 20, 25, 32 gives 34, 29, 28, 31, 32 right. `top_k` 3 and 5 are equal, 1 is worse. | No tuning before there are more photos. |
@@ -414,7 +414,7 @@ Before, with the copies in use: 23 of 34 (0.68), 1 of 4 photos passed.
   `tools/annotate_bases.py`.
 - `CLAUDE.md`: the tool commands, `ident_bench.py` in the module map of `src/battlesight/CLAUDE.md` and in `docs/dev/bases-and-ident.md`,
   the baseline rule, a link to this file.
-- `specs/plan.md` section 9, priority 4: the baseline numbers (open).
+- `docs/specs/plan.md` section 9, priority 4: the baseline numbers (open).
 - `README.md`: no change (developer tools).
 
 ## 13. Not built
@@ -438,7 +438,7 @@ Add these only when the tuning needs them.
 | 2 | `tools/bench_ident.py`: run, table, report, `--baseline`, `--write-baseline`. | The tool runs on `tests/images`, the end-to-end unit tests pass. Done. |
 | 3 | `tools/annotate_bases.py --team`, `--prefill` best guess. | Logic tests pass. The owner can name a base and save. Done. |
 | 4 | Photo test and terminal summary. Write the first baseline. | `test_ident_benchmark_no_worse` passes and `uv run pytest -m photos` prints the table. Done. |
-| 5 | Documentation (section 12). | Docs match the code. Done, except `specs/plan.md`. |
+| 5 | Documentation (section 12). | Docs match the code. Done, except `docs/specs/plan.md`. |
 | 6 | Check of names and gallery (section 11, steps 1 and 2). | Owner work. Open. |
 | 7 | Tuning (section 11, steps 3 to 6). | The done test passes on the game pairs. Open. |
 
@@ -447,7 +447,7 @@ Add these only when the tuning needs them.
 - The priority 4 done test fails on 3 of the 4 photos. This is a measured
   result. Do not lower the limit or edit a `<name>.ident.json` to make it pass.
 - `bench.compare` for the bases uses the totals of all photos, so a new photo
-  can fail `test_bases_benchmark_no_worse`. `specs/bases-benchmark.md` section
+  can fail `test_bases_benchmark_no_worse`. `docs/specs/bases-benchmark.md` section
   7.2 says that it gives no failure. `ident_bench.compare` does not have this
   problem.
 - The baseline is local to one machine, because git ignores the gallery. On

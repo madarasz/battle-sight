@@ -1,6 +1,6 @@
 # src/battlesight/ui: Qt front end
 
-PySide6, imported only inside `app.cmd_live`. The game core is `live.py` (`docs/dev/live-session.md`). `specs/ui.md` is the UI plan: many layouts on the `LiveSession` contract. Tests run offscreen: `tests/test_ui.py` (run `uv run pytest -m ui`).
+PySide6, imported only inside `app.cmd_live`. The game core is `live.py` (`docs/dev/live-session.md`). `docs/specs/ui.md` is the UI plan: many layouts on the `LiveSession` contract. Tests run offscreen: `tests/test_ui.py` (run `uv run pytest -m ui`).
 
 ## Files
 

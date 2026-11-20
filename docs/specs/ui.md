@@ -12,7 +12,7 @@ The UI must:
 - Move status text and messages off the video.
 - Have a good place for the features of priorities 5 to 7 and for wounds and statuses (section 4).
 - Have more than one UI layout. Each layout maps to the same controls and the same game state. A setting changes the layout (section 8).
-- Keep the core free of Qt, so that a FastAPI and browser front end can use it later (`specs/plan.md`, section 6).
+- Keep the core free of Qt, so that a FastAPI and browser front end can use it later (`docs/specs/plan.md`, section 6).
 
 Not in scope: `enroll`, `gallery`, `calibrate`, `image-pipeline` and the tools. They stay as they are.
 
@@ -59,7 +59,7 @@ Values that the app does not show today, for the debug area: tags found (`DriftR
 | Priority 5 | Select an operative, ring radius 1 to 9 in, second operative gives the rim-to-rim distance | Selection, keys `1` to `9`, a place for the distance |
 | Priority 6 | Terrain layout of the game, from a map file (done) | Terrain type and layout lists, toggles for layout, drop zones and terrain keys |
 | Priority 7 | Tokens, rings, list of operatives in range | Selection of a token, a result list |
-| `specs/about-project`, plan section 9 | Wounds and statuses per operative | A persistent list of operatives |
+| `docs/specs/about-project`, plan section 9 | Wounds and statuses per operative | A persistent list of operatives |
 
 ## 5. Structure options
 
@@ -365,7 +365,7 @@ A browser front end later uses the same action ids and state dict over a WebSock
 
 ## 12. Steps after the decision
 
-These steps are the UI foundation. It comes before priority 5. `specs/plan.md`, section 2, "UI work per priority" has the UI part of each priority after that.
+These steps are the UI foundation. It comes before priority 5. `docs/specs/plan.md`, section 2, "UI work per priority" has the UI part of each priority after that.
 
 1. Done. Move the logic to `LiveSession`, with the action list and the state dict. Keep the `imshow` loop on top of it, and run all tests. This step does not change behaviour.
 2. Done. Add the shell, the worker, the keys and the generated menu. Replace the `imshow` loop. Status text is in the status bar. Commands are dropped while a snapshot runs.

@@ -1,6 +1,6 @@
 # Measure around walls, movement, targeting
 
-Modules: `walls.py`, `moves.py`, `shoot.py` (pure geometry in board mm), their handlers in `live.py`. Tests: `tests/test_walls.py`, `test_moves.py`, `test_shoot.py`. Specification (rules R1 to R6, M1 to M7, algorithms, accuracy, open points): `specs/measure-and-move.md`. Update it when a rule or the model changes.
+Modules: `walls.py`, `moves.py`, `shoot.py` (pure geometry in board mm), their handlers in `live.py`. Tests: `tests/test_walls.py`, `test_moves.py`, `test_shoot.py`. Specification (rules R1 to R6, M1 to M7, algorithms, accuracy, open points): `docs/specs/measure-and-move.md`. Update it when a rule or the model changes.
 
 ## walls.py
 
@@ -24,7 +24,7 @@ Modules: `walls.py`, `moves.py`, `shoot.py` (pure geometry in board mm), their h
 
 ## shoot.py
 
-- "Shoot at", action `measure.shoot`, no key, enabled with a selected base; `Esc` or a new selection stops it. `specs/measure-and-move.md` section 10.
+- "Shoot at", action `measure.shoot`, no key, enabled with a selected base; `Esc` or a new selection stops it. `docs/specs/measure-and-move.md` section 10.
 - `tangent_points`, `facing_outline` (pointer + facing rim, for `overlay.draw_targeting_mm`).
 - `aim` -> `Shot`: `pieces` = intervening heavy rectangles from `walls.obstacles`, `obscured` = a part in the lines outside the 1 in zones of both target and shooter (shooter base, else the pointer), `in_cover` = a part in the 1 in zone of the target.
 - `aim(light=[outlines])`: light terrain gives cover the same way and never obscures (`Shot.light` = indexes of the covering outlines, `cover_by`); no cover while the target is within 2 in of the shooter (`NO_COVER_MM`, `Shot.too_near`; also for heavy terrain).

@@ -1,6 +1,6 @@
 # Bases and operative identity (priorities 3 and 4)
 
-Modules: `circles.py`, `ident.py`, `bench.py`, `ident_bench.py`, the `bases` and `ident` stages of `pipeline.py`. Tests: `tests/test_bases.py`, `test_ident.py`, `test_bench.py`, `test_ident_bench.py`, `test_photos.py`. Plans: `specs/bases-benchmark.md`, `specs/ident-benchmark.md`. Config keys and steps: `docs/cli.md` "Base detection" and "Operative identity".
+Modules: `circles.py`, `ident.py`, `bench.py`, `ident_bench.py`, the `bases` and `ident` stages of `pipeline.py`. Tests: `tests/test_bases.py`, `test_ident.py`, `test_bench.py`, `test_ident_bench.py`, `test_photos.py`. Plans: `docs/specs/bases-benchmark.md`, `docs/specs/ident-benchmark.md`. Config keys and steps: `docs/cli.md` "Base detection" and "Operative identity".
 
 Design rule: base detection (geometry: background subtraction plus known-radius circle fit) stays separate from operative identity (DINOv2 embedding plus few-shot gallery). A new team must only need gallery photos, never a retrained detector.
 
@@ -13,7 +13,7 @@ Design rule: base detection (geometry: background subtraction plus known-radius 
 - The stage puts `bases` (list of `Circle`) and `bases_image` in `scratch`.
 - Known sizes (roster): `Pipeline(roster=...)` / `set_roster`, else `Gallery.base_sizes()` (`team.toml`), else all `diameters_mm`; `LiveSession` sets it from `ident.roster_sizes` at the start.
   - With known sizes `detect_bases` searches only these and keeps the radius in the fit (`_verify_fixed`; a free fit goes to the model when part of the rim is hidden), and with a reference too the limit is `reference_min_coverage` (0.4).
-  - Without known sizes the fit is free: do not use the fixed radius with all config sizes, and do not lower the coverage without a reference (both measured worse, `specs/bases-benchmark.md` 11.1).
+  - Without known sizes the fit is free: do not use the fixed radius with all config sizes, and do not lower the coverage without a reference (both measured worse, `docs/specs/bases-benchmark.md` 11.1).
 - `pipeline.BasesSearch` limits one search (an area of the frame, known size, `relaxed` = second search with `[bases] relaxed_*`, results need a click). `pipeline.find_base_near` is the live "Locate operative" search.
 - `pipeline.detect_bases(img, cfg, reference)` is the body of the bases stage.
 
@@ -22,7 +22,7 @@ Design rule: base detection (geometry: background subtraction plus known-radius 
 - Crop around each base from the bases image: `store_crop` keeps 40 mm board each side, `prepare` cuts `ident.crop_pad_mm`, turns, masks a circle, resizes to `input_px`.
 - `Embedder`: `DinoEmbedder` = DINOv2 via `transformers`, MPS, lazy load; `ColorEmbedder` = `model = "color-hist"`, no ML, used by all unit tests.
 - `Gallery`:
-  - `data/teams/<team>/team.toml` with `base_mm`, optional `wounds` (maximum wounds, `Operative.wounds`, game state only; `enroll --wounds` sets it at the start) and optional `max` (copies, `specs/operative-copies.md`).
+  - `data/teams/<team>/team.toml` with `base_mm`, optional `wounds` (maximum wounds, `Operative.wounds`, game state only; `enroll --wounds` sets it at the start) and optional `max` (copies, `docs/specs/operative-copies.md`).
   - `<operative>/*.png`, `<operative>/bg/` empty-board crop of each photo (optional).
   - `mask_crop` (`ident.mask` switch in `data/board.toml`: grey on all but the operative, raw and masked embeddings side by side, `can_mask`, per-base fallback to the full crop).
   - `embeddings.npz` cache, `rotations` angles per crop, score = mean of `top_k` best photos, `leave_one_out`.

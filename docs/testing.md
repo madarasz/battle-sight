@@ -179,7 +179,7 @@ For each photo:
 | `test_rectify_match_expected` | The lens source is the same. 81 board points through the expected and the found homography are within `RECTIFY_TOL_MM` (1 mm). Each board edge offset and each printed grid line offset is within 1 mm of the expected value. |
 | `test_bases_benchmark_no_worse` | One test for all photos. The bases benchmark is not worse than `bases_baseline.json` (rules in "Bases benchmark" below). Skipped without the baseline file. |
 | `test_ident_benchmark_no_worse` | One test for all photos with names. The name metrics are not worse than `ident_baseline.json` (rules in "Identification benchmark" below). Skipped without the baseline file, without a gallery, or with another gallery than the baseline. |
-| `test_rectify_done_criteria` | The done test of priority 2 in `specs/plan.md`, with no expected file: all four board edges found and tilted less than `EDGE_ANGLE_TOL_DEG` (0.3 deg), board corners at 90 deg within `CORNER_ANGLE_TOL_DEG` (0.5 deg), each printed grid line found (walls can hide at most `MAX_HIDDEN_GRID_LINES`, 1 per axis) and within `GRID_TOL_MM` (3.5 mm) of its nominal place, neighbouring grid lines spaced right within `SPACING_TOL_MM` (1.5 mm). |
+| `test_rectify_done_criteria` | The done test of priority 2 in `docs/specs/plan.md`, with no expected file: all four board edges found and tilted less than `EDGE_ANGLE_TOL_DEG` (0.3 deg), board corners at 90 deg within `CORNER_ANGLE_TOL_DEG` (0.5 deg), each printed grid line found (walls can hide at most `MAX_HIDDEN_GRID_LINES`, 1 per axis) and within `GRID_TOL_MM` (3.5 mm) of its nominal place, neighbouring grid lines spaced right within `SPACING_TOL_MM` (1.5 mm). |
 
 `GRID_TOL_MM` is large because it includes the card placement error: in the
 two test photos the board right edge is 2.5 to 3.3 mm inside the L on the
@@ -314,7 +314,7 @@ at once. After you add a stage (see [cli.md](cli.md), "Add a stage"):
 ## Bases benchmark
 
 `tools/bench_bases.py` ([cli.md](cli.md)) and the photo tests use the same
-code, `src/battlesight/bench.py`. Plan: `specs/bases-benchmark.md`.
+code, `src/battlesight/bench.py`. Plan: `docs/specs/bases-benchmark.md`.
 
 ### Matching
 
@@ -439,7 +439,7 @@ A game pair is the done test of priority 3.
 ## Identification benchmark
 
 `tools/bench_ident.py` ([cli.md](cli.md)) and the photo tests use the same
-code, `src/battlesight/ident_bench.py`. Plan: `specs/ident-benchmark.md`.
+code, `src/battlesight/ident_bench.py`. Plan: `docs/specs/ident-benchmark.md`.
 
 ### Causes of a loss
 

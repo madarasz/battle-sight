@@ -1,6 +1,6 @@
 """Bases benchmark: ground truth, matching, metrics, baseline compare.
 
-Plan: `specs/bases-benchmark.md`. Pure functions, no window. The photo tests
+Plan: `docs/specs/bases-benchmark.md`. Pure functions, no window. The photo tests
 (`tests/test_photos.py`), `tools/bench_bases.py` and `tools/annotate_bases.py`
 use the same code.
 

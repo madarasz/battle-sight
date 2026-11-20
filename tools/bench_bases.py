@@ -18,7 +18,7 @@ bench.json to --out. KEY is a [bases] key of the board config
 diameters_mm split the alternatives by ";" (diameters_mm=32,40;25,28,32,40,50).
 
 Exit codes: 0 done, 1 worse than --baseline, 2 bad input.
-Plan: specs/bases-benchmark.md. Docs: docs/cli.md, docs/testing.md.
+Plan: docs/specs/bases-benchmark.md. Docs: docs/cli.md, docs/testing.md.
 """
 
 from __future__ import annotations

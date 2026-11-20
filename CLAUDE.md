@@ -8,8 +8,8 @@ Battle Sight is an augmented reality overlay for Warhammer 40k: Kill Team. A fix
 
 Read these before design work:
 
-- `specs/about-project`: the owner's goals, in their own words.
-- `specs/plan.md`: decisions, the 7 priorities with "done when" tests, risks, stack, and target layout. The plan is the source of truth for scope.
+- `docs/specs/about-project`: the owner's goals, in their own words.
+- `docs/specs/plan.md`: decisions, the 7 priorities with "done when" tests, risks, stack, and target layout. The plan is the source of truth for scope.
 
 Work goes in priority order. Each priority has a measurable done test in the plan. Use it as the acceptance check.
 
@@ -21,7 +21,7 @@ Work goes in priority order. Each priority has a measurable done test in the pla
 | 4 | Operative ID | in code; done test waits for a real gallery and a labelled game photo | `docs/dev/bases-and-ident.md` |
 | 5 | Rings and distances | in code; done test waits for a tape measure check on the real board | `docs/dev/live-session.md` |
 | 6 | Terrain layouts (map files, skill `record-map`, overlay) | done | `docs/dev/terrain.md` |
-| 7 | Tokens | next | `specs/plan.md` section 7 (data folders) |
+| 7 | Tokens | next | `docs/specs/plan.md` section 7 (data folders) |
 
 ## Where to find what
 
@@ -42,7 +42,7 @@ Claude Code loads a `CLAUDE.md` of a subfolder when it reads a file in that fold
 | User setup and calibration | `docs/setup.md` |
 | Recording maps and terrain pieces | `.claude/skills/record-map/`, `.claude/skills/record-terrain/` |
 | Rules for `README.md` and `docs/setup.md` | `.claude/skills/write-user-docs/` |
-| Specs: UI plan, benchmarks, measure and move rules, operative copies | `specs/ui.md`, `specs/bases-benchmark.md`, `specs/ident-benchmark.md`, `specs/measure-and-move.md`, `specs/operative-copies.md` |
+| Specs: UI plan, benchmarks, measure and move rules, operative copies | `docs/specs/ui.md`, `docs/specs/bases-benchmark.md`, `docs/specs/ident-benchmark.md`, `docs/specs/measure-and-move.md`, `docs/specs/operative-copies.md` |
 
 Folders:
 
@@ -51,8 +51,7 @@ src/battlesight/   config.py camera.py scrcpy.py calib.py rectify.py circles.py 
 tools/             make_tags.py make_charuco.py list_cameras.py bench_bases.py bench_ident.py bench_light.py annotate_bases.py
 tests/             synthetic-board tests, test-photo tests (images/ = test photos), no camera needed
 data/              board.toml, color-settings.toml (UI colours), maps/<terrain>/ (terrain map files), terrain/<terrain>/ (light terrain piece files; images git-ignored), print/ (printable sheets), snapshots/ (live saves), teams/<team>/ (gallery, git-ignored), ui.toml (layout choice, git-ignored), camera.toml (git-ignored)
-docs/              setup.md (user setup), cli.md, testing.md, dev/ (developer topics)
-specs/             plan, goals, feature specs
+docs/              setup.md (user setup), cli.md, testing.md, dev/ (developer topics), specs/ (plan, goals, feature specs)
 ```
 
 ## Keep the docs current
@@ -62,7 +61,7 @@ When you change code, update the file of its topic in "Where to find what" in th
 - A module, action, state key or config key: its `docs/dev/` file or folder `CLAUDE.md`.
 - A subcommand, option, stage, or JSON field: `docs/cli.md`.
 - A test file or a stage: `docs/testing.md` and `tests/CLAUDE.md`.
-- A rule or model of measurement or movement: `specs/measure-and-move.md`.
+- A rule or model of measurement or movement: `docs/specs/measure-and-move.md`.
 - A priority status: the table above and the README "Work in Progress" list.
 - A user-facing mode, overlay or setup step: `README.md` or `docs/setup.md` (skill `write-user-docs`).
 
