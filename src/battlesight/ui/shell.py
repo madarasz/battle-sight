@@ -12,7 +12,6 @@ import sys
 import threading
 import traceback
 from functools import partial
-from pathlib import Path
 from typing import Any
 
 import numpy as np
@@ -23,7 +22,6 @@ from PySide6.QtWidgets import QApplication, QLabel, QMainWindow, QMenu, QMessage
 from ..live import ACTIONS, Action, LiveFrame, LiveSession
 from .layouts import DEFAULT_LAYOUT, LAYOUTS, Layout
 from .parts import COLORS, DRIFT_LEVEL, VideoWidget, action_group, candidate_text, debug_line, distance_label
-from .settings import DEFAULT_UI_FILE, load_ui_settings, save_layout, save_map
 
 QT_KEYS = {"space": "Space", "Esc": "Esc"}
 
@@ -153,7 +151,7 @@ class MainWindow(QMainWindow):
 
     closed = Signal()
 
-    def __init__(self, session: LiveSession, camera, ui_file: str | Path = DEFAULT_UI_FILE):
+    def __init__(self, session: LiveSession, camera):
         super().__init__()
         self.setWindowTitle("Battle Sight")
         self.camera = camera
@@ -179,34 +177,10 @@ class MainWindow(QMainWindow):
         self._hover_sent: int | None = None  # command number of the pointer position that the worker has
         self._hover_next: tuple | None = None  # (position or None,) to send after it
         self.worker.frame_ready.connect(self._on_frame)
-        self.ui_file = Path(ui_file)
-        self.ui_settings = load_ui_settings(self.ui_file)
-        if self.ui_settings.problem:
-            self.worker.notify(self.ui_settings.problem)
         self.video: VideoWidget | None = None
         self.current_layout: Layout | None = None
-        self._install_layout(self.ui_settings.layout or DEFAULT_LAYOUT)
-        self._restore_map()
-
-    def _restore_map(self) -> None:
-        """Choose the terrain type of the last run. The app starts with no
-        layout: the user chooses the layout of each game. The command runs
-        before the first frame."""
-        terrain = self.ui_settings.map_terrain
-        self.map_choice = [terrain, None]
-        if terrain:
-            self.worker.submit("map.terrain_type", name=terrain)
-
-    def _save_map(self, action_id: str, name: str | None) -> None:
-        """Remember the terrain type and layout that the user chose."""
-        if action_id == "map.terrain_type":
-            self.map_choice = [name, None if name != self.map_choice[0] else self.map_choice[1]]
-        else:
-            self.map_choice[1] = name
-        try:
-            save_map(self.ui_file, *self.map_choice)
-        except (OSError, ValueError) as exc:
-            self.worker.notify(f"map choice not saved: {exc}")
+        self._install_layout(session.ui_layout or DEFAULT_LAYOUT)  # a restored state brings its layout
+        session.ui_layout = self.current_layout.name  # the worker has not started: no other thread uses the session
 
     def start(self) -> None:
         self.worker.start()
@@ -236,12 +210,9 @@ class MainWindow(QMainWindow):
         self.set_layout(names[(names.index(self.current_layout.name) + 1) % len(names)])
 
     def set_layout(self, name: str) -> None:
-        """Change the layout and save the choice. The worker, the camera and the game state stay."""
+        """Change the layout. The session keeps the name (a saved state has it). The worker, the camera and the game state stay."""
         self._install_layout(name)
-        try:
-            save_layout(self.ui_file, self.current_layout.name)
-        except (OSError, ValueError) as exc:
-            self.worker.notify(f"layout choice not saved: {exc}")
+        self.worker.submit("view.layout", name=self.current_layout.name)
 
     def _install_layout(self, name: str) -> None:
         if name not in LAYOUTS:
@@ -250,11 +221,10 @@ class MainWindow(QMainWindow):
         if self.popup is not None:
             self.popup.close()
             self.popup = None
-        options = self.ui_settings.options_for(name)
         self.show_debug(False)  # the new layout turns it on again when it wants it
         layout = LAYOUTS[name]()
         try:
-            root = layout.build(self, options)
+            root = layout.build(self, {})
         except ValueError as exc:
             self.worker.notify(f"layout {name}: {exc}: using its defaults")
             layout = LAYOUTS[name]()
@@ -309,8 +279,6 @@ class MainWindow(QMainWindow):
         elif action_id == "app.help":
             QMessageBox.information(self, "Keys", help_text())
         elif not self._busy():
-            if action_id in ("map.terrain_type", "map.layout"):
-                self._save_map(action_id, args.get("name"))
             number = self.worker.submit(action_id, **args)
             if action_id in CHECK_ACTIONS:
                 self._check_sent = number
@@ -415,10 +383,10 @@ class MainWindow(QMainWindow):
         self.closed.emit()
 
 
-def run_window(session: LiveSession, camera, ui_file: str | Path = DEFAULT_UI_FILE) -> int:
+def run_window(session: LiveSession, camera) -> int:
     """Open the window and run until it closes. Returns the exit code."""
     app = QApplication.instance() or QApplication(sys.argv[:1])
-    window = MainWindow(session, camera, ui_file)
+    window = MainWindow(session, camera)
     # Not app.quit: on macOS it goes through NSApp terminate, and the event loop sometimes stays.
     window.closed.connect(lambda: QTimer.singleShot(0, app.exit))
     screen = app.primaryScreen().availableGeometry()

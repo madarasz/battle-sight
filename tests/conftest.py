@@ -201,6 +201,14 @@ def no_local_camera_file(tmp_path, monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def no_local_saves(tmp_path, monkeypatch):
+    """Sessions that tests make with the default folder must not write the machine-local data/saves."""
+    import battlesight.live
+
+    monkeypatch.setattr(battlesight.live, "SAVES_DIR", tmp_path / "default-saves")
+
+
+@pytest.fixture(autouse=True)
 def no_local_gallery(request, tmp_path, monkeypatch):
     """Unit tests must not load the real data/teams (and the DINOv2 model).
     The photo tests keep it: their ident benchmark needs it."""
@@ -221,7 +229,7 @@ def cfg() -> BoardConfig:
 CATEGORIES = {
     "core": ("test_calib", "test_camera", "test_colors", "test_config", "test_measure", "test_moves", "test_score", "test_scrcpy", "test_shoot", "test_terrain", "test_walls"),
     "vision": ("test_bases", "test_bench", "test_ident", "test_ident_bench", "test_lightfit", "test_pipeline", "test_rectify"),
-    "live": ("test_live",),
+    "live": ("test_live", "test_state"),
     "ui": ("test_ui",),
 }
 _CATEGORY_OF = {name: cat for cat, names in CATEGORIES.items() for name in names}

@@ -22,7 +22,7 @@ Design rule: walls and openings are not detected. Each layout is a map file, wri
 
 ## Live actions for terrain
 
-- `list_maps` feeds `map.terrain_type`, `map.layout`. No keys, no options: `ui/parts.MapPicker` drop-down lists at the top of each layout panel, choice saved in `[map]` of `data/ui.toml`; only the terrain type comes back at the start, the layout starts as none.
+- `list_maps` feeds `map.terrain_type`, `map.layout`. No keys, no options: `ui/parts.MapPicker` drop-down lists at the top of each layout panel, the choice is part of the saved game state (`--state`); a normal start has no layout.
 - `view.terrain` ("Layout"), `view.zones` ("Drop zones", off at start), `view.keys` ("Terrain keys", off at start: wall keys and `T` on pads, drawn last), `view.light` ("Light terrain", on at start).
 - `view.minimap` ("Minimap" radio button with `view.live` / `view.snapshot`; off at start, needs a layout): `LiveSession._render_minimap` draws the layout, grid, a full disc per base, names in the disc (`draw_idents(inside=True)`), health bars and the selection on a dark board in place of the camera image, with the top-down scale; `state["minimap"]`, `state["mode"]` does not change.
 

@@ -50,11 +50,19 @@ Pure geometry in board mm, no window: `ring_radius_mm`, `rim_gap` (distance and 
 - With a layout, `measure.objective_contacts` (rim within `terrain_objective_range_mm` of the marker edge) gives `overlay.draw_objective_arrows` (heads to the centre, or 4 heads in X to the rim when the centre is less than 2 heads away).
 - Both yellow (`overlay.MARK_COLOR`). `LiveSession._control` -> `state["control"]`.
 
+## Saved game state (`state.py`)
+
+- `state.capture(session)` is the JSON state, `state.write(session, folder)` writes `state.json`, `frame.png`, `empty_board.png`; `state.apply(session, folder)` restores (`LiveSession.load_state`). File list and rules: `docs/cli.md`, "Saved game state".
+- Auto-save: `LiveSession.dispatch` calls `autosave()` after each action except `live.NO_AUTOSAVE` (`board.hover`, `state.save`). A new action saves the state by default.
+- `LiveSession.restore_snapshot` detects the bases on the saved frame (`until="bases"`), then sets the saved circles, crops and names.
+- **A new `LiveSession` attribute needs a decision.** Put it in `state.SAVED` (with its key in `state.json`, and code in `capture` and `apply`), or in `state.NOT_SAVED` with the reason. `tests/test_state.py` lists `vars(session)` and fails for an attribute in neither. A new `Score` field is saved by itself (`Score.to_state`); a derived one goes in `score.DERIVED`.
+- The front end layout name is `LiveSession.ui_layout` (set by the action `view.layout`).
+
 ## score.py and game state
 
 - `Score` of one side (pure state): skull cells Crit / Tac per TP 2..4 with 2 skulls, Kill one cell of 6, category max 6, Primary bonus = ceil(category / 2), `hidden` = 0, CP from 3.
 - `TAC_OPS` from `data/approved-ops-2025.toml`, `tac_ops_for(archetypes)`.
-- `LiveSession.scores` (one per side, not saved), actions `score.skull` / `score.tac_op` / `score.primary` / `score.cp` (all with `slot`), `state["scores"]`.
-- Both sides: `score.TURNS` (1..4), `CRIT_OPS` (`[crit_ops] names`); `LiveSession.turn` / `crit_op` (not saved), actions `game.turn` (`delta`, kept in 1..4) / `game.crit_op` (`name`), `state["turn"]`, `turns`, `crit_op`, `crit_ops`.
+- `LiveSession.scores` (one per side, saved in `state.json`), actions `score.skull` / `score.tac_op` / `score.primary` / `score.cp` (all with `slot`), `state["scores"]`.
+- Both sides: `score.TURNS` (1..4), `CRIT_OPS` (`[crit_ops] names`); `LiveSession.turn` / `crit_op` (saved), actions `game.turn` (`delta`, kept in 1..4) / `game.crit_op` (`name`), `state["turn"]`, `turns`, `crit_op`, `crit_ops`.
 - Kill Op is automatic: an operative with 0 wounds is dead (`LiveSession._is_dead`, `dead` in `bases` / `rosters`); `score.kill_grade` (table `data/kill-op.toml`, row = not expendable operatives in the enemy team list) and `kill_scores` (+1 for the higher grade); `LiveSession._update_kill_scores` at each `state()`; `score.skull` with `kill` is an error.
 - Dead operatives: no melee mark, `overlay.draw_dead_marks` at the base centre, skull mark in the team list.

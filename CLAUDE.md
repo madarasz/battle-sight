@@ -47,10 +47,10 @@ Claude Code loads a `CLAUDE.md` of a subfolder when it reads a file in that fold
 Folders:
 
 ```
-src/battlesight/   config.py camera.py scrcpy.py calib.py rectify.py circles.py ident.py measure.py score.py walls.py moves.py shoot.py terrain.py lightfit.py bench.py ident_bench.py colors.py overlay.py pipeline.py live.py app.py ui/ (shell.py parts.py settings.py layouts/)
+src/battlesight/   config.py camera.py scrcpy.py calib.py rectify.py circles.py ident.py measure.py score.py walls.py moves.py shoot.py terrain.py lightfit.py bench.py ident_bench.py colors.py overlay.py pipeline.py live.py state.py app.py ui/ (shell.py parts.py layouts/)
 tools/             make_tags.py make_charuco.py list_cameras.py bench_bases.py bench_ident.py bench_light.py annotate_bases.py
 tests/             synthetic-board tests, test-photo tests (images/ = test photos), no camera needed
-data/              board.toml, color-settings.toml (UI colours), maps/<terrain>/ (terrain map files), terrain/<terrain>/ (light terrain piece files; images git-ignored), print/ (printable sheets), snapshots/ (live saves), teams/<team>/ (gallery, git-ignored), ui.toml (layout choice, git-ignored), camera.toml (git-ignored)
+data/              board.toml, color-settings.toml (UI colours), maps/<terrain>/ (terrain map files), terrain/<terrain>/ (light terrain piece files; images git-ignored), print/ (printable sheets), snapshots/ (screenshots, empty-board reference), saves/ (saved game states and auto-saves, git-ignored), teams/<team>/ (gallery, git-ignored), camera.toml (git-ignored)
 docs/              setup.md (user setup), cli.md, testing.md, dev/ (developer topics), specs/ (plan, goals, feature specs)
 ```
 
@@ -59,6 +59,7 @@ docs/              setup.md (user setup), cli.md, testing.md, dev/ (developer to
 When you change code, update the file of its topic in "Where to find what" in the same change:
 
 - A module, action, state key or config key: its `docs/dev/` file or folder `CLAUDE.md`.
+- New game state (a `LiveSession` attribute, a `Score` field): save it in `src/battlesight/state.py` (`SAVED`, `capture`, `apply`), or give the reason in `NOT_SAVED`. `tests/test_state.py` fails when you forget it.
 - A subcommand, option, stage, or JSON field: `docs/cli.md`.
 - A test file or a stage: `docs/testing.md` and `tests/CLAUDE.md`.
 - A rule or model of measurement or movement: `docs/specs/measure-and-move.md`.

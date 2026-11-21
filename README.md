@@ -101,9 +101,23 @@ Click an operative to change its wounds. An operative with 0 wounds is dead.
 Click a hatchway or breach point to open or close it. All start closed.
 
 Turn, Crit Op, Tac Op, Primary, victory points and command points are in the
-game bar and below each team list. They start again at each app start.
+game bar and below each team list.
 The app counts the Kill Op from the dead enemy operatives. The last Kill Op
 skull is the point for more kills than the opponent.
+
+### Save and restore the game
+
+The app saves the game after each change. It writes the save to a new folder
+`data/saves/autosave-<date>-<time>` at each app start. If the app stops,
+start it again with the save:
+
+```bash
+uv run battlesight --state data/saves/autosave-20261120-201500
+```
+
+To keep the game at a moment, for example the end of a turn, click
+**Save state**. The app makes a folder in `data/saves` with the turn in its
+name. Restore it in the same way, with `--state` and the folder name.
 
 ### Saved photos
 

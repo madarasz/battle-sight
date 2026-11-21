@@ -303,19 +303,9 @@ The option rule applies: the layout can change while the app runs, so it has no 
 
 - Change it with the `View > Layout` menu or the `l` key (`app.layout`, next layout).
 - The change replaces the central widget. Each layout makes its own parts, and the shell removes the old ones. The worker, the camera, the snapshot and the names continue.
-- `data/ui.toml` keeps the choice. It is local to the machine, and git ignores it. The shell writes only `[ui] layout` and keeps the other values, as the writers of `data/camera.toml` do.
+- The saved game state keeps the choice (`view.layout`, `--state`). There is no settings file.
 
-```toml
-[ui]
-layout = "inspector"
-
-[layouts.inspector]
-panel_side = "right"
-debug_open = false
-```
-
-- A missing file is not an error: the app uses the default layout.
-- An unknown layout name or a bad layout value must not stop the app. The app uses the default and shows a notice.
+- An unknown layout name in a saved state must not stop the app. The app uses the default and shows a notice.
 
 ### Other front ends
 
@@ -355,7 +345,7 @@ A browser front end later uses the same action ids and state dict over a WebSock
 - `battlesight` with no subcommand opens the window. It has no new option.
 - Each row of section 3 works with its key and with a control, in each layout. The control can be in the generated menu.
 - The menu and the `l` key change the layout while the app runs. The camera does not restart. A snapshot, its names and the selected base stay.
-- The app opens with the layout in `data/ui.toml`. A missing file, an unknown layout or a bad value does not stop the app.
+- The app opens with the layout of a restored state, else the default. An unknown layout does not stop the app.
 - Contract test, offscreen, for each layout: `build` works, and `on_state` works for each state of a recorded list (live, busy, snapshot, base selected, camera down, each drift value).
 - A test fails when a layout module imports `pipeline`, `ident`, `calib` or `camera`.
 - The video has no status text. The status area shows all five `DriftStatus` values and "board position updated".
@@ -369,10 +359,10 @@ These steps are the UI foundation. It comes before priority 5. `docs/specs/plan.
 
 1. Done. Move the logic to `LiveSession`, with the action list and the state dict. Keep the `imshow` loop on top of it, and run all tests. This step does not change behaviour.
 2. Done. Add the shell, the worker, the keys and the generated menu. Replace the `imshow` loop. Status text is in the status bar. Commands are dropped while a snapshot runs.
-3. Done. Add the `panel` layout, `data/ui.toml`, and the contract test.
+3. Done. Add the `panel` layout and the contract test.
 4. Done. Add the debug values.
 5. Done. Add the `inspector` layout and the layout change (`View > Layout`, `l`).
-6. Done. Update `README.md` ("How to use", "What you see"), `docs/setup.md` if a user sets `data/ui.toml` by hand, `docs/cli.md` (live app, keys, `data/ui.toml`), `docs/testing.md` (contract test), `CLAUDE.md` (architecture), and `.gitignore`.
+6. Done. Update `README.md` ("How to use", "What you see"), `docs/setup.md`, `docs/cli.md` (live app, keys), `docs/testing.md` (contract test), `CLAUDE.md` (architecture), and `.gitignore`.
 
 ## 13. Notes for the next implementer
 
@@ -396,7 +386,6 @@ Status on 2026-11-08: all steps of section 12 are in the work tree. They are not
 | `MapPicker`, `DebugView`, `OperativeList`, `CandidateList` | `ui/parts.py` | Shared parts. A list fills again only when its data changes. |
 | `LiveFrame.crop` | `live.py` | The board around the selected base, or `None`. |
 | `action_control`, `action_group`, `show_action_state` | `ui/parts.py` | One control for one action. |
-| `load_ui_settings`, `save_layout`, `DEFAULT_UI_FILE` | `ui/settings.py` | `data/ui.toml`. No Qt. `save_layout` edits only the `[ui] layout` line. |
 | `status_text(state)`, `help_text()` | `ui/shell.py` | Pure functions. |
 | `run_window(session, camera)` | `ui/shell.py` | Opens the window. Tests replace it with `monkeypatch`. |
 | `VideoWidget` | `ui/parts.py` | `set_image`, `clicked(x, y, global_pos)`, `width_changed(px)`. |

@@ -514,33 +514,11 @@ In the app, choose the layout and click **Identify all terrain**. The app
 finds each recorded piece on the board. To find one piece, with or without
 a layout, click **Locate terrain** and then the piece on the video.
 
-## 10. Change the window layout settings (optional)
+## 10. Change the window layout
 
-Push `l` in the app to change the layout. The app writes your choice in the
-file `data/ui.toml`. You do not have to make this file.
-
-To change the layout settings, open or make this file in a text editor:
-
-```toml
-[ui]
-layout = "inspector"
-
-[layouts.inspector]
-panel_side = "right"
-debug_open = false
-
-[layouts.panel]
-panel_side = "right"
-```
-
-| Setting | Values | Meaning |
-|---|---|---|
-| `layout` | `inspector`, `panel` | The layout when the app starts. |
-| `panel_side` | `left`, `right` | The side of the window for the panel. |
-| `debug_open` | `true`, `false` | Show the debug values at the start (`inspector` only). |
-
-If a value is not correct, the app starts and shows a red message at the
-bottom of the window. It then uses the default value.
+Push `l` in the app, or use the menu View > Layout, to change the layout.
+The app keeps the layout in its saved game (see "Save and restore the game"
+in the README). Start the app with `--state` to get the layout back.
 
 ## 11. Change the colours (optional)
 

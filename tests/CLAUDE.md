@@ -5,6 +5,7 @@
 ## Categories and speed
 
 - `pyproject.toml` runs the tests on all cores (`-n auto`, pytest-xdist); the unit tests take about 30 s.
+- `conftest.py` points `live.SAVES_DIR` to a temporary folder; `make_session` gives each session its own `saves_dir`. No test writes `data/saves`.
 - Each test file has one category marker (`core`, `vision`, `live`, `ui`), set by file name in `CATEGORIES` of `tests/conftest.py`. A new test file must go there, else collection stops.
 - Serial times: `core` about 1 s, `vision` about 25 s, `live` about 20 s, `ui` about 30 s. Use `-n 0` for one file or for `core`.
 - The `named` fixture (`tests/test_live.py`, also used by `tests/test_ui.py`) enrolls the test gallery once per process and copies it into each test.

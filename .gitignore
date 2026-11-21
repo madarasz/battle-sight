@@ -12,5 +12,6 @@ data/print/*
 out/
 .DS_Store
 data/camera.toml
-data/ui.toml
+data/saves/*
+!data/saves/.gitkeep
 data/teams/

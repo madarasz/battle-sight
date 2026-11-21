@@ -223,7 +223,7 @@ class RostersLayout:
 
     def _reference_box(self) -> QGroupBox:
         box, column = self._section("Reference")
-        for action_id in ("reference.take", "reference.clear", "frame.save"):
+        for action_id in ("reference.take", "reference.clear", "frame.save", "state.save"):
             column.addWidget(self._control(action_id))
         column.addStretch(1)
         self.reference_label = QLabel()

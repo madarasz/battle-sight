@@ -31,7 +31,7 @@ SETTLE = 7  # more than settle_frames of the test config
 
 def make_session(tmp_path, cfg, frame, **over) -> LiveSession:
     size = (frame.shape[1], frame.shape[0])
-    args = dict(gallery_root=tmp_path / "gallery", reference_path=tmp_path / "ref" / "empty.png", snapshot_dir=tmp_path / "snaps", maps_root=tmp_path / "maps", pieces_root=tmp_path / "terrain")
+    args = dict(gallery_root=tmp_path / "gallery", reference_path=tmp_path / "ref" / "empty.png", snapshot_dir=tmp_path / "snaps", maps_root=tmp_path / "maps", pieces_root=tmp_path / "terrain", saves_dir=tmp_path / "saves")
     args.update(over)
     return LiveSession(cfg, CameraSettings(), size, **args)
 

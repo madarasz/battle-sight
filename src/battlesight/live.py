@@ -32,6 +32,7 @@ from . import measure
 from . import moves
 from . import score as sc
 from . import shoot
+from . import state as savestate
 from . import terrain as ter
 from . import walls
 from .calib import DriftMonitor, DriftReport, DriftStatus, TagDetector, board_corners_px, lens_for_frame
@@ -44,6 +45,8 @@ from .rectify import fit_view, mm_to_rect, rect_transform, warp_board
 
 SNAPSHOT_DIR = Path(__file__).resolve().parents[2] / "data" / "snapshots"
 DEFAULT_REFERENCE = SNAPSHOT_DIR / "empty_board.png"
+SAVES_DIR = Path(__file__).resolve().parents[2] / "data" / "saves"  # saved game states; the auto-save folders are here too
+NO_AUTOSAVE = frozenset({"board.hover", "state.save"})  # every other action that reaches `dispatch` saves the state
 DISPLAY_WIDTH = 1600  # image width in the windows; the windows can be resized
 PREVIEW_PAD_MM = 16.0  # board around the base in the crop of the selected base
 AIM_DIAMETER_MM = 40.0  # "Locate operative": board under the pointer as if a base of this size was there
@@ -197,14 +200,17 @@ def load_gallery(teams: Sequence[str], root, cfg: BoardConfig, log=sys.stdout, q
     return gallery
 
 
-def load_reference(pipe: Pipeline, path: Path) -> None:
+def load_reference(pipe: Pipeline, path: Path) -> np.ndarray | None:
+    """Set the reference from the file `path`. Returns its image, or None when there is none."""
     if path.is_file():
         ref = cv2.imread(str(path), cv2.IMREAD_COLOR)
         try:
             pipe.set_reference(ref)
             print(f"empty-board reference: {path}")
+            return ref
         except ValueError as exc:
             print(f"{path}: {exc}. Push e on the empty board to take a new one.", file=sys.stderr)
+    return None
 
 
 # --- the contract: actions ------------------------------------------------------
@@ -331,6 +337,8 @@ ACTIONS: tuple[Action, ...] = (
     Action("names.accept", "Accept all identification", "a", enabled=lambda s: s["unconfirmed"] > 0),
     Action("names.undo", "Undo last gallery photo", "u", enabled=lambda s: s["can_undo"]),
     Action("frame.save", "Save screenshot", "s"),
+    Action("state.save", "Save state", "k"),
+    Action("view.layout", "Front end layout", args=("name",)),
     Action("app.layout", "Next layout", "l", shell=True),
     Action("app.help", "Keys", "h", shell=True),
     Action("app.quit", "Quit", "q", shell=True),
@@ -375,6 +383,8 @@ class LiveSession:
         clock: Callable[[], float] = time.monotonic,
         maps_root: Path | str = ter.DEFAULT_MAPS_ROOT,
         pieces_root: Path | str = ter.DEFAULT_PIECES_ROOT,
+        saves_dir: Path | str | None = None,
+        autosave: bool = True,
     ):
         self.cfg = cfg
         self.board = BoardTracker(cfg, camera, frame_size)
@@ -382,8 +392,15 @@ class LiveSession:
         self.pipe = Pipeline(cfg, None, camera)
         self.reference_path = None if reference_path is None else Path(reference_path)  # None: no load, no save
         self.snapshot_dir = Path(snapshot_dir)
+        self.reference_frame: np.ndarray | None = None  # the empty-board photo of the reference; a saved state keeps it
         if self.reference_path is not None:
-            load_reference(self.pipe, self.reference_path)
+            self.reference_frame = load_reference(self.pipe, self.reference_path)
+        self.saves_dir = Path(SAVES_DIR if saves_dir is None else saves_dir)
+        self.autosave_enabled = autosave
+        self.autosave_path = self.saves_dir / time.strftime("autosave-%Y%m%d-%H%M%S")  # new at each start, written all run; the folder appears at the first save
+        self._save_cache: dict[str, Any] = {}
+        self._save_problem: str | None = None
+        self.ui_layout: str | None = None  # name of the front end layout; the front end sets it, a saved state keeps it
         self.detector = self.board.detector
         self.monitor = self.board.monitor
         self.win = BoardWindow(cfg, display_width)
@@ -532,6 +549,8 @@ class LiveSession:
             "names.accept": self._accept_all,
             "names.undo": self._undo,
             "frame.save": self._save_frame,
+            "state.save": self._save_state,
+            "view.layout": self._set_ui_layout,
         }
 
     # --- frames -----------------------------------------------------------------
@@ -1543,8 +1562,64 @@ class LiveSession:
     # --- actions ----------------------------------------------------------------
 
     def dispatch(self, action_id: str, **args) -> None:
-        """Do one action of `ACTIONS`. An unknown or a shell action is a KeyError."""
+        """Do one action of `ACTIONS`. An unknown or a shell action is a KeyError.
+        Each action but those of `NO_AUTOSAVE` saves the state (`autosave`)."""
         self._handlers[action_id](**args)
+        if action_id not in NO_AUTOSAVE:
+            self.autosave()
+
+    def autosave(self) -> None:
+        """Write the game state to the auto-save folder of this run. It never
+        raises: a problem is a notice (once for the same text)."""
+        if not self.autosave_enabled:
+            return
+        try:
+            savestate.write(self, self.autosave_path, self._save_cache)
+            self._save_problem = None
+        except (OSError, ValueError, TypeError) as exc:
+            text = f"auto-save failed: {exc}"
+            if text != self._save_problem:
+                self.notice.error(text)
+            self._save_problem = text
+
+    def load_state(self, path: Path | str) -> bool:
+        """Restore a saved state. False (with a notice) when it cannot be read."""
+        try:
+            savestate.apply(self, path)
+        except savestate.StateError as exc:
+            self.notice.error(f"state not loaded: {exc}")
+            return False
+        self.notice.ok(f"state restored from {path}")
+        return True
+
+    def restore_snapshot(self, frame: np.ndarray, circles: list, idents: list | None) -> None:
+        """The snapshot of a saved state: detect on `frame` again (the board
+        view, the base image), then set the saved bases and names as they were,
+        also the bases that the user added or removed. `idents` None: no names."""
+        self._close_snapshot()
+        self.win.top_down = True
+        self.snap = frame.copy()
+        self.frozen = True
+        self.result = result = self.pipe.analyze(self.snap, source="state", until="bases")
+        self.dirty = True
+        img = result.scratch.get("bases_image")
+        if not result.ok or img is None:
+            self.notice.error(f"saved snapshot: {failed_stage(result)}")
+            return
+        ref = self.pipe.cache.get("bases_reference")
+        crops = base_crops(img, circles, self.cfg)
+        backgrounds = [] if ref is None else base_crops(ref, circles, self.cfg)
+        result.scratch.update(bases=list(circles), base_crops=crops, base_backgrounds=backgrounds, idents=idents if idents is not None else [])
+        if idents is None:
+            return
+        if not self.gallery_tried:
+            self._load_gallery()
+        if self.gallery is None:
+            self.notice.error("saved names not shown: no gallery")
+            return
+        self.session = self._label_session(result, self.gallery)
+        if self.session is not None and len(self.session.idents) != len(circles):
+            raise ValueError("saved bases and names differ in count")
 
     def _need_frame(self) -> bool:
         if self.frame is None:
@@ -2056,6 +2131,7 @@ class LiveSession:
             return
         try:
             self.pipe.set_reference(self.frame)
+            self.reference_frame = self.frame.copy()
             if self.reference_path is None:
                 self.notice.ok("empty-board reference set for this run, not saved")
                 return
@@ -2067,6 +2143,7 @@ class LiveSession:
 
     def _clear_reference(self) -> None:
         self.pipe.clear_reference()
+        self.reference_frame = None
         self.notice.say("empty-board reference cleared: single-frame detection")
 
     def _base_under(self, x: float, y: float) -> int | None:
@@ -2403,3 +2480,22 @@ class LiveSession:
         cv2.imwrite(str(path), self.frame)
         print(f"saved {path}")
         self.notice.ok(f"saved {path.name}")
+
+    def _save_state(self) -> None:
+        """"Save state": the game state in its own folder `saves_dir/<time>_turn<n>`."""
+        base = self.saves_dir / f"{time.strftime('%Y-%m-%d_%H%M')}_turn{self.turn}"
+        folder, n = base, 1
+        while folder.exists():
+            n += 1
+            folder = base.with_name(f"{base.name}-{n}")
+        try:
+            savestate.write(self, folder)
+        except (OSError, ValueError, TypeError) as exc:
+            self.notice.error(f"state not saved: {exc}")
+            return
+        print(f"saved state {folder}")
+        self.notice.ok(f"state saved: {folder.name}")
+
+    def _set_ui_layout(self, name: str) -> None:
+        """The front end tells its layout, so a saved state keeps it."""
+        self.ui_layout = name

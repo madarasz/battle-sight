@@ -176,6 +176,9 @@ def cmd_live(args: argparse.Namespace) -> int:
     # The saved reference is from the live camera: it does not fit another image.
     reference = args.reference or (None if args.image_source else DEFAULT_REFERENCE)
     session = LiveSession(cfg, args.camera, cam.size, args.team, args.gallery_root, reference)
+    if args.state and not session.load_state(args.state):
+        print(session.notice.current()[0], file=sys.stderr)
+        return 2
     lens = session.lens
     print(f"board {cfg.name} {cfg.width_mm:.0f}x{cfg.height_mm:.0f} mm, lens {lens.source}, fx {lens.K[0, 0]:.0f} px")
     from .ui.shell import run_window  # Qt loads only for the live app
@@ -742,6 +745,7 @@ def main(argv: list[str] | None = None) -> int:
     _add_camera_args(parser)
     _add_gallery_args(parser, required=False)
     parser.add_argument("--reference", default=None, metavar="FILE", help=f"empty-board photo: loaded at start, written by the e key (default: {DEFAULT_REFERENCE})")
+    parser.add_argument("--state", default=None, metavar="FOLDER", help="restore a saved game state (a folder of data/saves, from the Save state button or an auto-save); this run saves a new auto-save")
     parser.add_argument("--image-source", default=None, metavar="FILE", help="use one image file instead of the camera, for debugging and tests")
     parser.set_defaults(func=cmd_live)
     sub = parser.add_subparsers(dest="command", metavar="command")

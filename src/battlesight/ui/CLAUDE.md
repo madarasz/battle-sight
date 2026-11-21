@@ -10,7 +10,7 @@ PySide6, imported only inside `app.cmd_live`. The game core is `live.py` (`docs/
   - `rosters` = default. Top bar with View (its last check box is Debug) / Commands / Inspector / Reference sections and a `TeamRoster` each side. Game bar between top bar and video: `GameControl` in the centre (`TURN: - X +`, Crit Op list), team choice of each side (`TeamRoster(team_on_top=False)`, the layout places `roster.team`). `ScoreCounter` (no title; CP on top, total in the team colour) below each team list. Badge: Live = red dot, Snapshot = blue pause sign, Minimap = green square.
   - `inspector` = state-driven panel with the name list.
   - `panel` = controls generated from `ACTIONS`, name popup.
-- `settings.py` (no Qt): reads and writes `data/ui.toml` (git-ignored, no command option; a bad file gives a notice, never a stop). `[map]` keeps the `MapPicker` choice.
+- No settings file: the layout name goes to the session (`view.layout`) and lives in the saved game state (`--state`). Layouts take no options.
 
 ## Rules
 

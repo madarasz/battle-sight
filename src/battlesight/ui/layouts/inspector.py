@@ -107,7 +107,7 @@ class InspectorLayout:
         self._add_controls(column, "snapshot.name")
         self.reference_label = QLabel()
         column.addWidget(self.reference_label)
-        self._add_controls(column, "reference.take", "reference.clear", "frame.save")
+        self._add_controls(column, "reference.take", "reference.clear", "frame.save", "state.save")
         column.addStretch(1)
 
     def _snapshot_page(self, column: QVBoxLayout) -> None:

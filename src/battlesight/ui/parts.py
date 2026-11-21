@@ -29,7 +29,7 @@ from ..colors import (
 from ..live import ACTIONS, Action
 from ..score import CATEGORIES, CATEGORY_NAMES, KILL_GRADE_MAX, PRIMARIES, SKULLS_PER_TP, TURNING_POINTS
 
-ACTION_GROUPS = {"wounds": "Game", "score": "Game", "operative": "Snapshot", "opening": "Game", "light": "Snapshot", "team": "View", "map": "View", "snapshot": "Snapshot", "base": "Snapshot", "names": "Snapshot", "frame": "Snapshot", "ring": "Measure", "measure": "Measure", "view": "View", "reference": "Reference", "app": "Help"}
+ACTION_GROUPS = {"wounds": "Game", "score": "Game", "operative": "Snapshot", "opening": "Game", "light": "Snapshot", "team": "View", "map": "View", "snapshot": "Snapshot", "base": "Snapshot", "names": "Snapshot", "frame": "Snapshot", "ring": "Measure", "measure": "Measure", "view": "View", "reference": "Reference", "state": "Reference", "app": "Help"}
 RING_COLUMNS = 5
 COLORS = {"none": MESSAGE_NONE_COLOR, "ok": MESSAGE_OK_COLOR, "done": MESSAGE_OK_COLOR, "warn": MESSAGE_WARN_COLOR, "hint": MESSAGE_WARN_COLOR, "error": MESSAGE_ERROR_COLOR, "info": MESSAGE_INFO_COLOR}  # message level -> Qt colour
 DRIFT_LEVEL = {"OK": "ok", "NO_REFERENCE": "warn", "MOVED": "warn", "CARD_MOVED": "error", "LOST": "error"}

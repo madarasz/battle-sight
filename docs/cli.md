@@ -52,7 +52,7 @@ The analysis always uses the full camera frame.
 
 ```
 uv run battlesight [--team NAME [NAME2]] [--gallery-root data/teams]
-                   [--reference data/snapshots/empty_board.png]
+                   [--reference data/snapshots/empty_board.png] [--state FOLDER]
                    [--source S | --image-source FILE]
                    [--camera-file data/camera.toml] [--config data/board.toml]
 ```
@@ -62,6 +62,7 @@ uv run battlesight [--team NAME [NAME2]] [--gallery-root data/teams]
 | `--team` | all teams in `--gallery-root` | One or two team folders (two teams play). Labels are `<team>/<operative>`. More than two names: exit 2. Fills the two team lists of the window at start; the user can change them while the app runs (`team.set`). |
 | `--gallery-root` | `data/teams` | Folder with one folder per team. |
 | `--reference` | `data/snapshots/empty_board.png`. With `--image-source`: none. | Empty-board reference. Loaded at start when the file exists. The `e` key writes it. Git ignores the file (`data/snapshots/*.png`). |
+| `--state` | none | Restore a saved game state: a folder of `data/saves` (Save state button or an auto-save). Teams, layout, openings, wounds, scores, turn, snapshot with names and the reference come back. See "Saved game state". |
 | `--source` | from the camera file, else `0` | Camera index (Camo, built-in camera), network stream URL (`http://...`, `rtsp://...`), or `scrcpy` / `scrcpy:SERIAL` (Android phone camera over USB, see "scrcpy source" below), for this run only. A stream and `scrcpy` are read on a background thread that keeps only the newest frame. See [setup.md](setup.md), step 4. |
 | `--image-source` | none | One image file to use instead of the camera, for debugging and tests. See "Image source" below. Not with `--source`, and not with a command. An image that the app cannot read: exit 2. |
 | `--camera-file` | `data/camera.toml` | Saved camera settings. A missing file is not an error: the built-in defaults apply (camera 0, 1920 x 1080, nominal 24 mm lens). |
@@ -488,7 +489,8 @@ selected. `Esc` clears the selected base.
 | `a` | "Accept all identification": accept all names that are not confirmed, add their crops to the gallery. |
 | `u` | Undo the last gallery photo of this snapshot (deletes the file, gives the old name back). |
 | `s` | "Save screenshot": save the current camera frame to `data/snapshots/snap_<date>_<time>.png`. |
-| `l` | Next layout. The choice goes to `data/ui.toml`. |
+| `l` | Next layout. |
+| `k` | "Save state": save the game state in `data/saves/` (see "Saved game state"). |
 | `h` | Show the key list. |
 | `Esc` | "Go back to Live": show the live video again, from the snapshot or the minimap; the bases, names and selection stay. In the live video: clear the selection. |
 | `q` | Quit. |
@@ -502,7 +504,7 @@ menu generated from `ACTIONS`, the status bar, the name popup and the layout
 change. `ui/parts.py` has the shared widgets. The other commands keep their
 OpenCV windows.
 
-### Layouts and `data/ui.toml`
+### Layouts
 
 `ui/layouts/` holds the layouts, in the dict `LAYOUTS`: `rosters` (default),
 `inspector`, `panel`. A layout has `name`, `name_popup` (the shell opens its
@@ -536,18 +538,24 @@ the image: "Live" with a red `dot`, "Snapshot" with a blue `pause` sign,
 "Minimap" with a green `square` (`live.shown_view`: `state["minimap"]`
 goes before `state["mode"]`). Scores in all lists are percentages (`parts.percent`).
 
-`data/ui.toml` is local to the machine, and git ignores it. There is no
-command option for it. A missing file is not an error. An unknown layout, a bad
-file or a bad value does not stop the app: a notice shows, and the default
-applies. `ui/settings.py` reads the file. The shell writes only the `[ui] layout` line, and only
-at a layout change. It keeps all other text.
+The layout name is part of the saved game state (see "Saved game state"): the
+shell tells it to the session with the action `view.layout`, and `--state`
+brings it back. There are no layout options: the defaults apply.
 
-| Key | Layout | Values | Default |
-|---|---|---|---|
-| `[ui] layout` | | `rosters`, `inspector`, `panel` | `rosters` |
-| `[layouts.<name>] panel_side` | `inspector`, `panel` | `left`, `right` | `right` |
-| `[layouts.<name>] debug_open` | `inspector`, `rosters` | `true`, `false` | `false` |
-| `[map] terrain` | | terrain type of the last run (`""` = none) | first type |
+### Saved game state
+
+`LiveSession` writes the whole game state to a folder (`battlesight/state.py`):
+
+| File | Content |
+|---|---|
+| `state.json` | `schema` 1, `saved_at`, `ui_layout`, `files`, teams and team lists, positions of copies, `terrain_type`, `map_layout`, `opened` openings, light terrain poses, `wounds`, `scores`, `turn`, `crit_op`, `view` (switches, `frozen`, `minimap`), `snapshot` (bases and names), `selection` |
+| `frame.png` | Camera frame of the snapshot. Restore detects the bases on it again, then sets the saved bases and names. |
+| `empty_board.png` | Copy of the empty-board reference. |
+
+- Action `state.save` (key `k`, button **Save state** in the Reference section): writes `data/saves/<date>_<time>_turn<n>/` (a number is added when the folder exists).
+- Auto-save: each action that reaches `LiveSession.dispatch` writes the state to `data/saves/autosave-<date>-<time>/`, except `board.hover` and `state.save` (`live.NO_AUTOSAVE`). The folder name comes from the app start, so each run has its own folder and writes the same one all run. A write problem is a notice (once), not an error. The files are written through a temporary file, `state.json` last.
+- Restore: `--state FOLDER` (a folder or its `state.json`). A bad state: exit 2 with the problem on stderr. A team or layout that is gone gives a notice and the restore goes on. The run writes its own new auto-save.
+- Git ignores `data/saves/*`.
 | `[map] layout` | | layout name of the last choice (`""` = none); written, not read at the start | none |
 
 The shell writes the `[map]` lines when the user chooses a terrain type or a

@@ -4,7 +4,7 @@ version = "0.1.0"
 description = "Augmented reality overlay for Warhammer 40k: Kill Team. Board corner tracking, rectification, measurement."
 requires-python = ">=3.12,<3.13"
 dependencies = [
-    "opencv-python>=4.10",
+    "opencv-python>=4.10,<5",  # 5.0.0: heap corruption in aruco detectMarkers (parallel Dictionary::identify)
     "numpy>=1.26",
     "pillow>=10",
     "torch>=2.4",

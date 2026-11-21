@@ -10,9 +10,10 @@ half of the points of its category, rounded up; "hidden" adds nothing.
 
 from __future__ import annotations
 
+import copy
 import math
 import tomllib
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field, fields
 from pathlib import Path
 from typing import Any
 
@@ -89,6 +90,9 @@ def skull_value(current: int, skull: int) -> int:
     return skull - 1 if skull == current else skull
 
 
+DERIVED = frozenset({"kill_grade", "kill_bonus"})  # set from the game state at each `state()`: not saved
+
+
 @dataclass
 class Score:
     """Score of one side of the board."""
@@ -138,6 +142,26 @@ class Score:
 
     def add_cp(self, delta: int) -> None:
         self.cp = max(0, self.cp + delta)
+
+    def to_state(self) -> dict[str, Any]:
+        """All that a saved game needs (docs/dev/live-session.md, "Saved state").
+        Every field of the dataclass except `DERIVED`: a new field is saved
+        with no further change."""
+        return {k: v for k, v in asdict(self).items() if k not in DERIVED}
+
+    @classmethod
+    def from_state(cls, data: dict[str, Any]) -> "Score":
+        """The score of `to_state`. A bad value is a ValueError."""
+        known = {f.name for f in fields(cls)} - DERIVED
+        extra = set(data) - known
+        if extra:
+            raise ValueError(f"unknown score fields {sorted(extra)}")
+        score = cls(**{k: copy.deepcopy(v) for k, v in data.items()})
+        for category, row in score.cells.items():
+            if category not in ("crit", "tac") or len(row) != len(TURNING_POINTS) or any(not isinstance(v, int) or not 0 <= v <= SKULLS_PER_TP for v in row):
+                raise ValueError(f"bad score cells {category!r}: {row!r}")
+        score.set_primary(score.primary)
+        return score
 
     def to_dict(self, tac_ops: list[str]) -> dict[str, Any]:
         """JSON-safe state. `tac_ops` are the choices for this side's team."""

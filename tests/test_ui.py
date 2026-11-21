@@ -26,7 +26,6 @@ from battlesight.ui.layouts.panel import PanelLayout  # noqa: E402
 from battlesight.ui.parts import debug_text, distance_label  # noqa: E402
 from battlesight.colors import MODE_LIVE_COLOR, MODE_MINIMAP_COLOR, MODE_SNAPSHOT_COLOR, TEAM_1_COLOR, TEAM_2_COLOR, qt_hex  # noqa: E402
 from battlesight.ui.parts import COLORS, VideoWidget  # noqa: E402
-from battlesight.ui.settings import load_ui_settings, save_layout  # noqa: E402
 from battlesight.ui.shell import MainWindow, help_text, status_text  # noqa: E402
 
 from .test_ident import enroll_from, ident_cfg, make_gallery, paint_board  # noqa: E402
@@ -81,14 +80,14 @@ def inspector(qapp, tmp_path, named):
     win.close()
 
 
-def layout_file(tmp_path, name: str) -> Path:
-    path = tmp_path / "ui.toml"
-    path.write_text(f'[ui]\nlayout = "{name}"\n')
-    return path
+def with_layout(session, name: str):
+    """The session says which layout the window starts with (a restored state does it)."""
+    session.ui_layout = name
+    return session
 
 
 def started_window(tmp_path, cfg, frame, layout: str) -> MainWindow:
-    win = MainWindow(make_session(tmp_path, cfg, frame, teams=("orks",)), FakeCamera(frame), layout_file(tmp_path, layout))
+    win = MainWindow(with_layout(make_session(tmp_path, cfg, frame, teams=("orks",)), layout), FakeCamera(frame))
     win.resize(1200, 900)
     win.show()
     win.start()
@@ -342,59 +341,6 @@ def test_quit_stops_worker_and_releases_camera(qapp, tmp_path):
     assert win.worker.isFinished() and win.camera.released
 
 
-# --- data/ui.toml -------------------------------------------------------------------
-
-
-def test_ui_settings_missing_file_is_not_a_problem(tmp_path):
-    settings = load_ui_settings(tmp_path / "ui.toml")
-    assert settings.layout is None and settings.problem is None and settings.options_for("panel") == {}
-
-
-def test_ui_settings_reads_layout_and_options(tmp_path):
-    path = tmp_path / "ui.toml"
-    path.write_text('[ui]\nlayout = "panel"\n\n[layouts.panel]\npanel_side = "left"\n')
-    settings = load_ui_settings(path)
-    assert settings.layout == "panel" and settings.options_for("panel") == {"panel_side": "left"} and settings.problem is None
-
-
-@pytest.mark.parametrize("text", ["not toml [", "ui = 3", "[ui]\nlayout = 3", "layouts = 3", "[layouts]\npanel = 3"])
-def test_ui_settings_bad_file_gives_a_problem_and_defaults(tmp_path, text):
-    path = tmp_path / "ui.toml"
-    path.write_text(text)
-    settings = load_ui_settings(path)
-    assert settings.problem and settings.layout is None and settings.options_for("panel") == {}
-
-
-def test_save_layout_makes_the_file(tmp_path):
-    path = tmp_path / "sub" / "ui.toml"
-    save_layout(path, "panel")
-    assert load_ui_settings(path).layout == "panel"
-
-
-@pytest.mark.parametrize(
-    "before, after",
-    [
-        ('# mine\n[ui]\nlayout = "old"  # c\nother = 1\n\n[layouts.old]\nlayout = "keep"\n', '# mine\n[ui]\nlayout = "new"\nother = 1\n\n[layouts.old]\nlayout = "keep"\n'),
-        ('[ui]\nother = 1\n', '[ui]\nlayout = "new"\nother = 1\n'),
-        ('[layouts.old]\na = 1\n', '[ui]\nlayout = "new"\n\n[layouts.old]\na = 1\n'),
-    ],
-)
-def test_save_layout_keeps_the_other_text(tmp_path, before, after):
-    path = tmp_path / "ui.toml"
-    path.write_text(before)
-    save_layout(path, "new")
-    assert path.read_text() == after
-
-
-@pytest.mark.parametrize("text", ["not toml [", 'ui.layout = "old"\n'])
-def test_save_layout_leaves_a_file_that_it_cannot_edit(tmp_path, text):
-    path = tmp_path / "ui.toml"
-    path.write_text(text)
-    with pytest.raises(ValueError):
-        save_layout(path, "new")
-    assert path.read_text() == text
-
-
 # --- the layout contract ------------------------------------------------------------
 
 
@@ -467,7 +413,7 @@ def recorded(tmp_path, named):
 def idle_window(request, qapp, tmp_path, recorded):
     """A window of one layout, with no worker running."""
     session, frame, _ = recorded
-    win = MainWindow(session, FakeCamera(frame), layout_file(tmp_path, request.param))
+    win = MainWindow(with_layout(session, request.param), FakeCamera(frame))
     win.resize(1000, 700)
     win.show()
     yield win
@@ -477,7 +423,7 @@ def idle_window(request, qapp, tmp_path, recorded):
 @pytest.fixture
 def idle_panel(qapp, tmp_path, recorded):
     session, frame, _ = recorded
-    win = MainWindow(session, FakeCamera(frame), layout_file(tmp_path, "panel"))
+    win = MainWindow(with_layout(session, "panel"), FakeCamera(frame))
     yield win
     win.close()
 
@@ -485,7 +431,7 @@ def idle_panel(qapp, tmp_path, recorded):
 @pytest.fixture
 def idle_inspector(qapp, tmp_path, recorded):
     session, frame, _ = recorded
-    win = MainWindow(session, FakeCamera(frame), layout_file(tmp_path, "inspector"))
+    win = MainWindow(with_layout(session, "inspector"), FakeCamera(frame))
     win.show()
     yield win
     win.close()
@@ -637,22 +583,12 @@ def test_panel_button_runs_the_action(window):
 def test_panel_quit_button_closes_the_window(qapp, tmp_path):
     cfg = ident_cfg()
     frame = paint_board(cfg, GAME)
-    win = MainWindow(make_session(tmp_path, cfg, frame), FakeCamera(frame), layout_file(tmp_path, "panel"))
+    win = MainWindow(with_layout(make_session(tmp_path, cfg, frame), "panel"), FakeCamera(frame))
     win.show()
     win.start()
     wait_until(lambda: win.state is not None)
     win.current_layout.controls["app.quit"][1].click()
     assert win.worker.isFinished() and win.camera.released
-
-
-@pytest.mark.parametrize("side, panel_first", [("left", True), ("right", False)])
-def test_panel_side_option(qapp, tmp_path, recorded, side, panel_first):
-    session, frame, _ = recorded
-    path = tmp_path / "ui.toml"
-    path.write_text(f'[ui]\nlayout = "panel"\n\n[layouts.panel]\npanel_side = "{side}"\n')
-    win = MainWindow(session, FakeCamera(frame), path)
-    assert (win.centralWidget().layout().itemAt(0).widget() is not win.video) is panel_first
-    win.close()
 
 
 # --- layout choice in the window ----------------------------------------------------
@@ -666,42 +602,18 @@ def queued_notices(win: MainWindow) -> list[str]:
     return [win.worker.notices.get_nowait() for _ in range(win.worker.notices.qsize())]
 
 
-@pytest.mark.parametrize(
-    "text, wanted, layout",
-    [
-        ('[ui]\nlayout = "no-such"\n', "unknown layout", DEFAULT_LAYOUT),
-        ("not toml [", "ui.toml not used", DEFAULT_LAYOUT),
-        ('[ui]\nlayout = "inspector"\n[layouts.inspector]\npanel_side = "up"\n', "panel_side", "inspector"),
-        ('[ui]\nlayout = "inspector"\n[layouts.inspector]\ndebug_open = "yes"\n', "debug_open", "inspector"),
-        ('[layouts.rosters]\ndebug_open = "yes"\n', "debug_open", DEFAULT_LAYOUT),
-    ],
-)
-def test_bad_settings_do_not_stop_the_app(qapp, tmp_path, recorded, text, wanted, layout):
+def test_unknown_layout_of_a_saved_state_gives_a_notice_and_the_default(qapp, tmp_path, recorded):
     session, frame, _ = recorded
-    path = tmp_path / "ui.toml"
-    path.write_text(text)
-    win = MainWindow(session, FakeCamera(frame), path)
-    assert win.current_layout.name == layout
-    assert wanted in " ".join(queued_notices(win))
+    win = MainWindow(with_layout(session, "no-such"), FakeCamera(frame))
+    assert win.current_layout.name == DEFAULT_LAYOUT
+    assert "unknown layout" in " ".join(queued_notices(win))
     win.close()
 
 
-def test_a_missing_file_gives_no_notice_and_the_start_does_not_write_it(qapp, tmp_path, recorded):
+def test_the_window_tells_its_layout_to_the_session(qapp, tmp_path, recorded):
     session, frame, _ = recorded
-    path = tmp_path / "ui.toml"
-    win = MainWindow(session, FakeCamera(frame), path)
-    assert win.current_layout.name == DEFAULT_LAYOUT and queued_notices(win) == [] and not path.exists()
-    win.close()
-
-
-def test_settings_notice_reaches_the_state(qapp, tmp_path, named):
-    cfg, frame = named
-    path = tmp_path / "ui.toml"
-    path.write_text('[ui]\nlayout = "no-such"\n')
-    win = MainWindow(make_session(tmp_path, cfg, frame), FakeCamera(frame), path)
-    win.show()
-    win.start()
-    wait_until(lambda: win.state is not None and win.state["notice"] is not None and "unknown layout" in win.state["notice"]["text"])
+    win = MainWindow(session, FakeCamera(frame))
+    assert session.ui_layout == DEFAULT_LAYOUT
     win.close()
 
 
@@ -717,9 +629,9 @@ def test_layout_change_keeps_worker_snapshot_and_selection(window, monkeypatch):
     assert window.current_layout.name == "other" and window.video is not old_video
     assert window.worker is thread and thread.isRunning() and not window.camera.released
     assert window.video._image is not None  # shows the last frame at once
-    assert load_ui_settings(window.ui_file).layout == "other"
     done = thread.done
     wait_until(lambda: thread.done == done and window.state["mode"] == "snapshot" and window.state["selected"] == 1 and window.current_layout.controls["names.accept"][1].isEnabled())
+    wait_until(lambda: window.worker.session.ui_layout == "other")
     wait_until(lambda: thread.display_width == int(window.video.width() * window.video.devicePixelRatioF()))
 
     sent = thread.sent  # the new video is connected
@@ -740,11 +652,12 @@ def test_layout_change_closes_the_popup(window, monkeypatch):
     assert window.state["selected"] == 0
 
 
-def test_l_key_goes_to_the_next_layout_and_saves_it(window):
+def test_l_key_goes_to_the_next_layout_and_tells_the_session(window):
     assert window.current_layout.name == "panel"
     press(window, "app.layout")
     assert window.current_layout.name == "rosters"
-    assert load_ui_settings(window.ui_file).layout == "rosters" and window.layout_items["rosters"].isChecked()
+    wait_until(lambda: window.worker.session.ui_layout == "rosters")
+    assert window.layout_items["rosters"].isChecked()
     press(window, "app.layout")
     assert isinstance(window.current_layout, InspectorLayout) and window.layout_items["inspector"].isChecked()
     press(window, "app.layout")
@@ -818,16 +731,15 @@ def test_inspector_controls_follow_the_state(idle_inspector, recorded):
             assert control.isEnabled() is action.enabled(frame.state)
 
 
-def test_inspector_debug_opens_with_the_toggle_and_the_option(qapp, tmp_path, recorded):
+def test_inspector_debug_opens_with_the_toggle(qapp, tmp_path, recorded):
     session, frame, _ = recorded
-    path = tmp_path / "ui.toml"
-    path.write_text('[ui]\nlayout = "inspector"\n[layouts.inspector]\ndebug_open = true\npanel_side = "left"\n')
-    win = MainWindow(session, FakeCamera(frame), path)
+    win = MainWindow(with_layout(session, "inspector"), FakeCamera(frame))
     win.show()
     layout = win.current_layout
     win._on_frame(recorded[2]["live"], 0)
+    assert not layout.debug.isVisible()
+    layout.debug_toggle.click()
     assert layout.debug.isVisible() and "Tags found: 4" in layout.debug.text()
-    assert win.centralWidget().layout().itemAt(0).widget() is not win.video
     layout.debug_toggle.click()
     assert not layout.debug.isVisible()
     win.close()
@@ -1005,27 +917,6 @@ def test_map_picker_fills_from_state_and_sends_the_choice(qapp, tmp_path):
     assert sent == [("map.layout", {"name": "Layout 7"}), ("map.layout", {"name": None}), ("map.terrain_type", {"name": "Tomb World"})]
 
 
-def test_map_choice_is_saved_and_restored(qapp, tmp_path, named):
-    from battlesight.ui.settings import save_map
-
-    from .test_live import write_map
-
-    cfg, frame = named
-    write_map(tmp_path / "maps")
-    path = layout_file(tmp_path, "inspector")
-    save_map(path, "Test World", "Small")
-    settings = load_ui_settings(path)
-    assert (settings.layout, settings.map_terrain, settings.map_layout) == ("inspector", "Test World", "Small")
-    win = MainWindow(make_session(tmp_path, cfg, frame), FakeCamera(frame), path)
-    assert win.worker.commands.qsize() == 1  # restore: only the terrain type, the app starts with no layout
-    assert win.map_choice == ["Test World", None]
-    win.dispatch("map.layout", name="Small")
-    assert load_ui_settings(path).map_layout == "Small"
-    win.dispatch("map.layout", name=None)
-    assert load_ui_settings(path).map_layout is None and load_ui_settings(path).map_terrain == "Test World"
-    win.close()
-
-
 # --- the rosters layout -------------------------------------------------------------
 
 
@@ -1040,7 +931,7 @@ def rosters(qapp, tmp_path, named):
 @pytest.fixture
 def idle_rosters(qapp, tmp_path, recorded):
     session, frame, _ = recorded
-    win = MainWindow(session, FakeCamera(frame), layout_file(tmp_path, "rosters"))
+    win = MainWindow(with_layout(session, "rosters"), FakeCamera(frame))
     win.resize(1400, 900)
     win.show()
     yield win
@@ -1324,13 +1215,6 @@ def test_rosters_debug_goes_to_the_status_bar(idle_rosters, recorded):
     assert "tags" not in idle_rosters.debug_label.text() and layout.debug_toggle.isChecked()
     idle_rosters.set_layout("panel")
     assert not idle_rosters.debug_label.isVisible()
-    path = idle_rosters.ui_file
-    path.write_text('[ui]\nlayout = "rosters"\n[layouts.rosters]\ndebug_open = true\n')
-    session, frame, _ = recorded
-    win = MainWindow(session, FakeCamera(frame), path)
-    win.show()
-    assert win.debug_label.isVisible() and win.current_layout.debug_toggle.isChecked()
-    win.close()
 
 
 # --- game state: wounds and openings ----------------------------------------------

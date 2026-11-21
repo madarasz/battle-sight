@@ -20,6 +20,7 @@ Module map. Read the topic file in `docs/dev/` before you change a module. `ui/C
 | `walls.py`, `moves.py`, `shoot.py` | measure around walls, movement, targeting | `docs/dev/walls-moves-shoot.md` |
 | `terrain.py`, `lightfit.py` | map files, light terrain pieces and their poses (priority 6) | `docs/dev/terrain.md` |
 | `score.py` | score, turn, Crit Op, Kill Op | `docs/dev/live-session.md` |
+| `state.py` | saved game state: folder with `state.json`, frame, reference; auto-save, restore; the list of saved and not saved `LiveSession` attributes | `docs/dev/live-session.md`, `docs/cli.md` |
 | `overlay.py` | draw-in-place helpers on BGR frames | below |
 | `colors.py` | all UI colours from `data/color-settings.toml` | below |
 
@@ -29,6 +30,7 @@ Module map. Read the topic file in `docs/dev/` before you change a module. `ui/C
 - All lengths are in mm. Board coordinates: origin at the top-left board corner, x right, y down. Corner index 0..3 = TL, TR, BR, BL, and `tags.ids[k]` is the tag at corner k.
 - Board size, tag sizes, tolerances, base, token, and door sizes are config values, not constants.
 - A new live feature is an entry in `live.ACTIONS` with a handler in `LiveSession`, not a new subcommand or option.
+- New `LiveSession` state is saved: add it to `state.SAVED` (and `capture`, `apply`) or give a reason in `state.NOT_SAVED`, in the same change. A test fails otherwise.
 - A new priority is a new stage in `pipeline.py`.
 - Never a colour literal in the code (see `colors.py`).
 - Never call `cv2.imshow` or `cv2.waitKey` in the live app.
