@@ -19,7 +19,7 @@
 - `tests/test_rectify.py` adds a virtual pinhole camera for exact thickness and distortion tests.
 - New vision tests use this harness, not camera captures.
 - Tests use the default camera (nominal lens); `conftest.py` points the CLI at a temporary camera file.
-- Tests never compare pixels with a colour literal or a fixed threshold: use the `colors` constants (`near_color` in `tests/test_live.py` for anti-aliased lines). The user changes `data/color-settings.toml`.
+- No test may depend on a value of `data/color-settings.toml` (the user changes it): never a colour literal or a fixed colour threshold. Compare with the values that the app reads from the file (`colors` constants; `near_color` in `tests/test_live.py` for anti-aliased lines). `tests/test_colors.py` reads the file itself.
 - `conftest.py` replaces `LiveSession.start_preload` with a no-op (no DINOv2 load on a thread); `REAL_PRELOAD` is the real one.
 - All unit tests use `ColorEmbedder` (`model = "color-hist"`), no ML.
 

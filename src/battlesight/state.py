@@ -92,6 +92,7 @@ NOT_SAVED: dict[str, str] = {
     "notice": "message of the moment",
     "teams": "derived from `team_slots` (or the option of this run)",
     "gallery_root": "path option of this run",
+    "record_photos": "option of this run (--image-source: no gallery photos)",
     "team_choices": "folder listing",
     "_team_ops": "cache of team files",
     "_team_infos": "cache of team files",

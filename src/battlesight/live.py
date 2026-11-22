@@ -403,6 +403,7 @@ class LiveSession:
         pieces_root: Path | str = ter.DEFAULT_PIECES_ROOT,
         saves_dir: Path | str | None = None,
         autosave: bool = True,
+        record_photos: bool = True,
     ):
         self.cfg = cfg
         self.board = BoardTracker(cfg, camera, frame_size)
@@ -426,6 +427,7 @@ class LiveSession:
         self.notice = Notice(clock=clock)
         self.teams = list(teams) if teams else None
         self.gallery_root = gallery_root
+        self.record_photos = record_photos  # False (`--image-source`): a name fix adds no gallery photo
         self.team_choices = idt.list_teams(gallery_root)
         slots = list(self.teams or [])[:TEAM_SLOTS]
         self.team_slots: list[str | None] = slots + [None] * (TEAM_SLOTS - len(slots))
@@ -1747,6 +1749,7 @@ class LiveSession:
         if self.gallery is None:
             self.notice.error("gallery: cannot load, see the Terminal")
         else:
+            self.gallery.record = self.record_photos
             self.gallery.out_of_play = self._out_of_play()
             self.gallery.copies = self._copies_in_play()
         self.pipe.set_gallery(self.gallery)

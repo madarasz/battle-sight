@@ -26,7 +26,7 @@ Design rule: base detection (geometry: background subtraction plus known-radius 
   - `<operative>/*.png`, `<operative>/bg/` empty-board crop of each photo (optional).
   - `mask_crop` (`ident.mask` switch in `data/board.toml`: grey on all but the operative, raw and masked embeddings side by side, `can_mask`, per-base fallback to the full crop).
   - `embeddings.npz` cache, `rotations` angles per crop, score = mean of `top_k` best photos, `leave_one_out`.
-  - `Gallery.add` raises `DuplicatePhoto` for a crop with the same pixels as a photo of that operative (`same_photo`).
+  - `Gallery.add` raises `DuplicatePhoto` for a crop with the same pixels as a photo of that operative (`same_photo`). `Gallery.record` False (live app on `--image-source`, `LiveSession.record_photos`): `LabelSession.choose` adds no photo.
   - `Gallery.hidden` = file indexes that `scores` skips. `Gallery.out_of_play` = removed operatives (not `allowed`, never named). `Gallery.copies` gives `assign` one column per copy.
 - `assign`: size-class limit, Hungarian one-to-one, `min_score` unknown, `min_margin` unsure.
 - `LabelSession`: click fix logic, no window calls; `choose` returns None and `undo` (done, path) for a fix that added no file. `LabelSession.selected` is not used by the live app.

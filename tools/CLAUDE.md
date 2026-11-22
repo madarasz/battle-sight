@@ -16,6 +16,7 @@ uv run tools/bench_bases.py --sweep min_coverage=0.4,0.5 --no-images   # paramet
 uv run tools/bench_bases.py --baseline tests/images/bases_baseline.json   # exit 1 when worse
 uv run tools/bench_ident.py               # identification benchmark on tests/images: table
 uv run tools/bench_ident.py --baseline tests/images/ident_baseline.json   # exit 1 when worse, 2 for another gallery
+uv run tools/dedupe_gallery.py [--dry-run]   # delete gallery photos that show the same frame (oldest stays)
 uv run tools/bench_light.py -v            # light terrain search benchmark on tests/images (<name>.light.json): table
 uv run tools/annotate_bases.py tests/images/<name>.jpg --prefill   # click base ground truth, writes a missing <name>.expected.json
 uv run tools/annotate_bases.py tests/images/<name>.jpg --team kommandos veterans   # also assign operatives (n key) -> <name>.ident.json

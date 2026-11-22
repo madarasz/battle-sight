@@ -684,6 +684,7 @@ class Gallery:
         self.masked_file = np.zeros(0, int)
         self.hidden: set[int] = set()  # file indexes that `scores` must not use (the benchmark hides copies of a test photo)
         self.out_of_play: set[str] = set()  # labels that no base can get (removed from a team list of the live app)
+        self.record = True  # False: `LabelSession.choose` adds no photo (live app on `--image-source`: one frame, the same photo each time)
         self.copies: dict[str, int] = {}  # type label -> copies in play (live app); a type not here: its `max`
         self.reload()
 
@@ -1170,10 +1171,12 @@ class LabelSession:
         i = self.selected if i is None else i
         if i is None:
             raise ValueError("no base selected")
-        try:
-            path = self.gallery.add(type_of(label), self.crops[i], self.diameters_mm[i], self.backgrounds[i] if self.backgrounds else None)
-        except DuplicatePhoto:
-            path = None
+        path = None
+        if self.gallery.record:
+            try:
+                path = self.gallery.add(type_of(label), self.crops[i], self.diameters_mm[i], self.backgrounds[i] if self.backgrounds else None)
+            except DuplicatePhoto:
+                pass
         self.added.append((i, path, self.idents[i]))
         mine = self.idents[i].label
         swap = mine if mine is not None and mine != label and copy_number(label) is not None and type_of(mine) == type_of(label) else None

@@ -599,7 +599,7 @@ parallax changes the look near the edges). A crop with the same pixels as a
 gallery photo of the operative is not saved (`ident.DuplicatePhoto`,
 `ident.same_photo`): the banner tells the user to turn and move the model. Two
 camera frames are never the same, so this stops only a second grab of one
-image (`--images`, or a name fix on `--image-source`). The live video is
+image (`--images`). A name fix on `--image-source` adds no photo at all (`LiveSession.record_photos`). `tools/dedupe_gallery.py` removes copies that are in a gallery already. The live video is
 top-down (adjusted perspective) when the board fits: `live.BoardTracker`, the
 same tag detection, drift monitor and board fit as the live app, so the view
 stays at the saved position while one or two cards are covered. `u` undoes the last crop, `v`
