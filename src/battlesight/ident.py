@@ -33,9 +33,10 @@ from __future__ import annotations
 
 import json
 import re
+import threading
 import time
 import tomllib
-from collections.abc import Iterable, Sequence
+from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Protocol
@@ -203,6 +204,9 @@ class Embedder(Protocol):
         ...
 
 
+Progress = Callable[[int, int, str], None]  # (steps done, all steps, text of the next step)
+
+
 def _normalise(a: np.ndarray) -> np.ndarray:
     a = np.asarray(a, dtype=np.float32)
     return a / np.maximum(np.linalg.norm(a, axis=-1, keepdims=True), 1e-12)
@@ -213,6 +217,10 @@ class ColorEmbedder:
     rough fallback (`ident.model = "color-hist"`)."""
 
     name = "color-hist"
+    loaded = True  # nothing to load
+
+    def load(self, input_px: int = 0, progress: Progress | None = None) -> None:
+        """Nothing to load: for the same calls as `DinoEmbedder`."""
 
     def embed(self, images: list[np.ndarray]) -> np.ndarray:
         out = []
@@ -228,36 +236,75 @@ class ColorEmbedder:
 
 class DinoEmbedder:
     """DINOv2 through Hugging Face `transformers`. Loads on first use (the
-    first run downloads the weights), on Apple MPS when available."""
+    first run downloads the weights), on Apple MPS when available. `load`
+    loads it before the first use (the live app does it at start, on a
+    thread of its own). A lock makes the load happen once: a second thread
+    waits for the first."""
 
     MEAN = np.array([0.485, 0.456, 0.406], np.float32)
     STD = np.array([0.229, 0.224, 0.225], np.float32)
+    LOAD_STEPS = ("import torch", "import transformers", "load weights", "move to device", "warm up")
 
     def __init__(self, model: str = "facebook/dinov2-small", device: str | None = None, batch: int = 32):
         self.name = model
         self._device = device
         self._batch = batch
         self._model = None
+        self._lock = threading.Lock()
 
-    def _load(self):
+    @property
+    def loaded(self) -> bool:
+        return self._model is not None
+
+    def load(self, input_px: int = 0, progress: Progress | None = None) -> None:
+        """Load the model. `progress(done, total, text)` is called before
+        each step of `LOAD_STEPS` and once at the end. With `input_px`, a
+        first run on a blank crop of that size warms up the device (the
+        first run on Apple MPS is slow)."""
+        total = len(self.LOAD_STEPS)
+
+        def step(k: int) -> None:
+            if progress is not None:
+                progress(k, total, self.LOAD_STEPS[k] if k < total else "done")
+
+        with self._lock:
+            if self._model is None:
+                self._load(step)
+            step(total - 1)
+            if input_px > 0:
+                self._run(self._model, [np.zeros((input_px, input_px, 3), np.uint8)])
+            step(total)
+
+    def _load(self, step: Callable[[int], None] = lambda _k: None):
+        step(0)
         import torch
+
+        step(1)
         from transformers import AutoModel
 
         if self._device is None:
             self._device = "mps" if torch.backends.mps.is_available() else "cpu"
+        step(2)
         try:  # cached weights first: no network check at the table
             model = AutoModel.from_pretrained(self.name, local_files_only=True)
         except OSError:
             model = AutoModel.from_pretrained(self.name)  # first run: download
+        step(3)
         self._model = model.eval().to(self._device)
         return self._model
 
     def embed(self, images: list[np.ndarray]) -> np.ndarray:
-        import torch
-
         if not images:
             return np.zeros((0, 0), np.float32)
-        model = self._model or self._load()
+        model = self._model
+        if model is None:
+            with self._lock:  # another thread can be loading it
+                model = self._model or self._load()
+        return self._run(model, images)
+
+    def _run(self, model, images: list[np.ndarray]) -> np.ndarray:
+        import torch
+
         feats = []
         for i in range(0, len(images), self._batch):
             rgb = np.stack([cv2.cvtColor(im, cv2.COLOR_BGR2RGB) for im in images[i : i + self._batch]]).astype(np.float32) / 255.0
@@ -270,8 +317,17 @@ class DinoEmbedder:
         return _normalise(np.concatenate(feats))
 
 
+_EMBEDDERS: dict[str, Embedder] = {}
+_EMBEDDERS_LOCK = threading.Lock()
+
+
 def make_embedder(model: str) -> Embedder:
-    return ColorEmbedder() if model == ColorEmbedder.name else DinoEmbedder(model)
+    """One embedder per model name in a process: a new gallery (for example
+    after a team change) uses the model that is loaded already."""
+    with _EMBEDDERS_LOCK:
+        if model not in _EMBEDDERS:
+            _EMBEDDERS[model] = ColorEmbedder() if model == ColorEmbedder.name else DinoEmbedder(model)
+        return _EMBEDDERS[model]
 
 
 # --- gallery ------------------------------------------------------------------

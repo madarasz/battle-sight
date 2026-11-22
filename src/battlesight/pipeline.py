@@ -221,15 +221,18 @@ class Pipeline:
     def has_reference(self) -> bool:
         return "bases_reference" in self.cache
 
-    def analyze(self, frame: np.ndarray, source: str = "", until: str | None = None, search: BasesSearch | None = None) -> FrameResult:
+    def analyze(self, frame: np.ndarray, source: str = "", until: str | None = None, search: BasesSearch | None = None, progress: Callable[[int, int], None] | None = None) -> FrameResult:
         """Run the stages on one frame. `until` stops earlier than the stages
         of the pipeline (the live app runs `bases` only on one key). `search`
-        limits the bases stage."""
+        limits the bases stage. `progress(done, total)` is called after each
+        stage (also a skipped one)."""
         ctx = Context(frame, self.cfg, self.cache, self.camera)
         ctx.scratch["bases_search"] = search
         failed = False
         names = self.names if until is None else [n for n in self.names if n in select_stages(until)]
-        for name in names:
+        for k, name in enumerate(names):
+            if progress is not None and k:
+                progress(k, len(names))
             if failed:
                 ctx.results[name] = StageResult(ok=False, skipped=True, message="earlier stage failed")
                 continue
@@ -241,6 +244,8 @@ class Pipeline:
             r.ms = (time.perf_counter() - t0) * 1000.0
             ctx.results[name] = r
             failed = not r.ok
+        if progress is not None:
+            progress(len(names), len(names))
         h, w = frame.shape[:2]
         return FrameResult(source, w, h, ctx.results, ctx.scratch)
 

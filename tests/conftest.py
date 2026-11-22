@@ -12,6 +12,9 @@ import numpy as np
 import pytest
 
 from battlesight.config import BoardConfig
+from battlesight.live import LiveSession
+
+REAL_PRELOAD = LiveSession.start_preload  # before the `no_model_preload` fixture replaces it
 
 BENCH_TABLE = pytest.StashKey[str]()  # bases benchmark table of the photo tests
 IDENT_TABLE = pytest.StashKey[str]()  # bases benchmark table of the photo tests
@@ -206,6 +209,16 @@ def no_local_saves(tmp_path, monkeypatch):
     import battlesight.live
 
     monkeypatch.setattr(battlesight.live, "SAVES_DIR", tmp_path / "default-saves")
+
+
+@pytest.fixture(autouse=True)
+def no_model_preload(monkeypatch):
+    """`main` with the default config must not load the DINOv2 model on a
+    thread (`LiveSession.start_preload`). Preload tests call `REAL_PRELOAD`
+    with a fake embedder."""
+    import battlesight.live
+
+    monkeypatch.setattr(battlesight.live.LiveSession, "start_preload", lambda self: None)
 
 
 @pytest.fixture(autouse=True)

@@ -383,6 +383,7 @@ def recorded(tmp_path, named):
     live = settled(session, frame)
     frames["live"] = live
     frames["busy"] = replace(live, state=dict(live.state, busy=True))
+    frames["loading model"] = replace(live, state=dict(live.state, model_ready=False, progress={"text": "Loading models", "done": 2, "total": 5}))
     frames["camera down"] = session.step(None)
     for status in ("OK", "NO_REFERENCE", "MOVED", "CARD_MOVED", "LOST"):
         drift = {"status": status, "ok": status == "OK", "text": status, "lost": [], "card": None}
@@ -1354,7 +1355,7 @@ def test_rosters_score_counter(qapp, tmp_path, named):
         wait_until(lambda: left.total.text() == "4 VP" and left.bonus.text() == "+1")
         left.show_state({"scores": [dict(win.state["scores"][0], kill_grade=2, kill_bonus=1), win.state["scores"][1]]})
         assert left.lit("kill", None) == 3 and left.skulls[("kill", None)][-1].property("lit")  # Kill Op is automatic
-        assert right.bonus.text() == "+0" and "#e63c3c" in left.total.styleSheet() and not left.title()
+        assert right.bonus.text() == "+0" and qt_hex(TEAM_1_COLOR) in left.total.styleSheet() and not left.title()
         left.tac_op.activated.emit(2)
         wait_until(lambda: win.state["scores"][0]["tac_op"] == sc.TAC_OPS["Recon"][1])
         left.cp_minus.click()
@@ -1458,3 +1459,32 @@ def test_texts_of_copies():
     assert missing_text({"label": "orks/Grot", "name": "Grot", "max": 3, "copies_in_play": 2}) == "Grot (2/3)"
     assert candidate_text({"label": "orks/Nob", "name": "Nob", "copy": None, "score": None, "wounds": 5, "max_wounds": 5}) == "orks/Nob"
     assert candidate_text({"label": "orks/Grot#2", "name": "Grot 2", "copy": 2, "score": 0.5, "wounds": 3, "max_wounds": 5}) == "orks/Grot 2 (3/5)   50%"
+
+
+def test_status_bar_progress_of_the_model_load(idle_rosters, recorded):
+    """The progress bar is at the right end of the status bar, after the
+    debug values, with one text for the task. The commands that name
+    operatives are off until the end."""
+    layout, progress = idle_rosters.current_layout, idle_rosters.progress
+    idle_rosters._on_frame(recorded[2]["loading model"], 0)
+    assert not progress.isHidden()
+    assert (progress.label.text(), progress.bar.value(), progress.bar.maximum()) == ("Loading models:", 2, 5)
+    idle_rosters.show_debug(True)
+    QApplication.processEvents()
+    assert progress.parent() is idle_rosters.statusBar() and progress.x() > idle_rosters.debug_label.x()  # right of the debug values
+    assert not layout.add_operative.isEnabled()
+    assert not idle_rosters.menu_actions["snapshot.name"][1].isEnabled()
+    idle_rosters._on_frame(recorded[2]["live"], 0)
+    assert progress.isHidden()
+    assert layout.add_operative.isEnabled()
+    assert idle_rosters.menu_actions["snapshot.name"][1].isEnabled()
+
+
+def test_progress_of_a_long_action_reaches_the_status_bar(rosters):
+    """"Identify all operatives": the worker sends each step; the bar is hidden at the end."""
+    seen = []
+    rosters.worker.progress_ready.connect(lambda p: seen.append((p["text"], p["done"], p["total"])))
+    open_names(rosters)
+    wait_until(lambda: seen and seen[-1][1] == seen[-1][2])
+    assert {text for text, _, _ in seen} == {"Identifying operatives"}
+    wait_until(lambda: not rosters.state["busy"] and rosters.progress.isHidden())

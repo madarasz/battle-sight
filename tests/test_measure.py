@@ -42,14 +42,17 @@ def test_base_at_takes_the_nearest_base_within_reach():
 
 
 def test_health_bar_length_follows_the_maximum_wounds():
-    from battlesight.colors import OUTLINE_COLOR
+    from battlesight.colors import HEALTH_UNHARMED_COLOR, HEALTH_WOUNDED_COLOR
     from battlesight.overlay import HEALTH_MM_PER_WOUND, draw_health_bars
 
     def bar_width(current: int, maximum: int) -> tuple[int, int]:
         img = np.zeros((200, 400, 3), np.uint8)
         draw_health_bars(img, [((200.0, 150.0), 40.0, current, maximum)], lambda p: np.asarray(p, float).reshape(-1, 2))
-        cols = np.flatnonzero((img != OUTLINE_COLOR).any(axis=2).any(axis=0))
-        green = np.flatnonzero(((img[..., 1] > 150) | (img[..., 2] > 200)).any(axis=0))  # unharmed or wounded fill
+        white = np.full_like(img, 255)
+        draw_health_bars(white, [((200.0, 150.0), 40.0, current, maximum)], lambda p: np.asarray(p, float).reshape(-1, 2))
+        cols = np.flatnonzero((img == white).all(axis=2).any(axis=0))  # the bar covers the background: same pixels on black and on white
+        fill = np.all(img == HEALTH_UNHARMED_COLOR, axis=2) | np.all(img == HEALTH_WOUNDED_COLOR, axis=2)
+        green = np.flatnonzero(fill.any(axis=0))  # unharmed or wounded fill
         return cols[-1] - cols[0], 0 if green.size == 0 else green[-1] - green[0]
 
     w15, _ = bar_width(15, 15)

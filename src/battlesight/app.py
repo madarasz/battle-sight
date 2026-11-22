@@ -176,6 +176,7 @@ def cmd_live(args: argparse.Namespace) -> int:
     # The saved reference is from the live camera: it does not fit another image.
     reference = args.reference or (None if args.image_source else DEFAULT_REFERENCE)
     session = LiveSession(cfg, args.camera, cam.size, args.team, args.gallery_root, reference)
+    session.start_preload()  # the identification model loads while the window opens
     if args.state and not session.load_state(args.state):
         print(session.notice.current()[0], file=sys.stderr)
         return 2

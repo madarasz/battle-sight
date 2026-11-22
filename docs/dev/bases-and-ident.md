@@ -20,7 +20,7 @@ Design rule: base detection (geometry: background subtraction plus known-radius 
 ## ident.py and the ident stage
 
 - Crop around each base from the bases image: `store_crop` keeps 40 mm board each side, `prepare` cuts `ident.crop_pad_mm`, turns, masks a circle, resizes to `input_px`.
-- `Embedder`: `DinoEmbedder` = DINOv2 via `transformers`, MPS, lazy load; `ColorEmbedder` = `model = "color-hist"`, no ML, used by all unit tests.
+- `Embedder`: `DinoEmbedder` = DINOv2 via `transformers`, MPS, lazy load or `load(input_px, progress)` (5 steps of `LOAD_STEPS`, then a warm-up run on a blank crop; a lock makes the load happen once when two threads ask); `make_embedder` keeps one embedder per model name in a process, so a new gallery (team change) does not load the model again; `ColorEmbedder` = `model = "color-hist"`, no ML, used by all unit tests.
 - `Gallery`:
   - `data/teams/<team>/team.toml` with `base_mm`, optional `wounds` (maximum wounds, `Operative.wounds`, game state only; `enroll --wounds` sets it at the start) and optional `max` (copies, `docs/specs/operative-copies.md`).
   - `<operative>/*.png`, `<operative>/bg/` empty-board crop of each photo (optional).

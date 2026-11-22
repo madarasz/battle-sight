@@ -15,10 +15,13 @@ def test_every_file_key_has_a_constant():
     assert names == {f"{k.upper()}_COLOR" for k in keys}
 
 
-def test_drawing_colors_are_bgr_and_window_colors_are_qt_strings():
-    assert colors.TEAM_1_COLOR == (60, 60, 230)  # "#e63c3c" in the file
-    assert colors.MESSAGE_OK_COLOR == "#2e9e4f"
-    assert colors.BADGE_BACK_COLOR == "#aa000000"  # "#000000aa" -> Qt #aarrggbb
+def test_drawing_colors_are_bgr_and_window_colors_are_qt_strings(tmp_path):
+    path = tmp_path / "c.toml"  # a file of its own: the test must not depend on the values of data/color-settings.toml
+    path.write_text('[teams]\nteam_1 = "#e63c3c"\n[window]\nmessage_ok = "#2E9E4F"\nbadge_back = "#000000aa"\n')
+    loaded = colors.load(path)
+    assert loaded["team_1"] == (60, 60, 230)  # BGR
+    assert loaded["message_ok"] == "#2e9e4f"
+    assert loaded["badge_back"] == "#aa000000"  # "#000000aa" -> Qt #aarrggbb
     assert colors.TEAM_COLORS == (colors.TEAM_1_COLOR, colors.TEAM_2_COLOR)
     for name in dir(colors):
         if name.endswith("_COLOR"):

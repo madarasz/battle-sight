@@ -21,7 +21,7 @@ from PySide6.QtWidgets import QApplication, QLabel, QMainWindow, QMenu, QMessage
 
 from ..live import ACTIONS, Action, LiveFrame, LiveSession
 from .layouts import DEFAULT_LAYOUT, LAYOUTS, Layout
-from .parts import COLORS, DRIFT_LEVEL, VideoWidget, action_group, candidate_text, debug_line, distance_label
+from .parts import COLORS, DRIFT_LEVEL, ProgressView, VideoWidget, action_group, candidate_text, debug_line, distance_label
 
 QT_KEYS = {"space": "Space", "Esc": "Esc"}
 
@@ -73,6 +73,7 @@ class Worker(QThread):
     on this thread. Commands run between frames, in the order sent."""
 
     frame_ready = Signal(object, int)  # LiveFrame, number of commands done
+    progress_ready = Signal(object)  # the `progress` state, at each step of a long action
 
     def __init__(self, session: LiveSession, camera):
         super().__init__()
@@ -124,6 +125,7 @@ class Worker(QThread):
     def run(self) -> None:
         session = self.session
         session.on_busy = self._send_now
+        session.on_progress = self.progress_ready.emit
         while not self._stop_event.is_set():
             self._run_commands()
             if self.display_width and self.display_width != session.win.display_width:
@@ -166,6 +168,8 @@ class MainWindow(QMainWindow):
         self.debug_label.setStyleSheet(f"color: {COLORS['none']}")
         self.debug_label.setVisible(False)
         self.statusBar().addPermanentWidget(self.debug_label)
+        self.progress = ProgressView()  # at the right end, after the debug values
+        self.statusBar().addPermanentWidget(self.progress)
         self.menu_actions: dict[str, tuple[Action, QAction]] = {}
         self.layout_items: dict[str, QAction] = {}
         self.shortcuts: dict[str, QShortcut] = {}
@@ -177,6 +181,7 @@ class MainWindow(QMainWindow):
         self._hover_sent: int | None = None  # command number of the pointer position that the worker has
         self._hover_next: tuple | None = None  # (position or None,) to send after it
         self.worker.frame_ready.connect(self._on_frame)
+        self.worker.progress_ready.connect(self.progress.show_progress)
         self.video: VideoWidget | None = None
         self.current_layout: Layout | None = None
         self._install_layout(session.ui_layout or DEFAULT_LAYOUT)  # a restored state brings its layout
@@ -355,6 +360,7 @@ class MainWindow(QMainWindow):
         self.status_label.setStyleSheet(f"color: {COLORS[level]}")
         notice = state["notice"]
         self.notice_label.setText("" if notice is None else notice["text"])
+        self.progress.show_progress(state.get("progress"))
         if self.debug_label.isVisible():
             self.debug_label.setText(debug_line(state))
         if notice is not None:

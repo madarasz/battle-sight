@@ -249,7 +249,8 @@ The state dict is JSON-safe. The worker sends it with each frame.
 | Key | Meaning |
 |---|---|
 | `mode` | `live` or `snapshot`. |
-| `busy` | A snapshot or a model load is running. |
+| `busy` | A snapshot is running. |
+| `model_ready`, `progress` | The identification model is loaded; the long action that runs, or the model load at start: `{text, done, total}`, one text per action, else `null`. The shell shows it at the right end of the status bar. |
 | `top_down`, `grid`, `terrain`, `zones`, `keys` | View settings. |
 | `drift` | Status value, summary text, lost tags, moved card. |
 | `camera` | Camera up or down. |

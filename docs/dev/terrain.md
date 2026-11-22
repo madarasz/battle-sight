@@ -32,7 +32,7 @@ Design rule: walls and openings are not detected. Each layout is a map file, wri
 - `edge_maps`: Canny on the Lab channels at 2 px per mm, thresholds from the 90th gradient percentile of the searched area, at least 30; 12 direction classes, grown by 0.75 mm.
 - `outline_points`, `origin_box` (poses with the outline in the card rectangle plus `[light] margin_mm`).
 - `locate`: coarse 4 degrees and 1 mm, fine 0.5 degrees and 0.5 mm; score = (part of the outline on edges - median over the angles) / (1 - median); under `[light] min_score` (0.47) the nominal pose, `confirmed = False`; `hold_mm` = a point the outline must hold.
-- `locate_at`: "Locate terrain" search of all piece files around a click, `ClickResult`.
+- `locate_at`: "Locate terrain" search of all piece files around a click, `ClickResult`; `progress(done, total)` after each piece file.
 - Ground truth `tests/images/<name>.light.json` (pieces: key, centre, angle; `not_pieces` points). `tools/bench_light.py` measures both searches; do not change the limit or the edge values without that measurement (`docs/specs/measure-and-move.md` section 10).
 
 ## LiveSession light terrain

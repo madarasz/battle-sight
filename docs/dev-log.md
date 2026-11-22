@@ -19,7 +19,7 @@ Battle Sight is under development. This list shows what is finished and what com
 15. ✅ Tomb World light terrain: real outlines, found on the board, cover for Shoot at
 16. ✅ KillOp calculation, dead operatives
 17. ✅ Save and restore the game state: auto-save, Save state button, `--state`
-18. 🚧 Operative states: injured, dead, borrowed, poisioned, etc.
-optional 🚧 Tokens: find tokens, list operatives in range
+optional 🚧 Operative states: injured, dead, borrowed, poisioned, etc.
+optional 🚧 Tokens: handle tokens
 
 ✅ done · ⏳ next · 🚧 not started

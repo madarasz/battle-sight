@@ -29,6 +29,13 @@ GAME = {"Nob": ((300.0, 350.0), 120.0), "Grot": ((150.0, 500.0), 200.0), "Burna"
 SETTLE = 7  # more than settle_frames of the test config
 
 
+def near_color(pixels: np.ndarray, color, tol: int = 40) -> np.ndarray:
+    """Pixels (last axis BGR) within `tol` of `color` in each channel: an
+    anti-aliased line of a colour of `data/color-settings.toml`, whatever the
+    file says."""
+    return np.abs(pixels.astype(int) - np.asarray(color, int)).max(axis=-1) <= tol
+
+
 def make_session(tmp_path, cfg, frame, **over) -> LiveSession:
     size = (frame.shape[1], frame.shape[0])
     args = dict(gallery_root=tmp_path / "gallery", reference_path=tmp_path / "ref" / "empty.png", snapshot_dir=tmp_path / "snaps", maps_root=tmp_path / "maps", pieces_root=tmp_path / "terrain", saves_dir=tmp_path / "saves")
@@ -1077,8 +1084,8 @@ def test_team_colors_paint_the_circles():
         rim = img[30:51, x - 20 : x + 21].reshape(-1, 3).sum(axis=0).astype(float)  # upper half, no name there
         assert np.allclose(rim / rim.max(), np.array(color) / max(color), atol=0.05)  # anti-aliased: same hue
         name = img[60:120, x - 30 : x + 31].reshape(-1, 3)
-        name = name[name.sum(axis=1) > 150].sum(axis=0).astype(float)  # the text, not its dark box
-        assert np.allclose(name / name.max(), np.array(color) / max(color), atol=0.1)
+        others = [c for c in (TEAM_1_COLOR, TEAM_2_COLOR, NO_TEAM_COLOR) if c != color]
+        assert near_color(name, color).sum() > 5 and not any(near_color(name, c, tol=10).any() for c in others)  # the text in the team colour
 
 
 def test_names_inside_put_the_name_in_the_middle_of_the_base():
@@ -1092,7 +1099,7 @@ def test_names_inside_put_the_name_in_the_middle_of_the_base():
     x = idt.Ident("orks/Nob", 0.9, 0.5, sure=True)
     img = np.zeros((200, 200, 3), np.uint8)
     draw_idents(img, [C()], [x], lambda p: np.asarray(p, float), scores=False, team_colors={"orks": TEAM_1_COLOR}, inside=True)
-    text = np.argwhere((img[:, :, 2] > 150) & (img[:, :, 0] < 80))  # red text, not the ring
+    text = np.argwhere(near_color(img, TEAM_1_COLOR, tol=80))  # the text in the team colour
     text = text[np.hypot(text[:, 0] - 100, text[:, 1] - 100) < 14]
     assert len(text) and abs(text[:, 0].mean() - 100) < 4  # rows centred on the base
     assert not img[118:140, 80:121].any()  # nothing under the base
@@ -2329,7 +2336,7 @@ def test_movement_shows_the_melee_zone_and_avoid_melee_keeps_out_of_it(tmp_path)
     edge = np.asarray(GAME["Burna"][0]) + (0.5 * SIZES["Burna"] + 25.4, 0.0)  # on the dashed circle
     x, y = np.rint((edge + cfg.rectify_margin_mm) * cfg.rectify_px_per_mm * session.win.scale).astype(int)
     patch = live.image[y - 6 : y + 7, x - 6 : x + 7].reshape(-1, 3).astype(int)
-    assert ((patch[:, 2] > 200) & (patch[:, 1] > 150) & (patch[:, 0] < 120)).any()  # yellow
+    assert near_color(patch, colors.RANGE_ZONE_COLOR).any()  # the 1 in zone of the enemy
 
     near = np.asarray(GAME["Burna"][0]) + (-50.0, 0.0)  # the rims are 2 mm apart there
     hover(session, near)
@@ -2338,7 +2345,7 @@ def test_movement_shows_the_melee_zone_and_avoid_melee_keeps_out_of_it(tmp_path)
     assert melee.state["move_melee"] == [burna] and melee.state["move"] is not None
     bx, by = np.rint((np.asarray(GAME["Burna"][0]) + cfg.rectify_margin_mm) * cfg.rectify_px_per_mm * session.win.scale).astype(int)
     sign = melee.image[by - 12 : by + 13, bx - 12 : bx + 13].reshape(-1, 3)
-    assert (sign.min(axis=1) > 240).any() and not (live.image[by - 12 : by + 13, bx - 12 : bx + 13].reshape(-1, 3).min(axis=1) > 240).any()  # white swords
+    assert near_color(sign, colors.MOVE_MELEE_COLOR, tol=10).sum() > near_color(live.image[by - 12 : by + 13, bx - 12 : bx + 13].reshape(-1, 3), colors.MOVE_MELEE_COLOR, tol=10).sum()  # the swords
     hover(session, np.add(GAME["Nob"][0], (-40.0, 0.0)))  # away from the enemy
     assert session.state()["move_melee"] == []
 
@@ -2351,3 +2358,150 @@ def test_movement_shows_the_melee_zone_and_avoid_melee_keeps_out_of_it(tmp_path)
     assert field.cost(near) is None and not walls.contains(outline, np.asarray(GAME["Burna"][0]) + (-30.0, 0.0))
     session.dispatch("measure.move")
     assert not avoid.enabled(session.state())
+
+
+# --- model preload ------------------------------------------------------------------
+
+
+class SlowEmbedder(idt.ColorEmbedder):
+    """A model that loads in 3 steps when the test releases it (`go`), or fails."""
+
+    def __init__(self, fail: bool = False):
+        import threading
+
+        self.loaded = False
+        self.go = threading.Event()
+        self.at_step = threading.Event()
+        self.fail = fail
+
+    def load(self, input_px=0, progress=None):
+        progress(0, 3, "import torch")
+        progress(1, 3, "load weights")
+        self.at_step.set()
+        self.go.wait(5)
+        if self.fail:
+            raise OSError("no weights")
+        progress(3, 3, "done")
+        self.loaded = True
+
+
+@pytest.fixture
+def slow_model(monkeypatch):
+    from .conftest import REAL_PRELOAD
+
+    monkeypatch.setattr(LiveSession, "start_preload", REAL_PRELOAD)
+    embedder = SlowEmbedder()
+    monkeypatch.setitem(idt._EMBEDDERS, "color-hist", embedder)
+    return embedder
+
+
+def test_preload_shows_progress_and_blocks_naming(tmp_path, named, slow_model):
+    cfg, frame = named
+    session = make_session(tmp_path, cfg, frame, teams=("orks",))
+    settled(session, frame)
+    session.start_preload()
+    assert slow_model.at_step.wait(5)
+    s = session.step(frame).state
+    assert_json_safe(s)
+    assert s["model_ready"] is False and s["progress"] == {"text": "Loading models", "done": 1, "total": 3}
+    actions = {a.id: a for a in ACTIONS}
+    assert not actions["snapshot.name"].enabled(s) and not actions["base.add"].enabled(s)
+    assert actions["snapshot.bases"].enabled(s) and actions["light.locate_at"].enabled(dict(s, light_files=["C1"]))
+    session.dispatch("snapshot.name")  # the key works also with the button off: the core says no
+    s = session.state()
+    assert s["mode"] == "live" and "model is loading" in s["notice"]["text"]
+    session.dispatch("base.add")
+    assert not session.state()["adding"]
+    slow_model.go.set()
+    session._preload_thread.join(5)
+    s = session.step(frame).state
+    assert s["model_ready"] is True and s["progress"] is None
+    session.dispatch("snapshot.name")
+    assert session.state()["naming"]
+
+
+def test_failed_preload_gives_a_notice_and_frees_naming(tmp_path, named, slow_model):
+    cfg, frame = named
+    slow_model.fail = True
+    slow_model.go.set()
+    session = make_session(tmp_path, cfg, frame, teams=("orks",))
+    session.start_preload()
+    session._preload_thread.join(5)
+    s = session.step(frame).state
+    assert s["model_ready"] is True and s["progress"] is None
+    assert s["notice"]["text"] == "model not loaded: no weights"
+
+
+def test_no_preload_for_a_loaded_model(tmp_path, named, monkeypatch):
+    from .conftest import REAL_PRELOAD
+
+    monkeypatch.setattr(LiveSession, "start_preload", REAL_PRELOAD)
+    cfg, frame = named
+    session = make_session(tmp_path, cfg, frame)
+    session.start_preload()  # "color-hist": nothing to load
+    assert session._preload_thread is None and session.state()["model_ready"] and session.state()["progress"] is None
+
+
+def test_one_embedder_per_model_name():
+    assert idt.make_embedder("color-hist") is idt.make_embedder("color-hist")
+    assert idt.make_embedder("facebook/dinov2-small") is idt.make_embedder("facebook/dinov2-small")
+    assert not idt.make_embedder("facebook/dinov2-small").loaded  # made, not loaded: no torch in the unit tests
+
+
+def recorded_progress(session: LiveSession) -> list[tuple[str, int, int]]:
+    """The `on_progress` calls of the session, and a check that the frame at
+    the start of each long action has `busy` and the progress at 0."""
+    seen: list[tuple[str, int, int]] = []
+    session.on_progress = lambda p: seen.append((p["text"], p["done"], p["total"]))
+
+    def busy(live):
+        assert live.state["busy"]
+        if live.state["progress"] is not None:  # "Locate operative" before its click is short: no progress
+            assert live.state["progress"]["done"] == 0
+            seen.append((live.state["progress"]["text"], 0, live.state["progress"]["total"]))
+
+    session.on_busy = busy
+    return seen
+
+
+def test_identify_and_locate_operative_report_progress(tmp_path, named):
+    cfg, frame = named
+    session = make_session(tmp_path, cfg, frame, teams=("orks",))
+    settled(session, frame)
+    seen = recorded_progress(session)
+    session.dispatch("snapshot.name")  # the gallery load, 4 stages, the name session
+    assert seen[0] == ("Identifying operatives", 0, 1) and seen[-1] == ("Identifying operatives", 6, 6)
+    assert [d for _, d, t in seen[1:]] == sorted(d for _, d, t in seen[1:]) and {t for _, _, t in seen[1:]} == {6}
+    s = session.state()
+    assert s["progress"] is None and not s["busy"] and s["naming"]
+    seen.clear()
+    session.dispatch("snapshot.name")  # the gallery is loaded
+    assert seen[-1] == ("Identifying operatives", 5, 5)
+    seen.clear()
+    session.dispatch("snapshot.bases")
+    assert seen[-1] == ("Finding bases", 3, 3)
+
+    gone = session.state()["bases"][1]
+    session.dispatch("snapshot.name")
+    session.dispatch("base.select", index=1)
+    session.dispatch("base.remove")
+    session.dispatch("base.add")
+    seen.clear()
+    x, y = gone["position_px"]
+    session.dispatch("board.click", x=x, y=y)  # the base search, then its name
+    assert seen == [("Locating operative", 0, 1), ("Locating operative", 1, 2), ("Locating operative", 2, 2)]
+    assert len(session.state()["bases"]) == 3 and session.state()["progress"] is None
+
+
+def test_identify_and_locate_terrain_report_progress(tmp_path):
+    session, frame = light_session(tmp_path)
+    settled(session, frame)
+    seen = recorded_progress(session)
+    session.dispatch("light.locate")  # one step per piece of the layout
+    assert seen == [("Identifying terrain", 0, 1), ("Identifying terrain", 0, 1), ("Identifying terrain", 1, 1)]
+    session.light_poses.clear()
+    session._build_shapes()
+    seen.clear()
+    locate_at(session, frame, PIECE_AT)  # one step per piece file
+    assert seen == [("Locating terrain", 0, 1), ("Locating terrain", 1, 1)]
+    assert session.state()["progress"] is None and not session.state()["busy"]

@@ -8,7 +8,7 @@ from typing import Any
 import numpy as np
 from PySide6.QtCore import QPoint, QPointF, QRectF, QSize, Qt, Signal
 from PySide6.QtGui import QColor, QFont, QIcon, QImage, QMouseEvent, QPainter, QPainterPath, QPixmap
-from PySide6.QtWidgets import QAbstractButton, QApplication, QCheckBox, QStyledItemDelegate, QStyleOptionViewItem, QComboBox, QFormLayout, QGridLayout, QGroupBox, QHBoxLayout, QLabel, QListWidget, QListWidgetItem, QPushButton, QRadioButton, QSlider, QSpinBox, QStyle, QToolButton, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QAbstractButton, QApplication, QCheckBox, QStyledItemDelegate, QStyleOptionViewItem, QComboBox, QFormLayout, QGridLayout, QGroupBox, QHBoxLayout, QLabel, QListWidget, QListWidgetItem, QProgressBar, QPushButton, QRadioButton, QSlider, QSpinBox, QStyle, QToolButton, QVBoxLayout, QWidget
 
 from ..colors import (
     BADGE_BACK_COLOR,
@@ -175,6 +175,33 @@ class MapPicker(QWidget):
 class DebugView(QLabel):
     def show_state(self, state: dict[str, Any]) -> None:
         self.setText(debug_text(state))
+
+
+class ProgressView(QWidget):
+    """The long action of the core that runs (`state["progress"]`: one text
+    for the action, steps done, all steps), for example the model load at
+    start: "Loading models:" and a progress bar. Hidden when none runs."""
+
+    def __init__(self, parent: QWidget | None = None):
+        super().__init__(parent)
+        row = QHBoxLayout(self)
+        row.setContentsMargins(0, 0, 0, 0)
+        self.label = QLabel()
+        self.bar = QProgressBar()
+        self.bar.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.bar.setTextVisible(False)
+        self.bar.setFixedWidth(160)
+        row.addWidget(self.label)
+        row.addWidget(self.bar)
+        self.setVisible(False)
+
+    def show_progress(self, progress: dict[str, Any] | None) -> None:
+        self.setVisible(progress is not None)
+        if progress is None:
+            return
+        self.label.setText(f"{progress['text']}:")
+        self.bar.setRange(0, max(int(progress["total"]), 1))
+        self.bar.setValue(int(progress["done"]))
 
 
 class _ActionList(QListWidget):

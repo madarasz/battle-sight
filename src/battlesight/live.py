@@ -17,11 +17,14 @@ from __future__ import annotations
 
 import math
 import sys
+import threading
 import time
+import traceback
+from contextlib import contextmanager
 from dataclasses import dataclass, replace
 from functools import partial
 from pathlib import Path
-from typing import Any, Callable, Sequence
+from typing import Any, Callable, Iterator, Sequence
 
 import cv2
 import numpy as np
@@ -247,10 +250,15 @@ def shown_view(state: dict) -> str:
     return "minimap" if state["minimap"] else state["mode"]
 
 
+def _can_name(state: dict) -> bool:
+    """The actions that name operatives need the identification model."""
+    return not state["busy"] and state["model_ready"]
+
+
 def _can_add(state: dict) -> bool:
     """A missed base can be added at any time: without a snapshot, the
-    action takes one with no bases."""
-    return not state["busy"] and not state["adding"]
+    action takes one with no bases. Its name needs the identification model."""
+    return _can_name(state) and not state["adding"]
 
 
 def _can_locate_light(state: dict) -> bool:
@@ -284,8 +292,18 @@ class Action:
     radio: bool = False  # one of a set of radio buttons: `checked` is true for one of the set
 
 
+# One text for each long action: the front end shows it with the progress bar (state key `progress`).
+TASK_TEXT = {
+    "snapshot.name": "Identifying operatives",
+    "snapshot.bases": "Finding bases",
+    "base.add": "Locating operative",
+    "light.locate": "Identifying terrain",
+    "light.locate_at": "Locating terrain",
+}
+PRELOAD_TEXT = "Loading models"
+
 ACTIONS: tuple[Action, ...] = (
-    Action("snapshot.name", "Identify all operatives", "space", enabled=lambda s: not s["busy"]),
+    Action("snapshot.name", "Identify all operatives", "space", enabled=_can_name),
     Action("snapshot.bases", "Find bases only", "b", enabled=lambda s: not s["busy"], control=False),
     Action("snapshot.back", "Go back to Live", "Esc", control=False),
     Action("view.top_down", "Adjust perspective", "v", checked=lambda s: s["top_down"]),
@@ -465,6 +483,10 @@ class LiveSession:
         self.busy = False
         self.camera_up = True
         self.on_busy: Callable[[LiveFrame], None] | None = None  # called before a long action
+        self.on_progress: Callable[[dict[str, Any]], None] | None = None  # called at each step of a long action, with the `progress` state
+        self._task_progress: dict[str, Any] | None = None  # the long action that runs (`_task`): text, done, total
+        self._preload: dict[str, Any] | None = None  # progress of `start_preload` while it runs: done, total, error
+        self._preload_thread: threading.Thread | None = None
 
         self.frame: np.ndarray | None = None
         self.obs: dict = {}
@@ -553,10 +575,90 @@ class LiveSession:
             "view.layout": self._set_ui_layout,
         }
 
+    # --- model preload ----------------------------------------------------------
+
+    def start_preload(self) -> None:
+        """Load the identification model on a thread of its own, so that the
+        first "Identify all operatives" does not wait for it. The state key
+        `progress` shows the load steps. The actions that need the model are
+        off until the end (`model_ready`). A model that is loaded already
+        (also "color-hist") starts no thread."""
+        params = idt.IdentParams.from_config(self.cfg)
+        embedder = idt.make_embedder(params.model)
+        if embedder.loaded or self._preload_thread is not None:
+            return
+        self._preload = {"done": 0, "total": 1, "error": None}
+
+        def progress(done: int, total: int, _text: str) -> None:
+            self._preload = {"done": done, "total": total, "error": None}  # one assignment: the worker thread reads it
+
+        def run() -> None:
+            started = time.perf_counter()
+            try:
+                embedder.load(params.input_px, progress)
+            except Exception as exc:  # the first identification tries again
+                traceback.print_exc()
+                self._preload = {"done": 0, "total": 1, "error": str(exc)}
+                return
+            print(f"model {params.model} loaded in {time.perf_counter() - started:.1f} s")
+            self._preload = None
+
+        self._preload_thread = threading.Thread(target=run, name="model-preload", daemon=True)
+        self._preload_thread.start()
+
+    def _model_ready(self) -> bool:
+        preload = self._preload
+        return preload is None or preload["error"] is not None
+
+    def _progress_state(self) -> dict[str, Any] | None:
+        """The long action that runs (`_task`), else the model load while it
+        runs: one text for the whole task, steps done and all steps."""
+        if self._task_progress is not None:
+            return dict(self._task_progress)
+        preload = self._preload
+        if preload is None or preload["error"] is not None:
+            return None
+        return {"text": PRELOAD_TEXT, "done": preload["done"], "total": preload["total"]}
+
+    @contextmanager
+    def _task(self, text: str) -> Iterator[Callable[[int, int], None]]:
+        """A long action: `busy` while it runs, and `progress` with `text`.
+        The front end gets a frame at the start (`on_busy`) and the progress
+        at each step (`on_progress`). Yields `step(done, total)`."""
+        self.busy = True
+        self._task_progress = {"text": text, "done": 0, "total": 1}
+
+        def step(done: int, total: int) -> None:
+            self._task_progress = {"text": text, "done": min(done, total), "total": max(total, 1)}
+            if self.on_progress is not None:
+                self.on_progress(dict(self._task_progress))
+
+        try:
+            if self.on_busy is not None:
+                self.on_busy(self.current())
+            yield step
+        finally:
+            self.busy = False
+            self._task_progress = None
+
+    def _check_preload(self) -> None:
+        """A failed preload becomes a notice once (on the thread of the session)."""
+        preload = self._preload
+        if preload is not None and preload["error"] is not None:
+            self._preload = None
+            self.notice.error(f"model not loaded: {preload['error']}")
+
+    def _need_model(self) -> bool:
+        if self._model_ready():
+            return True
+        self.notice.say("the identification model is loading: wait for the end")
+        return False
+
     # --- frames -----------------------------------------------------------------
 
     def step(self, frame: np.ndarray | None) -> LiveFrame:
         """Process one camera frame. None = the camera is down."""
+        self._check_preload()
         self.camera_up = frame is not None
         if frame is None:
             self.meter.reset()
@@ -1097,6 +1199,8 @@ class LiveSession:
         return {
             "mode": "snapshot" if self.frozen else "live",
             "busy": self.busy,
+            "model_ready": self._model_ready(),
+            "progress": self._progress_state(),
             "top_down": self.win.top_down if self.frozen else self.top_down,
             "grid": self.grid,
             "terrain": self.terrain,
@@ -1648,24 +1752,25 @@ class LiveSession:
         self.pipe.set_gallery(self.gallery)
 
     def _snapshot(self, name: bool) -> None:
+        if name and not self._need_model():
+            return
         if not self._need_frame():
             return
-        self.busy = True
-        try:
-            if self.on_busy is not None:
-                self.on_busy(self.current())
-            self._run_snapshot(self.frame, name)
-        finally:
-            self.busy = False
+        with self._task(TASK_TEXT["snapshot.name" if name else "snapshot.bases"]) as step:
+            self._run_snapshot(self.frame, name, step)
 
-    def _run_snapshot(self, frame: np.ndarray, name: bool) -> None:
-        if name and not self.gallery_tried:
+    def _run_snapshot(self, frame: np.ndarray, name: bool, step: Callable[[int, int], None] = lambda _d, _t: None) -> None:
+        """Steps: the gallery load (the first time), each stage, the name session."""
+        load = name and not self.gallery_tried
+        before, after = int(load), int(name)
+        if load:
+            step(0, before + len(self.pipe.names) + after)
             self._load_gallery()
         self._close_snapshot()
         self.win.top_down = True  # a snapshot opens top-down, the v key changes it
         self.snap = frame.copy()
         self.frozen = True
-        self.result = result = self.pipe.analyze(self.snap, source="camera", until=None if name else "bases")
+        self.result = result = self.pipe.analyze(self.snap, source="camera", until=None if name else "bases", progress=lambda done, total: step(before + done, before + total + after))
         print(result.summary())
         gallery = self.gallery
         if name and gallery is not None and result.ok:
@@ -1683,6 +1788,8 @@ class LiveSession:
             self.notice.error("no base found")
         elif name and gallery is not None and result.stages["ident"].message.startswith("gallery has no photos"):
             self.notice.error(result.stages["ident"].message)
+        total = before + len(result.stages) + after
+        step(total, total)
         self.dirty = True
 
     @staticmethod
@@ -1866,9 +1973,24 @@ class LiveSession:
         if todo and image is None:
             self.notice.error("no board in the image: the terrain cannot be identified")
             return
+        with self._task(TASK_TEXT["light.locate"]) as step:
+            missed = self._search_layout_light(todo, image, step)
+        if todo:
+            self._build_shapes()
+        located = sum(1 for k, item in enumerate(self.terrain_map.light) if k in self.light_poses)
+        text = f"light terrain: {located} of {len(self.terrain_map.light)} identified"
+        if missed:
+            text += f"; not found: {', '.join(missed)}"
+        if no_file:
+            text += f"; no outline file: {', '.join(no_file)}"
+        (self.notice.say if missed or no_file else self.notice.ok)(text)
+
+    def _search_layout_light(self, todo: list[int], image: np.ndarray | None, step: Callable[[int, int], None]) -> list[str]:
+        """Search the light items `todo` of the layout (one step each). Returns the keys that were not found."""
         scale = self.cfg.bases_px_per_mm
         missed = []
-        for k in todo:
+        for n, k in enumerate(todo):
+            step(n, len(todo))
             item = self.terrain_map.light[k]
             pose = lightfit.locate(
                 image,
@@ -1885,15 +2007,8 @@ class LiveSession:
             else:
                 missed.append(item.key)
             print(f"  light terrain {item.key}: {'found' if pose.confirmed else 'not found'}, score {pose.score:.2f}, at ({pose.center_mm[0]:.0f}, {pose.center_mm[1]:.0f}) mm, {pose.angle_deg:.0f} deg")
-        if todo:
-            self._build_shapes()
-        located = sum(1 for k, item in enumerate(self.terrain_map.light) if k in self.light_poses)
-        text = f"light terrain: {located} of {len(self.terrain_map.light)} identified"
-        if missed:
-            text += f"; not found: {', '.join(missed)}"
-        if no_file:
-            text += f"; no outline file: {', '.join(no_file)}"
-        (self.notice.say if missed or no_file else self.notice.ok)(text)
+        step(len(todo), len(todo))
+        return missed
 
     def _remove_light(self) -> None:
         """"Remove ID": the selected piece goes back to the card symbol."""
@@ -1965,7 +2080,8 @@ class LiveSession:
         if any(cv2.pointPolygonTest(s.points.astype(np.float32).reshape(-1, 1, 2), at, False) >= 0 for s in self.terrain_shapes if s.kind == "light" and s.located):
             print("locate terrain: the piece there is identified already")
             return None
-        res = lightfit.locate_at(image, self.cfg.bases_px_per_mm, (-BASES_MARGIN_MM, -BASES_MARGIN_MM), {k: p.outline for k, p in self.pieces.items()}, at, self.cfg.light_min_score, self.cfg.light_min_margin)
+        with self._task(TASK_TEXT["light.locate_at"]) as step:
+            res = lightfit.locate_at(image, self.cfg.bases_px_per_mm, (-BASES_MARGIN_MM, -BASES_MARGIN_MM), {k: p.outline for k, p in self.pieces.items()}, at, self.cfg.light_min_score, self.cfg.light_min_margin, progress=step)
         print("  locate terrain: " + ", ".join(f"{k} {v:.2f}{' found' if k in res.found else ''}" for k, v in res.scores.items()))
         if not res.found:
             print(f"locate terrain: no piece found at ({at[0]:.0f}, {at[1]:.0f}) mm")
@@ -2357,7 +2473,7 @@ class LiveSession:
     def _start_adding(self) -> None:
         """"Locate operative": the next click is the centre of a base that the
         detector missed. `Esc` stops it."""
-        if self.adding:
+        if self.adding or not self._need_model():
             return
         self.locating_light = False
         if not self.frozen and self.session is None and not self._need_frame():
@@ -2417,16 +2533,20 @@ class LiveSession:
             self.adding = False
             return
         found = self._found()
-        circle = find_base_near(img, self.cfg, at, gallery.base_sizes(), [(c.center_mm, c.diameter_mm) for c in found])
+        with self._task(TASK_TEXT["base.add"]) as step:
+            circle = find_base_near(img, self.cfg, at, gallery.base_sizes(), [(c.center_mm, c.diameter_mm) for c in found])
+            step(1, 2)
+            if circle is not None:
+                crop = base_crops(img, [circle], self.cfg)[0]
+                ref = self.pipe.cache.get("bases_reference")
+                background = None if ref is None else base_crops(ref, [circle], self.cfg)[0]
+                ident = idt.identify([crop], [circle.diameter_mm], gallery, [] if background is None else [background], [circle.center_mm])[0] if len(gallery) else None
+                step(2, 2)
         if circle is None:
             self.notice.error("no base found there: click the centre of the base")  # self.adding stays on, the user clicks again
             return
         self.adding = False
-        crop = base_crops(img, [circle], self.cfg)[0]
-        ref = self.pipe.cache.get("bases_reference")
-        background = None if ref is None else base_crops(ref, [circle], self.cfg)[0]
-        if len(gallery):
-            ident = idt.identify([crop], [circle.diameter_mm], gallery, [] if background is None else [background], [circle.center_mm])[0]
+        if ident is not None:
             op = self._type_op(ident.label)
             if op is not None and op.max > 1:  # a copy that has no base, else the user decides
                 held = {x.label for x in s.idents}

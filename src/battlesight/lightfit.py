@@ -31,7 +31,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
-from typing import Sequence
+from typing import Callable, Sequence
 
 import cv2
 import numpy as np
@@ -235,18 +235,22 @@ def locate_at(
     at_mm: Sequence[float],
     min_score: float,
     min_margin: float,
+    progress: Callable[[int, int], None] | None = None,
 ) -> ClickResult:
     """"Locate terrain": search each outline (piece key -> outline) at
     poses that hold the clicked board point `at_mm`, in a square of twice
     the outline radius each side of it. The best confirmed piece wins when
-    its score is `min_margin` above the next confirmed piece."""
+    its score is `min_margin` above the next confirmed piece.
+    `progress(done, total)` is called after each outline."""
     at = (float(at_mm[0]), float(at_mm[1]))
     poses, scores = {}, {}
-    for key, outline in sorted(outlines.items()):
+    for k, (key, outline) in enumerate(sorted(outlines.items())):
         reach = 2.0 * float(np.linalg.norm(outline, axis=1).max())  # the point is in the outline: its origin is at most the radius away
         rect = (at[0] - reach, at[1] - reach, at[0] + reach, at[1] + reach)
         poses[key] = locate(image, px_per_mm, origin_mm, outline, rect, at, 0.0, min_score=min_score, hold_mm=at)
         scores[key] = poses[key].score
+        if progress is not None:
+            progress(k + 1, len(outlines))
     found = tuple(sorted((k for k, p in poses.items() if p.confirmed), key=lambda k: -scores[k]))
     if not found or (len(found) > 1 and scores[found[0]] - scores[found[1]] < min_margin):
         return ClickResult(None, None, scores, found)
