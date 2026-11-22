@@ -392,7 +392,7 @@ Status on 2026-11-08: all steps of section 12 are in the work tree. They are not
 | `VideoWidget` | `ui/parts.py` | `set_image`, `clicked(x, y, global_pos)`, `width_changed(px)`. |
 | `ImageSource` | `camera.py` | One image file as a camera (`--image-source`). |
 
-Actions that section 3 does not list: `view.terrain`, `view.zones`, `view.keys`, `map.terrain_type(name)`, `map.layout(name)` (no keys), `base.deselect` (no key), `board.click(x, y)` (left click), `board.select(x, y)` (right click: replaces the selection), `base.choose(label, index=None)`, `ring.1` to `ring.9`, `ring.clear`.
+Actions that section 3 does not list: `view.terrain`, `view.zones`, `view.keys`, `map.terrain_type(name)`, `map.layout(name)` (no keys), `base.deselect` (no key), `board.click(x, y)` (left click), `board.select(x, y)` (right click: replaces the selection), `base.choose(label, index=None)`, `ring.1` to `ring.12` (keys for 1 to 9 only; `MAX_RING_IN` in `live.py`), `ring.clear`.
 
 The live view (`LiveSession.top_down`) and the snapshot (`BoardWindow.top_down`) have separate views. A snapshot always opens top-down. `v` keeps the selected base, the ring and the distance, because they are in board mm. The old `_Live`, `_Notice`, `_BoardWindow`, `overlay.Menu` and `HELP_KEYS` no longer exist.
 

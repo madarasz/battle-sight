@@ -24,7 +24,7 @@ Modules: `walls.py`, `moves.py`, `shoot.py` (pure geometry in board mm), their h
 
 ## shoot.py
 
-- "Shoot at", action `measure.shoot`, no key, enabled with a selected base; `Esc` or a new selection stops it. `docs/specs/measure-and-move.md` section 10.
+- "Shoot at", action `measure.shoot`, no key, enabled with a selected base; It pauses the ring, the second base and the movement (`_paused_measure`, not saved). `Esc` or the action again stops it and brings them back. A new ring, second base, movement, or selection stops it and the paused measurement is lost. `docs/specs/measure-and-move.md` section 10.
 - `tangent_points`, `facing_outline` (pointer + facing rim, for `overlay.draw_targeting_mm`).
 - `aim` -> `Shot`: `pieces` = intervening heavy rectangles from `walls.obstacles`, `obscured` = a part in the lines outside the 1 in zones of both target and shooter (shooter base, else the pointer), `in_cover` = a part in the 1 in zone of the target.
 - `aim(light=[outlines])`: light terrain gives cover the same way and never obscures (`Shot.light` = indexes of the covering outlines, `cover_by`); no cover while the target is within 2 in of the shooter (`NO_COVER_MM`, `Shot.too_near`; also for heavy terrain).

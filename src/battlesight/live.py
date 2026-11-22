@@ -46,6 +46,7 @@ from .overlay import draw_base_discs, draw_bases, draw_board_corners, draw_circl
 from .pipeline import BASES_MARGIN_MM, Pipeline, base_crops, bases_config, bases_image, find_base_near
 from .rectify import fit_view, mm_to_rect, rect_transform, warp_board
 
+MAX_RING_IN = 12  # longest ring and measured distance, in inches
 SNAPSHOT_DIR = Path(__file__).resolve().parents[2] / "data" / "snapshots"
 DEFAULT_REFERENCE = SNAPSHOT_DIR / "empty_board.png"
 SAVES_DIR = Path(__file__).resolve().parents[2] / "data" / "saves"  # saved game states; the auto-save folders are here too
@@ -336,7 +337,7 @@ ACTIONS: tuple[Action, ...] = (
     Action("base.deselect", "Clear selection", enabled=_has_any_selection),
     Action("base.remove", "Remove ID", enabled=_has_selection),
     Action("base.add", "Locate operative", enabled=_can_add),
-    *(Action(f"ring.{n}", f"Ring {n} in", str(n), enabled=_has_selection, checked=partial(lambda n, s: s["ring_in"] == n, n)) for n in range(1, 10)),
+    *(Action(f"ring.{n}", f"Ring {n} in", str(n) if n < 10 else None, enabled=_has_selection, checked=partial(lambda n, s: s["ring_in"] == n, n)) for n in range(1, MAX_RING_IN + 1)),
     Action("ring.clear", "Clear ring", "0", enabled=lambda s: s["ring_in"] is not None),
     Action("wounds.minus", "Wound -1", "-", enabled=_has_wounds),
     Action("wounds.plus", "Wound +1", "+", enabled=_has_wounds),
@@ -507,6 +508,7 @@ class LiveSession:
         self.selected_operative: str | None = None  # label chosen in a team list that has no base in the snapshot
         self.target: int | None = None  # index of the second base of a distance
         self.ring_in: int | None = None  # ring on the selected base, in inches
+        self._paused_measure: tuple[int | None, int | None, bool] | None = None  # (ring_in, target, movement) while "Shoot at" is on
         self.adding = False  # "Locate operative": the next click on the board is the centre of a missed base
         self.new_base: int | None = None  # base that "Locate operative" made and the user did not name yet
         self.right_click: str | None = None  # what the last right click did: "name" (select for names) or "measure"
@@ -554,7 +556,7 @@ class LiveSession:
             "base.deselect": self._deselect,
             "base.remove": self._remove_base,
             "base.add": self._start_adding,
-            **{f"ring.{n}": partial(self._set_ring, n) for n in range(1, 10)},
+            **{f"ring.{n}": partial(self._set_ring, n) for n in range(1, MAX_RING_IN + 1)},
             "ring.clear": partial(self._set_ring, None),
             "wounds.minus": partial(self._add_wounds, -1),
             "wounds.plus": partial(self._add_wounds, 1),
@@ -987,6 +989,7 @@ class LiveSession:
         return None if route is None else {"in": int(route[0]), "increments": [int(c) for c in route[2]]}
 
     def _toggle_movement(self) -> None:
+        self._stop_shooting(restore=False)  # a new measurement replaces the paused one
         self.movement = not self.movement
         self.dirty = True
 
@@ -1006,8 +1009,22 @@ class LiveSession:
         if not self.shooting and self.selected is None:
             self.notice.say("click a base first")
             return
-        self.shooting = not self.shooting
+        if self.shooting:
+            self._stop_shooting(restore=True)
+        else:
+            # the measurement (ring, second base, movement) waits until "Shoot at" stops
+            self._paused_measure = (self.ring_in, self.target, self.movement)
+            self.ring_in = self.target = None
+            self.movement = False
+            self.shooting = True
         self.dirty = True
+
+    def _stop_shooting(self, restore: bool) -> None:
+        """Stop "Shoot at". `restore`: bring back the measurement that it paused."""
+        paused, self._paused_measure = self._paused_measure, None
+        self.shooting = False
+        if restore and paused is not None:
+            self.ring_in, self.target, self.movement = paused
 
     def _shooter_index(self, found: list) -> int | None:
         """The base under the pointer when it is not the selected base and
@@ -1736,7 +1753,8 @@ class LiveSession:
     def _close_snapshot(self) -> None:
         self.result = self.snap = self.session = self.shown = None
         self.selected = self.target = self.ring_in = self.selected_opening = self.new_base = None
-        self.adding = self.shooting = self.locating_light = False
+        self.adding = self.locating_light = False
+        self._stop_shooting(restore=False)
         self.frozen = False
 
     def _load_gallery(self) -> None:
@@ -1809,7 +1827,7 @@ class LiveSession:
         one thing is selected: a base or an opening."""
         self.selected = index
         self.target = self.ring_in = self.selected_opening = self.selected_operative = self.selected_light = None
-        self.shooting = False
+        self._stop_shooting(restore=False)
         if index != self.new_base:
             self.new_base = None
         self.dirty = True
@@ -2321,6 +2339,7 @@ class LiveSession:
             self._select_opening(self._opening_under(x, y))
             return
         if self.selected is not None and index != self.selected:
+            self._stop_shooting(restore=False)
             self.target = None if index == self.target else index
             self.right_click = "measure"
             self.dirty = True
@@ -2337,6 +2356,7 @@ class LiveSession:
         if self.selected is None:
             self.notice.say("click a base first")
             return
+        self._stop_shooting(restore=False)
         self.ring_in = inches
         self.dirty = True
 

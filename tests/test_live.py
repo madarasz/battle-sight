@@ -2505,3 +2505,35 @@ def test_identify_and_locate_terrain_report_progress(tmp_path):
     locate_at(session, frame, PIECE_AT)  # one step per piece file
     assert seen == [("Locating terrain", 0, 1), ("Locating terrain", 1, 1)]
     assert session.state()["progress"] is None and not session.state()["busy"]
+
+
+def test_shoot_at_pauses_the_measurement_and_cancel_brings_it_back(tmp_path):
+    session, frame, state, nob, burna = wall_session(tmp_path)
+    click_base(session, state, nob)
+    session.dispatch("ring.6")
+    session.dispatch("measure.move")
+    session.dispatch("measure.shoot")
+    s = session.state()
+    assert s["shooting"] is True and s["movement"] is False and s["ring_in"] is None and s["target"] is None
+    session.dispatch("snapshot.back")  # cancel: the measurement returns
+    s = session.state()
+    assert s["shooting"] is False and s["movement"] is True and s["ring_in"] == 6 and s["selected"] == nob
+    session.dispatch("measure.shoot")
+    session.dispatch("measure.shoot")  # the toggle cancels too
+    assert session.state()["ring_in"] == 6
+    session.dispatch("measure.shoot")
+    session.dispatch("ring.3")  # a new measurement replaces the paused one
+    s = session.state()
+    assert s["shooting"] is False and s["ring_in"] == 3
+    session.dispatch("measure.shoot")
+    session.dispatch("measure.move")  # movement on: shooting off, nothing restored
+    s = session.state()
+    assert s["shooting"] is False and s["movement"] is True and s["ring_in"] is None
+
+
+def test_ring_goes_up_to_12_in(tmp_path):
+    session, frame, state, nob, burna = wall_session(tmp_path)
+    click_base(session, state, nob)
+    session.dispatch("ring.12")
+    assert session.state()["ring_in"] == 12
+    assert "ring.13" not in ACTIONS_BY_ID

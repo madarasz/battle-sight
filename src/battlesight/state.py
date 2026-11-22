@@ -85,6 +85,7 @@ NOT_SAVED: dict[str, str] = {
     "autosave_path": "the auto-save folder of this run",
     "autosave_enabled": "option of this run",
     "_save_cache": "what the auto-save wrote already",
+    "_paused_measure": "ring, second base and movement that \"Shoot at\" paused; not saved with the game",
     "_save_problem": "last auto-save error text",
     "detector": "camera tracking of this run",
     "monitor": "camera tracking of this run",

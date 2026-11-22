@@ -26,7 +26,7 @@ from ..colors import (
     VIDEO_BACK_COLOR,
     qt_hex,
 )
-from ..live import ACTIONS, Action
+from ..live import ACTIONS, MAX_RING_IN, Action
 from ..score import CATEGORIES, CATEGORY_NAMES, KILL_GRADE_MAX, PRIMARIES, SKULLS_PER_TP, TURNING_POINTS
 
 ACTION_GROUPS = {"wounds": "Game", "score": "Game", "operative": "Snapshot", "opening": "Game", "light": "Snapshot", "team": "View", "map": "View", "snapshot": "Snapshot", "base": "Snapshot", "names": "Snapshot", "frame": "Snapshot", "ring": "Measure", "measure": "Measure", "view": "View", "reference": "Reference", "state": "Reference", "app": "Help"}
@@ -64,7 +64,7 @@ def ring_controls(dispatch: Callable[[str], Any]) -> tuple[QWidget, list[tuple[A
     controls = []
     for k, action in enumerate(a for a in ACTIONS if a.id.startswith("ring.")):
         control = action_control(action, dispatch)
-        control.setText(action.key if action.checked is not None else "Clear")
+        control.setText(action.id.split(".")[1] if action.checked is not None else "Clear")
         grid.addWidget(control, k // RING_COLUMNS, k % RING_COLUMNS)
         controls.append((action, control))
     return box, controls
@@ -369,7 +369,7 @@ class VideoWidget(QWidget):
 
 
 class RingSlider(QWidget):
-    """A slider from 0 (no ring) to 9 inches for the selected base. A move of
+    """A slider from 0 (no ring) to 12 inches for the selected base. A move of
     the user sends `ring.N` or `ring.clear`; the state moves it back."""
 
     def __init__(self, dispatch: Callable[..., Any], parent: QWidget | None = None):
@@ -379,12 +379,12 @@ class RingSlider(QWidget):
         row.setContentsMargins(0, 0, 0, 0)
         row.addWidget(QLabel("Distance"))
         self.slider = QSlider(Qt.Orientation.Horizontal)
-        self.slider.setRange(0, 9)
+        self.slider.setRange(0, MAX_RING_IN)
         self.slider.setPageStep(1)
         self.slider.setTickPosition(QSlider.TickPosition.TicksBelow)
         self.slider.setTickInterval(1)
         self.slider.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        self.slider.setToolTip("Ring around the base. Keys: 1 to 9, 0 removes it")
+        self.slider.setToolTip("Ring around the base. Keys: 1 to 9, 0 removes it. Up to 12 with the slider or the buttons")
         row.addWidget(self.slider, 1)
         self.value = QLabel()
         self.value.setMinimumWidth(32)
