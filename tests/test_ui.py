@@ -13,8 +13,8 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 import cv2  # noqa: E402
 import numpy as np  # noqa: E402
 import pytest  # noqa: E402
-from PySide6.QtCore import QEvent, QPointF, Qt, QTimer  # noqa: E402
-from PySide6.QtGui import QMouseEvent  # noqa: E402
+from PySide6.QtCore import QEvent, QPoint, QPointF, Qt, QTimer  # noqa: E402
+from PySide6.QtGui import QMouseEvent, QWheelEvent  # noqa: E402
 from PySide6.QtWidgets import QAbstractButton, QAbstractItemView, QApplication, QGroupBox, QRadioButton  # noqa: E402
 
 import battlesight.app as app  # noqa: E402
@@ -181,6 +181,68 @@ def test_help_text_lists_each_key():
 
 
 # --- video widget -------------------------------------------------------------------
+
+
+def wheel(video: VideoWidget, pos: QPointF, notches: float) -> None:
+    video.wheelEvent(QWheelEvent(pos, QPointF(video.mapToGlobal(pos.toPoint())), QPoint(0, 0), QPoint(0, int(120 * notches)), Qt.MouseButton.NoButton, Qt.KeyboardModifier.NoModifier, Qt.ScrollPhase.NoScrollPhase, False))
+
+
+def test_video_widget_zoom_and_pan(qapp):
+    video = VideoWidget(zoomable=True)
+    video.resize(400, 400)
+    video.set_image(np.zeros((100, 200, 3), np.uint8))
+    views, left = [], []
+    video.view_changed.connect(views.append)
+    video.clicked.connect(lambda x, y, pos: left.append((x, y)))
+    assert video.zoom == 1.0 and video._level.isHidden() and not video._out.isEnabled()  # no percentage at 100%
+    point = QPointF(300, 200)
+    before = video.to_image(point)
+    wheel(video, point, 2)
+    assert video.zoom == pytest.approx(1.25**2) and not video._level.isHidden() and video._level.text() == "156%"
+    assert video.to_image(point) == pytest.approx(before)  # the point under the pointer stays
+    view = views[-1]  # the core gets the visible region at the screen width
+    assert view.zoom == video.zoom and view.width == 400 and view.region[2] - view.region[0] == pytest.approx(1 / video.zoom)
+    wheel(video, point, 50)
+    assert video.zoom == 8.0 and not video._in.isEnabled()
+    rect = video.image_rect()
+    assert rect.left() <= 0 and rect.right() >= 400 and rect.top() <= 0 and rect.bottom() >= 400  # no gap at an edge
+    # the middle button drags, and a left click still clicks
+    start = video.to_image(QPointF(200, 200))
+    pos = QPointF(200, 200)
+    global_pos = QPointF(video.mapToGlobal(pos.toPoint()))
+    middle = Qt.MouseButton.MiddleButton
+    video.mousePressEvent(QMouseEvent(QEvent.Type.MouseButtonPress, pos, global_pos, middle, middle, Qt.KeyboardModifier.NoModifier))
+    video.mouseMoveEvent(QMouseEvent(QEvent.Type.MouseMove, pos + QPointF(40, 0), global_pos, Qt.MouseButton.NoButton, middle, Qt.KeyboardModifier.NoModifier))
+    video.mouseReleaseEvent(QMouseEvent(QEvent.Type.MouseButtonRelease, pos + QPointF(40, 0), global_pos, middle, Qt.MouseButton.NoButton, Qt.KeyboardModifier.NoModifier))
+    assert video.to_image(QPointF(200, 200))[0] < start[0] and left == []
+    mouse_click(video, QPointF(200, 200))
+    assert len(left) == 1
+    video._out.click()
+    assert video.zoom == pytest.approx(8 / 1.5)
+    video._level.click()
+    assert video.zoom == 1.0 and video.image_rect().width() == 400 and views[-1] is None
+
+
+def test_video_widget_shows_a_region_and_clicks_in_whole_image_pixels(qapp):
+    video = VideoWidget(zoomable=True)
+    video.resize(480, 240)  # not below the minimum size
+    video.set_image(np.zeros((100, 200, 3), np.uint8))  # the whole image at 100%
+    video.zoom_by(2.0)
+    region = video.zoom_view().region
+    assert region == pytest.approx((0.25, 0.25, 0.75, 0.75))
+    part = np.zeros((240, 480, 3), np.uint8)  # the core sends the middle part, drawn at the screen scale
+    video.set_image(part, ((200.0, 100.0), (50.0, 25.0, 100.0, 50.0)))
+    assert video._image.width() == 480 and video.image_rect().width() == 960  # the whole image stays the reference
+    left = []
+    video.clicked.connect(lambda x, y, pos: left.append((x, y)))
+    mouse_click(video, QPointF(240, 120))  # the middle of the widget
+    assert left == [pytest.approx((100, 50))]  # pixels of the whole image at 100%, as without zoom
+    video.grab()  # paints the backdrop and the region
+    crop = VideoWidget()  # a crop has no zoom
+    crop.resize(400, 400)
+    crop.set_image(np.zeros((100, 200, 3), np.uint8))
+    wheel(crop, QPointF(200, 200), 3)
+    assert crop.zoom == 1.0 and crop._bar is None
 
 
 def test_video_widget_maps_clicks_with_letterbox(qapp):
@@ -616,6 +678,18 @@ def test_the_window_tells_its_layout_to_the_session(qapp, tmp_path, recorded):
     win = MainWindow(session, FakeCamera(frame))
     assert session.ui_layout == DEFAULT_LAYOUT
     win.close()
+
+
+def test_zoomed_window_gets_a_sharp_region_and_clicks_still_select(window):
+    state = open_names(window)
+    video = window.video
+    video.zoom_by(3.0, widget_pos(window, state["bases"][1]["position_px"]))
+    wait_until(lambda: window.worker.session.image_region is not None and video._region[2] < video._whole[0] * 0.5)
+    assert video._image.width() > video._region[2]  # the region has more pixels than at 100%: drawn at the screen scale
+    mouse_click(video, widget_pos(window, state["bases"][1]["position_px"]))
+    wait_until(lambda: window.state["selected"] == 1)
+    video.reset_zoom()
+    wait_until(lambda: window.worker.session.image_region is None and video._region[2] == video._whole[0])
 
 
 def test_layout_change_keeps_worker_snapshot_and_selection(window, monkeypatch):
@@ -1327,7 +1401,6 @@ def test_total_text_and_team_color():
 
     assert total_text({"total": 15, "primary_bonus": 3}) == "15 VP"
     assert team_color(0) == qt_hex(TEAM_1_COLOR) and team_color(1) == qt_hex(TEAM_2_COLOR)  # the overlay colours of the teams
-    assert qt_hex((60, 60, 230)) == "#e63c3c"  # BGR -> #rrggbb
 
 
 def test_rosters_score_counter(qapp, tmp_path, named):

@@ -2537,3 +2537,44 @@ def test_ring_goes_up_to_12_in(tmp_path):
     session.dispatch("ring.12")
     assert session.state()["ring_in"] == 12
     assert "ring.13" not in ACTIONS_BY_ID
+
+
+# --- zoomed view ------------------------------------------------------------------
+
+
+def test_zoomed_view_renders_only_the_region_at_the_screen_scale(tmp_path, named):
+    cfg, frame = named
+    session = make_session(tmp_path, cfg, frame, teams=("orks",), display_width=500)
+    settled(session, frame)
+    session.dispatch("snapshot.name")
+    whole = session.step(frame)
+    assert whole.region is None
+    h, w = whole.image.shape[:2]
+    x, y = whole.state["bases"][1]["position_px"]
+    view = live_mod.ZoomView(4.0, (x / w - 0.125, y / h - 0.125, x / w + 0.125, y / h + 0.125), 500)
+    session.set_display_view(view)
+    zoomed = session.step(frame)
+    (ww, wh), (rx, ry, rw, rh) = zoomed.region
+    assert (ww, wh) == pytest.approx((w, h), abs=1) and zoomed.scale == whole.scale
+    assert zoomed.image.shape[1] == 500 and rw == pytest.approx(w / 4) and rx == pytest.approx(x - w / 8)
+    assert zoomed.state["bases"][1]["position_px"] == whole.state["bases"][1]["position_px"]  # clicks stay in window pixels
+    session.dispatch("board.click", x=x, y=y)
+    assert session.step(frame).state["selected"] == 1
+    # sharper than the 100% image made bigger: more detail in the same region
+    small = whole.image[int(ry) : int(ry + rh), int(rx) : int(rx + rw)]
+    assert cv2.Laplacian(zoomed.image, cv2.CV_64F).var() > cv2.Laplacian(cv2.resize(small, zoomed.image.shape[1::-1]), cv2.CV_64F).var()
+    session.dispatch("view.live")  # live top-down and camera view
+    assert session.step(frame).image.shape[1] == 500
+    session.dispatch("view.top_down")
+    camera = session.step(frame)
+    assert camera.image.shape[1] == 500 and camera.region[0] == pytest.approx((frame.shape[1] * camera.scale, frame.shape[0] * camera.scale))
+    session.set_display_view(None)
+    assert session.step(frame).region is None
+
+
+def test_style_scale_keeps_lines_the_same_size_on_the_screen():
+    img = np.zeros((100, 4000, 3), np.uint8)
+    assert overlay._scale(img) == pytest.approx(4000 / 1920)
+    with overlay.style_scale(0.7):
+        assert overlay._scale(img) == 0.7
+    assert overlay._scale(img) == pytest.approx(4000 / 1920)

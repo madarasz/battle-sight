@@ -48,7 +48,7 @@ from .calib import CharucoFinder, TagDetector, calibrate_lens
 from .camera import DEFAULT_CAMERA_FILE, Camera, CameraSettings, ImageSource, parse_source
 from .config import CORNER_NAMES, DEFAULT_CONFIG, BoardConfig
 from .live import DEFAULT_REFERENCE, DISPLAY_WIDTH, BoardTracker, BoardWindow, FpsMeter, LiveSession, Notice, failed_stage, load_gallery, load_reference
-from .colors import CHARUCO_CORNER_COLOR, ENROLL_CANDIDATE_COLOR, STATUS_ERROR_COLOR, STATUS_HINT_COLOR, STATUS_OK_COLOR
+from .colors import CHARUCO_CORNER_COLOR, ENROLL_CANDIDATE_COLOR, ENROLL_FOUND_COLOR, STATUS_ERROR_COLOR, STATUS_HINT_COLOR, STATUS_OK_COLOR
 from .overlay import draw_bases, draw_crosshair, draw_text_banner, fit_to_width
 from .pipeline import SCHEMA_VERSION, BasesSearch, Pipeline, base_crops, bases_image, find_base_near
 from .rectify import warp_board
@@ -314,7 +314,7 @@ def cmd_enroll(args: argparse.Namespace) -> int:
     cv2.namedWindow(window, cv2.WINDOW_NORMAL)
     win = BoardWindow(cfg, DISPLAY_WIDTH)
     # locate: the next click on the live view is the centre of the base (l key)
-    state = {"result": None, "snap": None, "added": [], "click": None, "test": None, "relaxed": False, "pointer": None, "top_down": win.top_down, "locate": False, "locate_at": None}
+    state = {"result": None, "snap": None, "added": [], "click": None, "test": None, "relaxed": False, "pointer": None, "top_down": win.top_down, "locate": False, "locate_at": None, "marked": None}
 
     def on_mouse(event, x, y, flags, _):
         if event == cv2.EVENT_MOUSEMOVE:
@@ -338,9 +338,9 @@ def cmd_enroll(args: argparse.Namespace) -> int:
     def add(i: int) -> None:
         r = state["result"]
         c = r.scratch["bases"][i]
-        add_crop(r.scratch["base_crops"][i], c.diameter_mm, _enroll_background(r, i))
+        add_crop(r.scratch["base_crops"][i], c.diameter_mm, _enroll_background(r, i), c)
 
-    def add_crop(crop, diameter_mm: float, background) -> None:
+    def add_crop(crop, diameter_mm: float, background, circle=None) -> None:
         nonlocal op
         try:
             path = gallery.add(label, crop, diameter_mm, background)
@@ -351,9 +351,10 @@ def cmd_enroll(args: argparse.Namespace) -> int:
         op = gallery.operatives[gallery.index(label)]
         state["added"].append(path)
         state["result"] = None
+        state["marked"] = circle  # green circle on the live view until the next grab
         state["test"] = None  # the gallery changed
         print(f"added {path}")
-        notice.ok(f"photo {gallery.counts()[label]} added. Turn and move {op.name}, then push space.")
+        notice.ok(f"photo #{gallery.counts()[label]} added. Turn and move {op.name}, then push space.")
 
     def leave_pick() -> bool:
         """Back to the live view from the base choice. False when no choice is open."""
@@ -384,7 +385,7 @@ def cmd_enroll(args: argparse.Namespace) -> int:
         ref = pipe.cache.get("bases_reference")
         background = None if ref is None else base_crops(ref, [circle], cfg)[0]
         print(f"located a {circle.diameter_mm:g} mm base at {np.round(circle.center_mm, 1).tolist()} mm")
-        add_crop(base_crops(img, [circle], cfg)[0], circle.diameter_mm, background)
+        add_crop(base_crops(img, [circle], cfg)[0], circle.diameter_mm, background, circle)
 
     def stop_locate() -> bool:
         """Esc while locate waits for a click. False when it does not wait."""
@@ -423,9 +424,10 @@ def cmd_enroll(args: argparse.Namespace) -> int:
         if key == ord("u"):
             if state["added"]:
                 path = state["added"].pop()
+                number = gallery.counts()[label]
                 gallery.remove(path)
                 state["test"] = None  # the gallery changed
-                notice.say(f"removed {path.name}: {gallery.counts()[label]} photos")
+                notice.say(f"removed photo #{number} ({path.name}): {gallery.counts()[label]} photos left")
             else:
                 notice.error("nothing to undo")
         if key == ord("e"):
@@ -443,6 +445,7 @@ def cmd_enroll(args: argparse.Namespace) -> int:
             state["test"] = (leave_one_out_text(right, total, misses) + (f". {advice[0].upper()}{advice[1:]}" if advice else ""), STATUS_OK_COLOR if total and not misses else STATUS_HINT_COLOR)
         if key == ord(" "):
             stop_locate()
+            state["marked"] = None
             snap = frame.copy()
             result = find(snap, False)
             state["relaxed"] = result.ok and not _enroll_candidates(result, op.base_mm)
@@ -483,6 +486,9 @@ def cmd_enroll(args: argparse.Namespace) -> int:
             draw_text_banner(img, ask, STATUS_HINT_COLOR, f"{video}, {gallery.counts()[label]} photos, Esc back")
         else:
             img = warp_board(frame, board.view, cfg) if win.top_down else frame.copy()
+            if state["marked"] is not None and board.view is not None:
+                to_px = win.to_px if win.top_down else (lambda pts: board.view.mm_to_px(np.asarray(pts, float).reshape(-1, 2)))
+                draw_bases(img, [state["marked"]], to_px, ENROLL_FOUND_COLOR)
             if state["locate"]:
                 draw_text_banner(img, f"locate {op.name}: click the centre of its base", STATUS_HINT_COLOR, f"{video}, {gallery.counts()[label]} photos, Esc stop")
             elif pipe.has_reference:

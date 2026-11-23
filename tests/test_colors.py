@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+import tomllib
 
 import pytest
 
@@ -15,13 +16,23 @@ def test_every_file_key_has_a_constant():
     assert names == {f"{k.upper()}_COLOR" for k in keys}
 
 
-def test_drawing_colors_are_bgr_and_window_colors_are_qt_strings(tmp_path):
-    path = tmp_path / "c.toml"  # a file of its own: the test must not depend on the values of data/color-settings.toml
-    path.write_text('[teams]\nteam_1 = "#e63c3c"\n[window]\nmessage_ok = "#2E9E4F"\nbadge_back = "#000000aa"\n')
-    loaded = colors.load(path)
-    assert loaded["team_1"] == (60, 60, 230)  # BGR
-    assert loaded["message_ok"] == "#2e9e4f"
-    assert loaded["badge_back"] == "#aa000000"  # "#000000aa" -> Qt #aarrggbb
+def file_colors() -> dict[str, tuple[str, str]]:
+    """Key -> (table, `#rrggbb[aa]` text) as written in data/color-settings.toml."""
+    data = tomllib.loads(colors.COLOR_FILE.read_text())
+    return {key: (table, text) for table, values in data.items() for key, text in values.items()}
+
+
+def test_each_constant_is_the_file_value_as_bgr_or_qt_string():
+    """The values come from the file: the test reads them, so that a colour
+    change in the file never makes it fail."""
+    for key, (table, text) in file_colors().items():
+        value = getattr(colors, f"{key.upper()}_COLOR")
+        r, g, b = (int(text[i : i + 2], 16) for i in (1, 3, 5))
+        if table == colors.QT_TABLE:  # Qt: #rrggbb, or #aarrggbb for #rrggbbaa
+            assert value == ("#" + text[7:9] + text[1:7] if len(text) == 9 else text).lower(), key
+        else:  # OpenCV: BGR, and `qt_hex` gives the file text back
+            assert value == (b, g, r), key
+            assert colors.qt_hex(value) == text.lower(), key
     assert colors.TEAM_COLORS == (colors.TEAM_1_COLOR, colors.TEAM_2_COLOR)
     for name in dir(colors):
         if name.endswith("_COLOR"):

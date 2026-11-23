@@ -111,14 +111,19 @@ def rect_transform(cfg: BoardConfig) -> tuple[np.ndarray, tuple[int, int]]:
     return A, size
 
 
-def warp_board(frame: np.ndarray, view: BoardView, cfg: BoardConfig) -> np.ndarray:
-    """Top-down image of the board at `rectify.px_per_mm`, lens distortion removed."""
+def warp_board(frame: np.ndarray, view: BoardView, cfg: BoardConfig, out: tuple[np.ndarray, tuple[int, int]] | None = None) -> np.ndarray:
+    """Top-down image of the board at `rectify.px_per_mm`, lens distortion removed.
+    `out` = (3x3 affine from rectified px to output px, output (width, height)):
+    a part of the top-down image at another scale, for example the zoomed view."""
     A, size = rect_transform(cfg)
+    if out is not None:
+        A, size = out[0] @ A, out[1]
     if not view.lens.has_distortion:
         return cv2.warpPerspective(frame, view.H @ np.linalg.inv(A), size, flags=cv2.INTER_LINEAR | cv2.WARP_INVERSE_MAP, borderValue=(0, 0, 0))
-    # One remap for distortion and homography together: rectified px -> mm -> image px.
+    # One remap for distortion and homography together: output px -> mm -> image px.
     xs, ys = np.meshgrid(np.arange(size[0], dtype=np.float64), np.arange(size[1], dtype=np.float64))
-    mm = (np.c_[xs.ravel(), ys.ravel()] - A[:2, 2]) / cfg.rectify_px_per_mm
+    inv = np.linalg.inv(A)  # affine: no division by w
+    mm = np.c_[xs.ravel(), ys.ravel()] @ inv[:2, :2].T + inv[:2, 2]
     px = view.mm_to_px(mm).reshape(size[1], size[0], 2).astype(np.float32)
     return cv2.remap(frame, px[..., 0], px[..., 1], cv2.INTER_LINEAR, borderValue=(0, 0, 0))
 

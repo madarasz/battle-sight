@@ -137,6 +137,7 @@ MAP_TEXT_COLOR = _get("map_text")
 
 # --- `enroll` and `calibrate` windows
 ENROLL_CANDIDATE_COLOR = _get("enroll_candidate")
+ENROLL_FOUND_COLOR = _get("enroll_found")
 CHARUCO_CORNER_COLOR = _get("charuco_corner")
 
 # --- developer tools

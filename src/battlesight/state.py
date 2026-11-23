@@ -136,6 +136,8 @@ NOT_SAVED: dict[str, str] = {
     "adding": "pending click",
     "right_click": "what the last right click did, for the front end",
     "shown": "rendered picture",
+    "image_region": "where the zoomed picture sits, drawn again",
+    "_xf": "transform of the render in progress",
     "dirty": "render flag",
     "_handlers": "action table",
 }

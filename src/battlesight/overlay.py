@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+from contextlib import contextmanager
+from contextvars import ContextVar
+
 import cv2
 import numpy as np
 
@@ -60,9 +63,30 @@ _STATUS_COLOR = {
 }
 
 
+_STYLE_SCALE: ContextVar[float | None] = ContextVar("style_scale", default=None)
+
+
+def frame_scale(width: float) -> float:
+    """Line and font scale of a frame `width` pixels wide, relative to 1080p."""
+    return max(0.6, width / 1920.0)
+
+
+@contextmanager
+def style_scale(scale: float):
+    """Draw lines and text at this scale in place of the scale from the frame
+    width. A zoomed view draws on a part of the image, and sets the size of
+    its lines and text on the screen (`live.ZOOM_STYLE_POWER`)."""
+    token = _STYLE_SCALE.set(scale)
+    try:
+        yield
+    finally:
+        _STYLE_SCALE.reset(token)
+
+
 def _scale(frame: np.ndarray) -> float:
     """Line and font scale relative to a 1080p frame."""
-    return max(0.6, frame.shape[1] / 1920.0)
+    forced = _STYLE_SCALE.get()
+    return frame_scale(frame.shape[1]) if forced is None else forced
 
 
 def draw_tags(frame: np.ndarray, obs: dict[int, TagObs], cfg: BoardConfig, report: DriftReport | None = None) -> None:

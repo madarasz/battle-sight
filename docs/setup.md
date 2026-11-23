@@ -358,7 +358,8 @@ game camera. Read [Good gallery photos](#good-gallery-photos) first.
    the wounds, start the command with the new value and push `q`.
 
 3. Push `space`. The app finds the base and keeps a photo of it. The banner
-   shows the number of photos. The video shows the board from the top, as in
+   shows the number of photos. A green circle shows the base that the app
+   found. It stays until the next photo. The video shows the board from the top, as in
    the main app. Your hand can cover one or two corner cards: the view does
    not change. Push `v` to see the camera view.
 4. Turn the model a little and move it to another place on the board. Push

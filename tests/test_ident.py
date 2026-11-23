@@ -1150,3 +1150,20 @@ def test_assign_copy_columns_margin_against_other_types():
     first = out[0]
     assert first.label == "t/Boy" and first.margin == pytest.approx(0.3) and first.sure  # not 0 against its own copy
     assert [lab for lab, _ in first.candidates] == ["t/Boy", "t/Nob"]  # each label once
+
+
+def test_enroll_marks_the_found_base_green_until_the_next_grab(tmp_path, monkeypatch):
+    import battlesight.app as app
+
+    cfg_file = cli_config(tmp_path)
+    cfg = BoardConfig.load(cfg_file)
+    frame, _ = render_board(cfg, px_per_mm=2.0, bases=(Base((300.0, 300.0), 40.0, model_deg=0.0, model_span_deg=225.0),))
+    s, m = cfg.rectify_px_per_mm, cfg.rectify_margin_mm
+    click = (int((300.0 + m) * s), int((300.0 + m) * s))
+    calls = []
+    real = app.draw_bases
+    monkeypatch.setattr(app, "draw_bases", lambda img, bases, to_px, color=None: (calls.append((len(bases), color)), real(img, bases, to_px, color) if color else None)[1])
+    enroll_loop(monkeypatch, app, frame, [ord(" "), -1, click, -1, -1, ord("q")])
+    code = main(["enroll", "--team", "orks", "--operative", "Nob", "--base-mm", "40", "--gallery-root", str(tmp_path / "gallery"), "--config", str(cfg_file), "--reference", str(tmp_path / "none.png")])
+    assert code == 0
+    assert calls[-1] == (1, app.ENROLL_FOUND_COLOR)  # drawn after the photo was added

@@ -65,6 +65,9 @@ def help_text() -> str:
     rows.append("right click\ta second base: measure the distance")
     rows.append("click\ta hatchway or a breach point: select it")
     rows.append("right click\ta base after space: choose its name")
+    rows.append("mouse wheel\tzoom the video at the pointer (+ and - at the top right too)")
+    rows.append("middle button drag\tmove the zoomed video (trackpad: pinch, two-finger scroll)")
+    rows.append("Ctrl+0\tzoom back to 100%")
     return "\n".join(rows)
 
 
@@ -84,6 +87,7 @@ class Worker(QThread):
         self.sent = 0  # GUI thread only
         self.done = 0  # worker thread only
         self.display_width = 0
+        self.display_view = None  # live.ZoomView of the video, None at 100%
         self._stop_event = threading.Event()
         self._gui_free = threading.Event()  # the GUI took the last frame
         self._gui_free.set()
@@ -130,6 +134,8 @@ class Worker(QThread):
             self._run_commands()
             if self.display_width and self.display_width != session.win.display_width:
                 session.set_display_width(self.display_width)
+            if self.display_view != session.win.zoom:
+                session.set_display_view(self.display_view)
             try:
                 frame = self.camera.read()
                 live = session.step(frame)
@@ -194,11 +200,15 @@ class MainWindow(QMainWindow):
 
     def new_video(self) -> VideoWidget:
         """The video widget of the layout that is being built."""
-        self.video = VideoWidget()
+        previous = self.video
+        self.video = VideoWidget(zoomable=True)
+        if previous is not None:
+            self.video.set_view(*previous.view())  # a new layout keeps the zoom
         self.video.clicked.connect(self._on_click)
         self.video.right_clicked.connect(self._on_right_click)
         self.video.hovered.connect(self._on_hover)
         self.video.width_changed.connect(self._on_width)  # the first resize sends the width
+        self.video.view_changed.connect(self._on_view)
         return self.video
 
     def show_debug(self, on: bool) -> None:
@@ -269,6 +279,8 @@ class MainWindow(QMainWindow):
                 shortcut = QShortcut(QKeySequence(QT_KEYS.get(action.key, action.key)), self)
                 shortcut.activated.connect(partial(self.trigger, action))
                 self.shortcuts[action.id] = shortcut
+        reset = QShortcut(QKeySequence("Ctrl+0"), self)  # zoom is a view, not a game action
+        reset.activated.connect(lambda: self.video and self.video.reset_zoom())
 
     def trigger(self, action: Action, *_checked) -> None:
         self.dispatch(action.id)
@@ -296,6 +308,9 @@ class MainWindow(QMainWindow):
 
     def _on_width(self, width: int) -> None:
         self.worker.display_width = width
+
+    def _on_view(self, view) -> None:
+        self.worker.display_view = view  # the worker takes the newest between two frames
 
     def _on_click(self, x: float, y: float, _global_pos: QPoint) -> None:
         self.dispatch("board.click", x=x, y=y)
@@ -344,7 +359,7 @@ class MainWindow(QMainWindow):
     def _show_frame(self, live: LiveFrame, controls: bool = True) -> None:
         self.last_frame = live
         self.state = state = live.state
-        self.video.set_image(live.image)
+        self.video.set_image(live.image, live.region)
         self._show_status(state)
         if not controls:
             return

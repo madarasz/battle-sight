@@ -42,7 +42,7 @@ from .calib import DriftMonitor, DriftReport, DriftStatus, TagDetector, board_co
 from .camera import CameraSettings
 from .config import BoardConfig
 from .colors import MEASURE_COLOR, MINIMAP_BACK_COLOR, MINIMAP_BOARD_COLOR, MOVE_MELEE_COLOR, NAME_SURE_COLOR, NO_TEAM_COLOR, POINTER_CROSS_COLOR, POINTER_CROSS_EDGE_COLOR, RANGE_ZONE_COLOR, SELECTED_COLOR, STATUS_ERROR_COLOR, STATUS_HINT_COLOR, STATUS_OK_COLOR, TEAM_COLORS
-from .overlay import draw_base_discs, draw_bases, draw_board_corners, draw_circle_mm, draw_dashed_circle_mm, draw_dead_marks, draw_dashed_outline_mm, draw_grid, draw_health_bars, draw_idents, draw_melee_sign, draw_objective_arrows, draw_move_mm, draw_outline_mm, draw_path_mm, draw_range_mm, draw_rim_line, draw_tags, draw_targeting_mm, draw_terrain, fit_to_width
+from .overlay import draw_base_discs, draw_bases, draw_board_corners, draw_circle_mm, draw_dashed_circle_mm, draw_dead_marks, draw_dashed_outline_mm, draw_grid, draw_health_bars, draw_idents, draw_melee_sign, draw_objective_arrows, draw_move_mm, draw_outline_mm, draw_path_mm, draw_range_mm, draw_rim_line, draw_tags, draw_targeting_mm, draw_terrain, fit_to_width, frame_scale, style_scale
 from .pipeline import BASES_MARGIN_MM, Pipeline, base_crops, bases_config, bases_image, find_base_near
 from .rectify import fit_view, mm_to_rect, rect_transform, warp_board
 
@@ -52,6 +52,7 @@ DEFAULT_REFERENCE = SNAPSHOT_DIR / "empty_board.png"
 SAVES_DIR = Path(__file__).resolve().parents[2] / "data" / "saves"  # saved game states; the auto-save folders are here too
 NO_AUTOSAVE = frozenset({"board.hover", "state.save"})  # every other action that reaches `dispatch` saves the state
 DISPLAY_WIDTH = 1600  # image width in the windows; the windows can be resized
+ZOOM_STYLE_POWER = 0.5  # line and text size on the screen at zoom z = z ** this times the size at 100% (0 = same size, 1 = grows with the image)
 PREVIEW_PAD_MM = 16.0  # board around the base in the crop of the selected base
 AIM_DIAMETER_MM = 40.0  # "Locate operative": board under the pointer as if a base of this size was there
 OPENING_KINDS = ("hatchway", "breach")
@@ -146,9 +147,49 @@ class BoardTracker:
         return report
 
 
+@dataclass(frozen=True)
+class ZoomView:
+    """What a front end shows of the image when it zooms in. `region` =
+    (x0, y0, x1, y1) in fractions of the whole image, `width` = the width of
+    that region on the screen, in pixels."""
+
+    zoom: float
+    region: tuple[float, float, float, float]
+    width: int
+
+
+@dataclass(frozen=True)
+class OutTransform:
+    """Source pixels -> output pixels of a zoomed render: `k` output pixels per
+    source pixel, the output starts at source pixel `origin`. `style` is the
+    line and text scale: on the screen, `ZOOM_STYLE_POWER` makes them
+    grow slower than the image."""
+
+    k: float
+    origin: tuple[float, float]
+    size: tuple[int, int]
+    style: float
+
+    def matrix(self) -> np.ndarray:
+        k, (x, y) = self.k, self.origin
+        return np.array([[k, 0.0, -k * x], [0.0, k, -k * y], [0.0, 0.0, 1.0]])
+
+    def apply(self, pts: np.ndarray) -> np.ndarray:
+        return (np.asarray(pts, float).reshape(-1, 2) - self.origin) * self.k
+
+    def crop(self, img: np.ndarray) -> np.ndarray:
+        """The region of a source image, scaled to the output size."""
+        return cv2.warpAffine(img, self.matrix()[:2], self.size, flags=cv2.INTER_LINEAR, borderValue=(0, 0, 0))
+
+
 class BoardWindow:
     """Shows a snapshot top-down (rectified) or as the camera frame, and maps
-    window clicks to board mm. `fit_to_width` scales the image down."""
+    window clicks to board mm. `fit_to_width` scales the image down.
+
+    Window pixels are pixels of the whole image after `fit` (`scale` window
+    pixels per source pixel). A zoomed view (`zoom`) returns only a region of
+    the image, drawn at the screen scale; `region` says where it is, in window
+    pixels, so window pixels stay the same at all zooms."""
 
     def __init__(self, cfg: BoardConfig, display_width: int):
         self.cfg = cfg
@@ -156,6 +197,28 @@ class BoardWindow:
         self.top_down = True
         self.scale = 1.0
         self.view = None  # rectify.BoardView of the snapshot
+        self.zoom: ZoomView | None = None
+        self.region: tuple[tuple[float, float], tuple[float, float, float, float]] | None = None  # (whole size, region x y w h) of the last zoomed render, window px
+
+    def out_transform(self, src_w: int, src_h: int) -> OutTransform | None:
+        """The transform of a zoomed render of a `src_w` x `src_h` source image,
+        or None at 100%. Sets `scale` and `region`."""
+        self.scale = min(1.0, self.display_width / src_w)
+        z = self.zoom
+        if z is None or z.zoom <= 1.0 or z.width < 1:
+            self.region = None
+            return None
+        x0, y0 = max(0.0, z.region[0]) * src_w, max(0.0, z.region[1]) * src_h
+        x1, y1 = min(1.0, z.region[2]) * src_w, min(1.0, z.region[3]) * src_h
+        if x1 - x0 < 1 or y1 - y0 < 1:
+            self.region = None
+            return None
+        k = z.width / (x1 - x0)
+        size = (int(z.width), max(1, int(round((y1 - y0) * k))))
+        s = self.scale
+        self.region = ((src_w * s, src_h * s), (x0 * s, y0 * s, (x1 - x0) * s, (y1 - y0) * s))
+        # Lines and text grow slower than the image: at zoom z they are z ** ZOOM_STYLE_POWER times their size at 100%.
+        return OutTransform(k, (x0, y0), size, frame_scale(src_w) * k / z.zoom * z.zoom**ZOOM_STYLE_POWER)
 
     def base_image(self, frame, result) -> np.ndarray:
         self.view = result.scratch.get("view")
@@ -370,13 +433,14 @@ ACTIONS: tuple[Action, ...] = (
 @dataclass
 class LiveFrame:
     """Result of one `LiveSession.step`. `image` is None until the first camera
-    frame. `scale` is image pixels per source pixel. `crop` is the board around
+    frame. `scale` is window pixels per source pixel (`BoardWindow`). `crop` is the board around
     the selected base or the selected identified light terrain piece, or None."""
 
     image: np.ndarray | None
     state: dict[str, Any]
     scale: float
     crop: np.ndarray | None = None
+    region: tuple[tuple[float, float], tuple[float, float, float, float]] | None = None  # zoomed: (whole size, region x y w h) in window px; None = `image` is the whole image
 
 
 def _num(value) -> float | None:
@@ -497,6 +561,8 @@ class LiveSession:
         self.view = None  # rectify.BoardView of the last frame
         self.last_status = None
         self.image: np.ndarray | None = None
+        self.image_region = None  # `BoardWindow.region` of `image`
+        self._xf: OutTransform | None = None  # source px -> output px of the render in progress
         self.detect_ms: float | None = None  # tag detection and board fit of the last frame
         self.meter = FpsMeter()
 
@@ -512,7 +578,7 @@ class LiveSession:
         self.adding = False  # "Locate operative": the next click on the board is the centre of a missed base
         self.new_base: int | None = None  # base that "Locate operative" made and the user did not name yet
         self.right_click: str | None = None  # what the last right click did: "name" (select for names) or "measure"
-        self.shown: np.ndarray | None = None  # rendered snapshot
+        self.shown: tuple | None = None  # rendered snapshot and its `BoardWindow.region`
         self.dirty = True
         # Game state. Current wounds of each operative label that is not at its
         # maximum; the names of a new snapshot keep them.
@@ -668,6 +734,7 @@ class LiveSession:
             self.meter.reset()
             if self._minimap_on():  # the minimap needs no camera
                 self.image = self._render_minimap()
+                self.image_region = self.win.region
             return self.current()
         self.frame = frame
         started = self.clock()
@@ -682,14 +749,18 @@ class LiveSession:
             self.last_status = report.status
         if self._minimap_on():
             self.image = self._render_minimap()
+            self.image_region = self.win.region
+        elif self.frozen:
+            self.image, self.image_region = self._snapshot_image()
         else:
-            self.image = self._snapshot_image() if self.frozen else self._render_live()
+            self.image = self._render_live()
+            self.image_region = self.win.region
         return self.current()
 
     def current(self) -> LiveFrame:
         """The last image with the state of now."""
         state = self.state()
-        return LiveFrame(self.image, state, self.win.scale, self._selected_crop())
+        return LiveFrame(self.image, state, self.win.scale, self._selected_crop(), self.image_region)
 
     def _selected_crop(self) -> np.ndarray | None:
         """While "Locate operative" waits for a click or "Shoot at" is on: the
@@ -764,20 +835,49 @@ class LiveSession:
         self.win.display_width = width
         self.dirty = True
 
+    def set_display_view(self, zoom: ZoomView | None) -> None:
+        """The zoomed view of the front end, or None at 100%. A zoomed render
+        returns only the visible region, drawn at the screen scale, so the lines
+        and text stay sharp."""
+        self.win.zoom = zoom
+        self.dirty = True
+
+    @contextmanager
+    def _rendering(self, xf: OutTransform | None) -> Iterator[None]:
+        """`_to_px` maps to the output pixels of `xf` while drawing."""
+        self._xf = xf
+        try:
+            if xf is None:
+                yield
+            else:
+                with style_scale(xf.style):
+                    yield
+        finally:
+            self._xf = None
+
     def _render_live(self) -> np.ndarray:
         """The live video. The bases and names of the last snapshot stay on
         it, in board mm, until the next snapshot."""
         cfg, frame, view = self.cfg, self.frame, self.view
-        if self.top_down and view is not None:
-            out = warp_board(frame, view, cfg)
-        else:
-            out = frame.copy()
-            draw_tags(out, self.obs, cfg, self.report)
-            reference = self.monitor.reference
-            draw_board_corners(out, board_corners_px(cfg, self.obs), board_corners_px(cfg, reference) if reference else None)
-        if view is not None:
-            self._draw_board(out)
-        return self.win.fit(out)
+        top_down = self.top_down and view is not None
+        _, rect_size = rect_transform(cfg)
+        xf = self.win.out_transform(*(rect_size if top_down else (frame.shape[1], frame.shape[0])))
+        with self._rendering(xf):
+            if top_down:
+                out = warp_board(frame, view, cfg, None if xf is None else (xf.matrix(), xf.size))
+            else:
+                out = frame.copy() if xf is None else xf.crop(frame)
+                obs, reference = self.obs, self.monitor.reference
+                corners, lost = board_corners_px(cfg, obs), (board_corners_px(cfg, reference) if reference else None)
+                if xf is not None:
+                    obs = {i: replace(t, corners=xf.apply(t.corners), center=xf.apply(t.center)[0]) for i, t in obs.items()}
+                    corners = {k: xf.apply(p)[0] for k, p in corners.items()}
+                    lost = None if lost is None else {k: xf.apply(p)[0] for k, p in lost.items()}
+                draw_tags(out, obs, cfg, self.report)
+                draw_board_corners(out, corners, lost)
+            if view is not None:
+                self._draw_board(out)
+        return out if xf is not None else self.win.fit(out)
 
     def _minimap_on(self) -> bool:
         return self.minimap and self.map_layout is not None
@@ -788,25 +888,44 @@ class LiveSession:
         health bar, and the selection. Same pixels per mm as the top-down view."""
         cfg = self.cfg
         _, (w, h) = rect_transform(cfg)
+        xf = self.win.out_transform(w, h)
+        if xf is not None:
+            w, h = xf.size
         img = np.full((h, w, 3), MINIMAP_BACK_COLOR, np.uint8)
-        (x0, y0), (x1, y1) = np.rint(mm_to_rect(cfg, np.array([[0.0, 0.0], [cfg.width_mm, cfg.height_mm]]))).astype(int)
-        cv2.rectangle(img, (int(x0), int(y0)), (int(x1), int(y1)), MINIMAP_BOARD_COLOR, -1)
-        self._draw_board(img, minimap=True)
-        return self.win.fit(img)
+        with self._rendering(xf):
+            (x0, y0), (x1, y1) = np.rint(self._to_px(np.array([[0.0, 0.0], [cfg.width_mm, cfg.height_mm]]))).astype(int)
+            cv2.rectangle(img, (int(x0), int(y0)), (int(x1), int(y1)), MINIMAP_BOARD_COLOR, -1)
+            self._draw_board(img, minimap=True)
+        return img if xf is not None else self.win.fit(img)
 
-    def _snapshot_image(self) -> np.ndarray:
+    def _snapshot_image(self) -> tuple[np.ndarray, Any]:
         if self.dirty:
-            self.shown = self._render_snapshot()
+            img = self._render_snapshot()
+            self.shown = (img, self.win.region)
             self.dirty = False
         return self.shown
 
     def _render_snapshot(self) -> np.ndarray:
         r, win = self.result, self.win
         if not r.ok:
-            return win.fit(self.pipe.annotate(self.snap, r, banner=False))
-        img = win.base_image(self.snap, r)
-        self._draw_board(img)
-        return win.fit(img)
+            img = self.pipe.annotate(self.snap, r, banner=False)
+            xf = win.out_transform(img.shape[1], img.shape[0])
+            return win.fit(img) if xf is None else xf.crop(img)
+        view = r.scratch.get("view")
+        rectified = r.scratch.get("rectified") if win.top_down else None
+        base = rectified if rectified is not None else self.snap
+        xf = win.out_transform(base.shape[1], base.shape[0])
+        with self._rendering(xf):
+            if xf is None:
+                img = win.base_image(self.snap, r)
+            elif rectified is not None and view is not None:
+                win.view = view
+                img = warp_board(self.snap, view, self.cfg, (xf.matrix(), xf.size))  # the photo at the screen scale, not the rectified image made bigger
+            else:
+                win.view = view
+                img = xf.crop(base)
+            self._draw_board(img)
+        return img if xf is not None else win.fit(img)
 
     def _draw_board(self, img: np.ndarray, minimap: bool = False) -> None:
         """Terrain, grid, the bases of the last snapshot and the selection,
@@ -1190,7 +1309,13 @@ class LiveSession:
         return top_down or view is not None
 
     def _to_px(self, pts_mm) -> np.ndarray:
-        """Board mm -> pixels of the shown image, before `fit`."""
+        """Board mm -> pixels of the image that is being drawn: source pixels
+        (before `fit`), or output pixels of a zoomed render."""
+        px = self._src_px(pts_mm)
+        return px if self._xf is None else self._xf.apply(px)
+
+    def _src_px(self, pts_mm) -> np.ndarray:
+        """Board mm -> pixels of the shown source image, before `fit`."""
         top_down, view = self._shown_view()
         if top_down:
             return mm_to_rect(self.cfg, pts_mm)
@@ -1326,7 +1451,7 @@ class LiveSession:
             return []
         centers = np.array([c.center_mm for c in found]).reshape(-1, 2)
         if self._mapped():
-            positions = [[round(float(p[0]), 1), round(float(p[1]), 1)] for p in np.asarray(self._to_px(centers), float).reshape(-1, 2) * self.win.scale]
+            positions = [[round(float(p[0]), 1), round(float(p[1]), 1)] for p in np.asarray(self._src_px(centers), float).reshape(-1, 2) * self.win.scale]
         else:  # live frame without a board fit
             positions = [None] * len(found)
         idents = self.session.idents if self.session is not None else [None] * len(found)

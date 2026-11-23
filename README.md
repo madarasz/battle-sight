@@ -48,6 +48,11 @@ uv run battlesight --team kommandos veterans
 Hold the mouse pointer on a control to see its key. Push `h` to see all key
 bindings. Use the menu View > Layout to change the window layout.
 
+To zoom the video, turn the mouse wheel, or click + and - at the top right.
+To move the zoomed video, hold the middle mouse button and drag. On a
+trackpad, pinch to zoom and scroll with two fingers to move. Click the zoom
+percentage to go back to 100%.
+
 ## Use the app
 
 ### 1. Before the game

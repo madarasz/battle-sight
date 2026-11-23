@@ -6,8 +6,8 @@ from collections.abc import Callable
 from typing import Any
 
 import numpy as np
-from PySide6.QtCore import QPoint, QPointF, QRectF, QSize, Qt, Signal
-from PySide6.QtGui import QColor, QFont, QIcon, QImage, QMouseEvent, QPainter, QPainterPath, QPixmap
+from PySide6.QtCore import QEvent, QPoint, QPointF, QRectF, QSize, Qt, Signal
+from PySide6.QtGui import QColor, QFont, QFontMetrics, QIcon, QImage, QMouseEvent, QPainter, QPainterPath, QPixmap, QWheelEvent
 from PySide6.QtWidgets import QAbstractButton, QApplication, QCheckBox, QStyledItemDelegate, QStyleOptionViewItem, QComboBox, QFormLayout, QGridLayout, QGroupBox, QHBoxLayout, QLabel, QListWidget, QListWidgetItem, QProgressBar, QPushButton, QRadioButton, QSlider, QSpinBox, QStyle, QToolButton, QVBoxLayout, QWidget
 
 from ..colors import (
@@ -26,7 +26,7 @@ from ..colors import (
     VIDEO_BACK_COLOR,
     qt_hex,
 )
-from ..live import ACTIONS, MAX_RING_IN, Action
+from ..live import ACTIONS, MAX_RING_IN, Action, ZoomView
 from ..score import CATEGORIES, CATEGORY_NAMES, KILL_GRADE_MAX, PRIMARIES, SKULLS_PER_TP, TURNING_POINTS
 
 ACTION_GROUPS = {"wounds": "Game", "score": "Game", "operative": "Snapshot", "opening": "Game", "light": "Snapshot", "team": "View", "map": "View", "snapshot": "Snapshot", "base": "Snapshot", "names": "Snapshot", "frame": "Snapshot", "ring": "Measure", "measure": "Measure", "view": "View", "reference": "Reference", "state": "Reference", "app": "Help"}
@@ -264,23 +264,202 @@ class CandidateList(_ActionList):
         self.dispatch("base.choose", label=candidates[row]["label"], index=index)
 
 
+ZOOM_MIN, ZOOM_MAX = 1.0, 8.0
+ZOOM_WHEEL = 1.25  # factor of one wheel notch
+ZOOM_BUTTON = 1.5  # factor of one click on + or -
+ZOOM_BAR_STYLE = (
+    f"QToolButton {{ background: {BADGE_BACK_COLOR}; color: {BADGE_TEXT_COLOR}; border: none; border-radius: 4px; padding: 0 8px; font-weight: bold; }}"
+    "QToolButton:hover { background: palette(highlight); }"
+    "QToolButton:disabled { color: palette(mid); }"
+)
+
+
 class VideoWidget(QWidget):
     """Shows a BGR image, scaled to fit with its aspect ratio. Reports clicks
-    in image pixels and its width in screen pixels."""
+    in image pixels and its width in screen pixels.
+
+    Zoom: 100% = fit. Mouse wheel zooms at the pointer, the middle button drags
+    the view, a trackpad pinch zooms and a two-finger scroll drags. The `-`,
+    `+` buttons and the percentage at the top right do the same. Left and right
+    clicks are not used for the view. The view is kept as a zoom and a centre
+    in image fractions, so it stays when the image changes size.
+
+    Above 100% `view_changed` sends the visible region (`live.ZoomView`). The
+    core then sends only that region, drawn at the screen scale, with its place
+    in the whole image (`set_image(array, region)`). Clicks are in pixels of the
+    whole image at 100%, so they do not change with the zoom. Until the region
+    for a new view comes, the old region (and the last whole image behind it)
+    moves with the view."""
 
     clicked = Signal(float, float, QPoint)  # image x, image y, global position of the click
     hovered = Signal(object)  # (image x, image y) of the mouse pointer, None when it is not on the image
     right_clicked = Signal(float, float, QPoint)
     width_changed = Signal(int)
+    zoom_changed = Signal(float)
+    view_changed = Signal(object)  # live.ZoomView, None at 100%
 
-    def __init__(self, parent: QWidget | None = None):
+    def __init__(self, parent: QWidget | None = None, zoomable: bool = False):
         super().__init__(parent)
+        self.zoomable = zoomable  # only the main video: the small crops have no zoom
         self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.setMinimumSize(320, 240)
         self.setMouseTracking(True)  # pointer positions with no button down
         self._array: np.ndarray | None = None  # keeps the pixels of `_image` alive
         self._image: QImage | None = None
+        self._whole: tuple[float, float] = (1.0, 1.0)  # size of the whole image, in image pixels at 100%
+        self._region: tuple[float, float, float, float] = (0.0, 0.0, 1.0, 1.0)  # where `_image` is in the whole image: x, y, w, h
+        self._backdrop: tuple[np.ndarray, QImage] | None = None  # the last whole image, behind a region that is not yet there
+        self._sent_view: ZoomView | None = None
         self.badge: tuple[str, str, str] | None = None  # text, sign colour and sign at the top right
+        self._zoom = 1.0
+        self._center = [0.5, 0.5]  # the image point (fractions) in the middle of the widget
+        self._pan_from: QPointF | None = None  # pointer position while the middle button is down
+        self._bar: QWidget | None = None  # the - + bar at the top right
+        if zoomable:
+            self._build_zoom_bar()
+
+    # --- zoom ---------------------------------------------------------------------------
+
+    @property
+    def zoom(self) -> float:
+        return self._zoom
+
+    def view(self) -> tuple[float, list[float]]:
+        return self._zoom, list(self._center)
+
+    def set_view(self, zoom: float, center: list[float]) -> None:
+        """Take the view of another widget, for example when the layout changes."""
+        self._center = list(center)
+        self._apply_zoom(zoom, None)
+
+    def reset_zoom(self) -> None:
+        self._center = [0.5, 0.5]
+        self._apply_zoom(1.0, None)
+
+    def zoom_by(self, factor: float, at: QPointF | None = None) -> None:
+        """Zoom by `factor`. The image point at `at` (widget position, default the
+        middle) stays where it is."""
+        self._apply_zoom(self._zoom * factor, at)
+
+    def _apply_zoom(self, zoom: float, at: QPointF | None) -> None:
+        if not self.zoomable:
+            return
+        zoom = min(ZOOM_MAX, max(ZOOM_MIN, zoom))
+        rect = self.image_rect()
+        if rect is not None and at is not None and zoom != self._zoom:
+            fx, fy = (at.x() - rect.x()) / rect.width(), (at.y() - rect.y()) / rect.height()
+            ratio = zoom / self._zoom
+            w, h = rect.width() * ratio, rect.height() * ratio
+            self._center = [(self.width() / 2 - at.x() + fx * w) / w, (self.height() / 2 - at.y() + fy * h) / h]
+        changed = zoom != self._zoom
+        self._zoom = zoom
+        self._normalize()
+        self._after_view_change(changed)
+
+    def _after_view_change(self, zoom_changed: bool) -> None:
+        if zoom_changed:
+            self.zoom_changed.emit(self._zoom)
+        self._emit_view()
+        self._update_zoom_bar()
+        self.update()
+
+    def zoom_view(self) -> ZoomView | None:
+        """The visible region of the whole image, None at 100%."""
+        rect = self.image_rect()
+        if rect is None or self._zoom <= ZOOM_MIN:
+            return None
+        shown = rect.intersected(self.rect().toRectF())
+        x0, y0 = (shown.left() - rect.x()) / rect.width(), (shown.top() - rect.y()) / rect.height()
+        x1, y1 = (shown.right() - rect.x()) / rect.width(), (shown.bottom() - rect.y()) / rect.height()
+        return ZoomView(self._zoom, (round(x0, 5), round(y0, 5), round(x1, 5), round(y1, 5)), max(1, round(shown.width() * self.devicePixelRatioF())))
+
+    def _emit_view(self) -> None:
+        view = self.zoom_view() if self.zoomable else None
+        if view != self._sent_view:
+            self._sent_view = view
+            self.view_changed.emit(view)
+
+    def _fit_size(self) -> tuple[float, float]:
+        """Size of the zoomed image in the widget, in pixels."""
+        w, h = self._whole
+        scale = min(self.width() / w, self.height() / h) * self._zoom
+        return w * scale, h * scale
+
+    @staticmethod
+    def _place(view: float, size: float, center: float) -> float:
+        """Start of the image along one axis. A small image sits in the middle, a
+        big one never leaves a gap at an edge."""
+        if size <= view:
+            return (view - size) / 2
+        return min(0.0, max(view - size, view / 2 - center * size))
+
+    def _normalize(self) -> None:
+        """Move the centre so that the image covers the widget."""
+        if self._image is None:
+            return
+        w, h = self._fit_size()
+        for axis, (view, size) in enumerate(((self.width(), w), (self.height(), h))):
+            start = self._place(view, size, self._center[axis])
+            self._center[axis] = 0.5 if size <= view else (view / 2 - start) / size
+
+    def _emit_width(self) -> None:
+        self.width_changed.emit(int(self.width() * self.devicePixelRatioF()))
+
+    def _build_zoom_bar(self) -> None:
+        self._bar = QWidget(self)
+        self._bar.setStyleSheet(ZOOM_BAR_STYLE)
+        row = QHBoxLayout(self._bar)
+        row.setContentsMargins(0, 0, 0, 0)
+        row.setSpacing(4)
+        self._out = self._bar_button("\u2212", "Zoom out (mouse wheel)", lambda: self.zoom_by(1 / ZOOM_BUTTON))
+        self._level = self._bar_button("100%", "Back to 100%", self.reset_zoom)
+        self._in = self._bar_button("+", "Zoom in (mouse wheel). Drag with the middle button.", lambda: self.zoom_by(ZOOM_BUTTON))
+        for button in (self._out, self._level, self._in):
+            row.addWidget(button)
+        self._update_zoom_bar()
+
+    def _bar_button(self, text: str, tip: str, slot: Callable[[], None]) -> QToolButton:
+        button = QToolButton()
+        button.setText(text)
+        button.setToolTip(tip)
+        button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        button.clicked.connect(slot)
+        return button
+
+    def _badge_font(self, base: QFont) -> QFont:
+        font = QFont(base)
+        font.setPointSizeF(max(10.0, font.pointSizeF() * 1.2))
+        font.setBold(True)
+        return font
+
+    def _visible_rect(self) -> QRectF:
+        """The part of the image that is on screen."""
+        rect = self.image_rect()
+        return self.rect().toRectF() if rect is None else rect.intersected(self.rect().toRectF())
+
+    def _update_zoom_bar(self) -> None:
+        """The percentage shows only when the zoom is not 100%. The bar sits at the
+        top right of the image, as high as the badge, and the badge sits left of it."""
+        if self._bar is None:
+            return
+        self._level.setVisible(self._zoom > ZOOM_MIN)
+        self._level.setText(f"{round(self._zoom * 100)}%")
+        self._out.setEnabled(self._zoom > ZOOM_MIN)
+        self._in.setEnabled(self._zoom < ZOOM_MAX)
+        metrics = QFontMetrics(self._badge_font(self.font()))
+        pad = metrics.height() * 0.4
+        for button in (self._out, self._level, self._in):
+            button.setFixedHeight(int(metrics.height() + pad))
+        self._out.setFixedWidth(int(metrics.height() + pad))
+        self._in.setFixedWidth(int(metrics.height() + pad))
+        self._bar.layout().activate()
+        self._bar.resize(self._bar.sizeHint())
+        self._bar.layout().setGeometry(self._bar.rect())  # place the buttons now, not at the next event loop turn
+        area = self._visible_rect()
+        self._bar.move(int(area.right() - self._bar.width() - pad), int(area.top() + pad))
+        self._bar.raise_()
+
+    # --- image ----------------------------------------------------------------------------
 
     def set_badge(self, text: str | None, color: str = BADGE_TEXT_COLOR, sign: str = "dot") -> None:
         """A small label at the top-right corner of the image, for example the
@@ -290,28 +469,44 @@ class VideoWidget(QWidget):
             self.badge = badge
             self.update()
 
-    def set_image(self, array: np.ndarray | None) -> None:
+    def set_image(self, array: np.ndarray | None, region=None) -> None:
+        """`region` = ((whole width, whole height), (x, y, w, h)): `array` is
+        that region of the whole image (`LiveFrame.region`). None: `array` is
+        the whole image."""
         if array is None or array is self._array:
             return
+        first = self._image is None
+        old = self._whole
         self._array = array
         h, w = array.shape[:2]
         self._image = QImage(array.data, w, h, int(array.strides[0]), QImage.Format.Format_BGR888)
+        if region is None:
+            self._whole, self._region = (float(w), float(h)), (0.0, 0.0, float(w), float(h))
+            if self.zoomable:
+                self._backdrop = (array, self._image)
+        else:
+            self._whole, self._region = (float(region[0][0]), float(region[0][1])), tuple(float(v) for v in region[1])
+        if first or abs(old[0] * self._whole[1] - old[1] * self._whole[0]) > 1e-3 * old[0] * self._whole[1]:
+            # a new shape (another mode): the view must still fit, and the core needs the new region
+            self._normalize()
+            self._update_zoom_bar()
+            self._emit_view()
         self.update()
 
     def image_rect(self) -> QRectF | None:
-        """Where the image is in the widget."""
+        """Where the whole image is in the widget. At a zoom above 100% it is
+        bigger than the widget."""
         if self._image is None:
             return None
-        scale = min(self.width() / self._image.width(), self.height() / self._image.height())
-        w, h = self._image.width() * scale, self._image.height() * scale
-        return QRectF((self.width() - w) / 2, (self.height() - h) / 2, w, h)
+        w, h = self._fit_size()
+        return QRectF(self._place(self.width(), w, self._center[0]), self._place(self.height(), h, self._center[1]), w, h)
 
     def to_image(self, pos: QPointF) -> tuple[float, float] | None:
         """Widget position to image pixels, or None outside the image."""
         rect = self.image_rect()
         if rect is None or not rect.contains(pos):
             return None
-        scale = self._image.width() / rect.width()
+        scale = self._whole[0] / rect.width()
         return (pos.x() - rect.x()) * scale, (pos.y() - rect.y()) * scale
 
     def paintEvent(self, _event) -> None:
@@ -320,16 +515,35 @@ class VideoWidget(QWidget):
         rect = self.image_rect()
         if rect is not None:
             painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
-            painter.drawImage(rect, self._image)
+            whole = (0.0, 0.0) + self._whole
+            backdrop = self._backdrop
+            if backdrop is not None and backdrop[1] is not self._image and self._region != whole and self._same_shape(backdrop[1]):
+                self._draw_part(painter, backdrop[1], rect)
+            unit = rect.width() / self._whole[0]  # widget px per image px at 100%
+            x, y, w, h = self._region
+            self._draw_part(painter, self._image, QRectF(rect.x() + x * unit, rect.y() + y * unit, w * unit, h * unit))
         if self.badge is not None:
-            self._paint_badge(painter, rect or QRectF(self.rect()))
+            area = self._visible_rect()
+            if self._bar is not None:
+                area.setRight(area.right() - self._bar.width() - self._bar.height() * 0.4)
+            self._paint_badge(painter, area)
+
+    def _same_shape(self, image: QImage) -> bool:
+        w, h = self._whole
+        return abs(image.width() * h - image.height() * w) <= 0.01 * image.width() * h
+
+    def _draw_part(self, painter: QPainter, image: QImage, target: QRectF) -> None:
+        """Draw `image` stretched to `target`, only the part that is on screen."""
+        shown = target.intersected(self.rect().toRectF())
+        if shown.isEmpty():
+            return
+        sx, sy = image.width() / target.width(), image.height() / target.height()
+        source = QRectF((shown.x() - target.x()) * sx, (shown.y() - target.y()) * sy, shown.width() * sx, shown.height() * sy)
+        painter.drawImage(shown, image, source)
 
     def _paint_badge(self, painter: QPainter, area: QRectF) -> None:
         text, color, sign = self.badge
-        font = QFont(painter.font())
-        font.setPointSizeF(max(10.0, font.pointSizeF() * 1.2))
-        font.setBold(True)
-        painter.setFont(font)
+        painter.setFont(self._badge_font(painter.font()))
         metrics = painter.fontMetrics()
         dot, pad = metrics.height() * 0.6, metrics.height() * 0.4
         w, h = dot + 3 * pad + metrics.horizontalAdvance(text), metrics.height() + pad
@@ -351,7 +565,14 @@ class VideoWidget(QWidget):
         painter.setPen(QColor(BADGE_TEXT_COLOR))
         painter.drawText(QRectF(box.left() + dot + 2 * pad, box.top(), w - dot - 2 * pad, h), Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft, text)
 
+    # --- mouse ----------------------------------------------------------------------------
+
     def mousePressEvent(self, event: QMouseEvent) -> None:
+        if event.button() == Qt.MouseButton.MiddleButton:
+            if self._zoom > ZOOM_MIN:
+                self._pan_from = event.position()
+                self.setCursor(Qt.CursorShape.ClosedHandCursor)
+            return
         signals = {Qt.MouseButton.LeftButton: self.clicked, Qt.MouseButton.RightButton: self.right_clicked}
         signal = signals.get(event.button())
         at = self.to_image(event.position())
@@ -359,13 +580,53 @@ class VideoWidget(QWidget):
             signal.emit(at[0], at[1], event.globalPosition().toPoint())
 
     def mouseMoveEvent(self, event: QMouseEvent) -> None:
+        if self._pan_from is not None:
+            self._pan_by(event.position() - self._pan_from)
+            self._pan_from = event.position()
+            return
         self.hovered.emit(self.to_image(event.position()))
+
+    def mouseReleaseEvent(self, event: QMouseEvent) -> None:
+        if event.button() == Qt.MouseButton.MiddleButton and self._pan_from is not None:
+            self._pan_from = None
+            self.unsetCursor()
+
+    def _pan_by(self, delta: QPointF) -> None:
+        """Move the image by `delta` widget pixels."""
+        if self._image is None:
+            return
+        w, h = self._fit_size()
+        self._center[0] -= delta.x() / w
+        self._center[1] -= delta.y() / h
+        self._normalize()
+        self._after_view_change(False)
+
+    def wheelEvent(self, event: QWheelEvent) -> None:
+        if event.phase() != Qt.ScrollPhase.NoScrollPhase and not event.pixelDelta().isNull():
+            # a trackpad scroll drags the view
+            if self._zoom > ZOOM_MIN:
+                self._pan_by(QPointF(event.pixelDelta()))
+            event.accept()
+            return
+        notches = event.angleDelta().y() / 120
+        if notches:
+            self.zoom_by(ZOOM_WHEEL**notches, event.position())
+        event.accept()
+
+    def event(self, event) -> bool:
+        if event.type() == QEvent.Type.NativeGesture and event.gestureType() == Qt.NativeGestureType.ZoomNativeGesture:
+            self.zoom_by(1 + event.value(), event.position())  # trackpad pinch
+            return True
+        return super().event(event)
 
     def leaveEvent(self, _event) -> None:
         self.hovered.emit(None)
 
     def resizeEvent(self, _event) -> None:
-        self.width_changed.emit(int(self.width() * self.devicePixelRatioF()))
+        self._normalize()
+        self._update_zoom_bar()
+        self._emit_width()
+        self._emit_view()
 
 
 class RingSlider(QWidget):
