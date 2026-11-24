@@ -87,6 +87,11 @@ mask_max_fraction = 0.6  # over this part of the crop circle the mask is wrong (
 swap_margin_mm = 25.0    # a swap of two copies that costs less than this (and the copies have a different state) makes both names unsure
 new_cost_mm = 150.0      # pairing cost of a copy that has no known position yet
 
+[models]
+# Models of one operative type (counts_as variants): the live app reads the
+# model of each copy from the identification.
+switch_margin = 0.05     # the model changes only when the new model's score is this much higher
+
 [light]
 # Light terrain pieces on the board (live app). "Identify terrains": the
 # outline of each piece file is searched in its rectangle on the layout card.

@@ -90,11 +90,21 @@ def percent(score: float) -> str:
 
 
 def candidate_text(candidate: dict[str, Any]) -> str:
+    """A row of the "Change operative" list: `team/model   78%`, a locked
+    model with "(locked)", the "Auto model" row with a check mark when on."""
+    if candidate.get("auto"):
+        return "Auto model" + ("  ✓" if candidate.get("current") else "")
     label, score = candidate["label"], candidate["score"]
     name = f"{label.partition('/')[0]}/{candidate['name']}" if candidate.get("name") else label
-    if candidate.get("copy") is not None and candidate.get("max_wounds") is not None:  # a copy: its wounds tell it apart
-        name = f"{name} ({candidate['wounds']}/{candidate['max_wounds']})"
-    return name if score is None else f"{name}   {percent(score)}"
+    text = name if score is None else f"{name}   {percent(score)}"
+    return f"{text}   (locked)" if candidate.get("locked") else text
+
+
+def copy_text(choice: dict[str, Any]) -> str:
+    """A row of the "Change ID" list: `Boy #2 (4/10)`."""
+    if choice.get("max_wounds") is None:
+        return choice["name"]
+    return f"{choice['name']} ({choice['wounds']}/{choice['max_wounds']})"
 
 
 def distance_text(distance: dict[str, Any]) -> str:
@@ -254,14 +264,42 @@ class OperativeList(_ActionList):
 
 
 class CandidateList(_ActionList):
-    """The names for the selected base. A click on a row sets the name."""
+    """The "Change operative" list of the selected base: the models with
+    their scores. A click on a row sets the name and the model; "Auto model"
+    gives the model back to the identification."""
 
     def show_state(self, state: dict[str, Any]) -> None:
         self.fill((state["selected"], state["candidates"]), [(candidate_text(c), None) for c in state["candidates"]])
 
     def on_row(self, row: int) -> None:
         index, candidates = self.shown
-        self.dispatch("base.choose", label=candidates[row]["label"], index=index)
+        if candidates[row].get("auto"):
+            self.dispatch("base.model_auto", index=index)
+        else:
+            self.dispatch("base.choose", label=candidates[row]["label"], index=index)
+
+
+class CopyList(_ActionList):
+    """The "Change ID" list of the selected base: the copies in play of its
+    type. A click gives the base that copy (the bases swap)."""
+
+    def show_state(self, state: dict[str, Any]) -> None:
+        self.fill((state["selected"], state["copy_choices"]), [(copy_text(c), None) for c in state["copy_choices"]])
+
+    def on_row(self, row: int) -> None:
+        index, choices = self.shown
+        self.dispatch("base.choose", label=choices[row]["label"], index=index)
+
+
+def model_text(state: dict[str, Any]) -> str:
+    """The model line of the selected base (italic in the layouts): empty
+    when its type has one model only."""
+    if state["selected"] is None or not 0 <= state["selected"] < len(state["bases"]):
+        return ""
+    base = state["bases"][state["selected"]]
+    if base["model_name"] is None:
+        return ""
+    return f"Model: {base['model_name']}" + (" (locked)" if base["model_locked"] else "")
 
 
 ZOOM_MIN, ZOOM_MAX = 1.0, 8.0

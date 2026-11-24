@@ -21,7 +21,7 @@ from PySide6.QtWidgets import QApplication, QLabel, QMainWindow, QMenu, QMessage
 
 from ..live import ACTIONS, Action, LiveFrame, LiveSession
 from .layouts import DEFAULT_LAYOUT, LAYOUTS, Layout
-from .parts import COLORS, DRIFT_LEVEL, ProgressView, VideoWidget, action_group, candidate_text, debug_line, distance_label
+from .parts import COLORS, DRIFT_LEVEL, ProgressView, VideoWidget, action_group, candidate_text, copy_text, debug_line, distance_label
 
 QT_KEYS = {"space": "Space", "Esc": "Esc"}
 
@@ -386,13 +386,24 @@ class MainWindow(QMainWindow):
         if index is None or not state["candidates"]:
             return
         menu = QMenu(self)
+        change = menu.addMenu("Change operative")
         for candidate in state["candidates"]:
-            menu.addAction(candidate_text(candidate)).triggered.connect(partial(self._choose_name, candidate["label"], index))
+            if candidate.get("auto"):
+                change.addAction(candidate_text(candidate)).triggered.connect(partial(self._auto_model, index))
+            else:
+                change.addAction(candidate_text(candidate)).triggered.connect(partial(self._choose_name, candidate["label"], index))
+        if state["copy_choices"]:  # only for a type with more than one copy in play
+            ids = menu.addMenu("Change ID")
+            for choice in state["copy_choices"]:
+                ids.addAction(copy_text(choice)).triggered.connect(partial(self._choose_name, choice["label"], index))
         self.popup = menu
         menu.popup(global_pos)
 
     def _choose_name(self, label: str, index: int, *_checked) -> None:
         self.worker.submit("base.choose", label=label, index=index)
+
+    def _auto_model(self, index: int, *_checked) -> None:
+        self.worker.submit("base.model_auto", index=index)
 
     def closeEvent(self, event: QCloseEvent) -> None:
         if self.popup is not None:

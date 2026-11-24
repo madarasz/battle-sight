@@ -92,9 +92,12 @@ def test_save_state_action_writes_the_files(tmp_path, named):
 
 def test_restore_gives_the_same_state(tmp_path, named):
     session, frame = games(tmp_path, named)
+    session.models = {"orks/Nob": "orks/Nob - big"}  # a model and its lock are game state
+    session.model_locked = {"orks/Nob"}
     session.dispatch("state.save")
     folder = next(p for p in (tmp_path / "saves").iterdir() if not p.name.startswith("autosave"))
     before = savestate.capture(session)
+    assert before["models"] == {"orks/Nob": "orks/Nob - big"} and before["model_locked"] == ["orks/Nob"]
     again = fresh(tmp_path, named)
     assert again.load_state(folder)
     after = savestate.capture(again)

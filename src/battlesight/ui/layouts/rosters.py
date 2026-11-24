@@ -28,7 +28,7 @@ from PySide6.QtWidgets import QAbstractButton, QCheckBox, QComboBox, QGridLayout
 
 from ...live import ACTIONS, Action, shown_view
 from ...colors import MESSAGE_NONE_COLOR, MODE_LIVE_COLOR, MODE_MINIMAP_COLOR, MODE_SNAPSHOT_COLOR, SHOT_IN_COVER_COLOR, SHOT_OBSCURED_COLOR
-from ..parts import CandidateList, GameControl, LightControl, MapPicker, OpeningControl, RingSlider, ScoreCounter, TeamRoster, VideoWidget, WoundsControl, action_control, aim_texts, distance_label, light_title, show_action_state
+from ..parts import CandidateList, CopyList, GameControl, LightControl, MapPicker, OpeningControl, RingSlider, ScoreCounter, TeamRoster, VideoWidget, WoundsControl, action_control, aim_texts, distance_label, light_title, model_text, show_action_state
 
 if TYPE_CHECKING:
     from . import Shell
@@ -39,6 +39,8 @@ GAME_BAR_STYLE = "#game_bar { border-top: 1px solid palette(mid); border-bottom:
 ROSTER_WIDTH = 310
 CROP_SIZE = 96
 OPENING_NAMES = {"hatchway": "Hatchway", "breach": "Breach point"}
+CHANGE_TEXT = "Change operative"  # the list of the operatives and models, with their scores
+CHANGE_ID_TEXT = "Change ID"  # the list of the copies of the base's type
 MODE_BADGE = {"live": ("Live", MODE_LIVE_COLOR, "dot"), "snapshot": ("Snapshot", MODE_SNAPSHOT_COLOR, "pause"), "minimap": ("Minimap", MODE_MINIMAP_COLOR, "square")}
 
 
@@ -241,10 +243,14 @@ class RostersLayout:
         font.setPointSizeF(font.pointSizeF() * 1.15)
         self.title.setFont(font)
         header.addWidget(self.title, 0)
-        self.change = _no_focus(QPushButton("Change ID"))
+        self.change = _no_focus(QPushButton(CHANGE_TEXT))
         self.change.setCheckable(True)
-        self.change.toggled.connect(self._show_fix)
+        self.change.toggled.connect(lambda on: self._show_fix(self.change, on))
         header.addWidget(self.change, 0)
+        self.change_id = _no_focus(QPushButton(CHANGE_ID_TEXT))  # only for a type with more than one copy in play
+        self.change_id.setCheckable(True)
+        self.change_id.toggled.connect(lambda on: self._show_fix(self.change_id, on))
+        header.addWidget(self.change_id, 0)
         self.remove = self._control("base.remove")
         self.remove.setToolTip("Not an operative (terrain, board print): remove this base from the snapshot")
         header.addWidget(self.remove, 0)
@@ -295,6 +301,11 @@ class RostersLayout:
         row.addWidget(self.crop, 0, Qt.AlignmentFlag.AlignTop)
         column = QVBoxLayout()
         column.setSpacing(2)
+        self.model = QLabel()  # the model (counts_as variant) of the base, in italics; hidden for a type with one model
+        font = self.model.font()
+        font.setItalic(True)
+        self.model.setFont(font)
+        column.addWidget(self.model)
         self.details = QWidget()  # wounds, ring, movement and distance: hidden while the name list is open
         game = QVBoxLayout(self.details)
         game.setContentsMargins(0, 0, 0, 0)
@@ -343,16 +354,26 @@ class RostersLayout:
         self.candidates.setVisible(False)
         self.candidates.itemClicked.connect(lambda _item: self.change.setChecked(False))  # a name choice closes the list
         column.addWidget(self.candidates, 1)
+        self.copies = CopyList(self.shell.dispatch)
+        self.copies.setVisible(False)
+        self.copies.itemClicked.connect(lambda _item: self.change_id.setChecked(False))
+        column.addWidget(self.copies, 1)
         column.addStretch(0)
         row.addLayout(column, 1)
 
-    def _show_fix(self, on: bool) -> None:
-        """The name list takes the place of the wounds, ring and distance.
-        While it is open, the button is "Cancel": it closes the list."""
-        self.change.setText("Cancel" if on else "Change ID")
-        self.change.setToolTip("Close the name list, keep the name" if on else "Choose another name for this operative")
-        self.candidates.setVisible(on)
-        self.details.setVisible(not on)
+    def _show_fix(self, button: QPushButton, on: bool) -> None:
+        """A list takes the place of the wounds, ring and distance: "Change
+        operative" (the models and their scores) or "Change ID" (the copies).
+        One list is open at a time. While it is open, its button is "Cancel"."""
+        if on:
+            (self.change_id if button is self.change else self.change).setChecked(False)
+        self.change.setText("Cancel" if self.change.isChecked() else CHANGE_TEXT)
+        self.change.setToolTip("Close the list, keep the operative" if self.change.isChecked() else "Choose another operative or model for this base")
+        self.change_id.setText("Cancel" if self.change_id.isChecked() else CHANGE_ID_TEXT)
+        self.change_id.setToolTip("Close the list, keep the operative" if self.change_id.isChecked() else "Choose which operative of the team list this base is (Boy #1, Boy #2, ...)")
+        self.candidates.setVisible(self.change.isChecked())
+        self.copies.setVisible(self.change_id.isChecked())
+        self.details.setVisible(not (self.change.isChecked() or self.change_id.isChecked()))
 
     def _roster_operative_page(self, page: QWidget) -> None:
         """An operative selected in a team list that has no base: only its wounds."""
@@ -396,6 +417,10 @@ class RostersLayout:
         self.stack.setCurrentWidget(self.pages[page])
         self.close.setVisible(page in ("operative", "roster_operative", "opening", "light"))
         self.change.setVisible(page == "operative")
+        copies_shown = page == "operative" and bool(state["copy_choices"])
+        self.change_id.setVisible(copies_shown)
+        if not copies_shown and self.change_id.isChecked():
+            self.change_id.setChecked(False)
         self.remove.setVisible(page == "operative")
         self.shoot.setVisible(page == "operative")
         if page != "light":
@@ -405,9 +430,11 @@ class RostersLayout:
         self.shoot.setToolTip("Stop the targeting lines (Esc)" if state["shooting"] else "Targeting lines from the pointer to this operative")
         if state["selected"] != self.fix_for:  # a new base starts with the name list closed
             self.fix_for = state["selected"]
+            self.change_id.setChecked(False)
             self.change.setChecked(state["selected"] is not None and state["selected"] == state["new_base"])  # a found base opens the name list
-        if state["shooting"] and self.change.isChecked():  # the targeting lines close the name list
+        if state["shooting"]:  # the targeting lines close the lists
             self.change.setChecked(False)
+            self.change_id.setChecked(False)
         if page == "empty":
             self.title.setText("Nothing selected")
         elif page == "adding":
@@ -436,6 +463,10 @@ class RostersLayout:
             self._show_shot(state)
             self.change.setEnabled(bool(state["candidates"]))
             self.candidates.show_state(state)
+            self.copies.show_state(state)
+            model = model_text(state)
+            self.model.setText(model)
+            self.model.setVisible(bool(model))
 
     def _show_shot(self, state: dict[str, Any]) -> None:
         """While "Shoot at" is on: OBSCURED and IN COVER in place of the ring, movement and distance."""

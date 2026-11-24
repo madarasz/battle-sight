@@ -48,6 +48,8 @@ SAVED: dict[str, str] = {
     "team_slots": "team_slots",
     "in_play": "in_play",
     "positions": "positions",
+    "models": "models",
+    "model_locked": "model_locked",
     "terrain_type": "terrain_type",
     "map_layout": "map_layout",
     "opened": "opened",
@@ -190,6 +192,8 @@ def capture(s) -> dict[str, Any]:
         "team_slots": list(s.team_slots),
         "in_play": [None if x is None else list(x) for x in s.in_play],
         "positions": {k: _point(v) for k, v in sorted(s.positions.items())},
+        "models": dict(sorted(s.models.items())),
+        "model_locked": sorted(s.model_locked),
         "terrain_type": s.terrain_type,
         "map_layout": s.map_layout,
         "opened": sorted(s.opened),
@@ -307,6 +311,8 @@ def _apply(s, data: dict[str, Any], folder: Path) -> None:
         s._build_shapes()
     # Game values.
     s.positions = {k: np.array(v, float) for k, v in data["positions"].items()}
+    s.models = {str(k): str(v) for k, v in data.get("models", {}).items()}  # older saves have no models
+    s.model_locked = {str(k) for k in data.get("model_locked", [])}
     s.wounds = {k: int(v) for k, v in data["wounds"].items()}
     if len(data["scores"]) != len(s.scores):
         raise ValueError(f"{len(data['scores'])} scores, {len(s.scores)} sides")

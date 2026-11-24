@@ -13,7 +13,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QAbstractButton, QHBoxLayout, QLabel, QStackedWidget, QToolButton, QVBoxLayout, QWidget
 
 from ...live import ACTIONS, Action
-from ..parts import CandidateList, DebugView, LightControl, MapPicker, OpeningControl, OperativeList, VideoWidget, WoundsControl, action_control, aim_texts, distance_label, light_title, panel_side, ring_controls, show_action_state
+from ..parts import CandidateList, CopyList, DebugView, LightControl, MapPicker, OpeningControl, OperativeList, VideoWidget, WoundsControl, action_control, aim_texts, distance_label, light_title, model_text, panel_side, ring_controls, show_action_state
 
 if TYPE_CHECKING:
     from . import Shell
@@ -132,6 +132,11 @@ class InspectorLayout:
     def _selected_page(self, column: QVBoxLayout) -> None:
         self.base_title = QLabel()
         column.addWidget(self.base_title)
+        self.model = QLabel()  # the model (counts_as variant), in italics
+        font = self.model.font()
+        font.setItalic(True)
+        self.model.setFont(font)
+        column.addWidget(self.model)
         self.crop = VideoWidget()
         self.crop.setMinimumSize(100, 100)
         self.crop.setFixedHeight(CROP_HEIGHT)
@@ -151,6 +156,10 @@ class InspectorLayout:
         column.addWidget(self.distance)
         self.candidates = CandidateList(self.shell.dispatch)
         column.addWidget(self.candidates, 1)
+        self.copies_title = QLabel("Change ID")
+        column.addWidget(self.copies_title)
+        self.copies = CopyList(self.shell.dispatch)  # only for a type with more than one copy in play
+        column.addWidget(self.copies, 0)
         self._add_controls(column, "base.remove")
 
     def _opening_page(self, column: QVBoxLayout) -> None:
@@ -205,3 +214,9 @@ class InspectorLayout:
             distance = state["distance"]
             self.distance.setText("Right click a second base to measure to." if distance is None else distance_label(distance))
             self.candidates.show_state(state)
+            self.copies.show_state(state)
+            self.copies.setVisible(bool(state["copy_choices"]))
+            self.copies_title.setVisible(bool(state["copy_choices"]))
+            model = model_text(state)
+            self.model.setText(model)
+            self.model.setVisible(bool(model))

@@ -301,7 +301,8 @@ def test_right_click_on_a_base_opens_names_and_choice_sets_it(window):
     mouse_click(window.video, widget_pos(window, base["position_px"]), Qt.MouseButton.RightButton)
     popup = wait_until(lambda: window.popup)
     assert window.state["selected"] == 1
-    action = popup.actions()[0]
+    assert [a.text() for a in popup.actions()] == ["Change operative"]  # no "Change ID": one copy of each type
+    action = popup.actions()[0].menu().actions()[0]
     label = window.state["candidates"][0]["label"]
     assert action.text().startswith(label)
     action.trigger()
@@ -1098,7 +1099,7 @@ def test_rosters_inspector_shows_the_operative(idle_rosters, recorded):
     assert not layout.candidates.isVisibleTo(idle_rosters) and layout.ring.isVisibleTo(idle_rosters)
     idle_rosters._on_frame(recorded[2]["base selected, no names"], 0)
     assert layout.title.text().startswith("Base (") and not layout.change.isEnabled()
-    assert layout.change.text() == "Change ID" and layout.remove.text() == "Remove ID"
+    assert layout.change.text() == "Change operative" and layout.remove.text() == "Remove ID"
     assert layout.remove.isVisibleTo(idle_rosters) and layout.remove.isEnabled()  # also without names
     idle_rosters._on_frame(recorded[2]["live"], 0)
     assert not layout.remove.isVisibleTo(idle_rosters)
@@ -1109,8 +1110,8 @@ def test_rosters_shoot_at_shows_cancel_the_pointer_crop_and_the_result(idle_rost
     frames = recorded[2]
     selected = frames["base selected"]
     idle_rosters._on_frame(selected, 0)
-    order = [layout.title.parentWidget().layout().itemAt(0).layout().itemAt(k).widget() for k in range(5)]
-    assert order[2:4] == [layout.remove, layout.shoot]  # after "Remove ID"
+    order = [layout.title.parentWidget().layout().itemAt(0).layout().itemAt(k).widget() for k in range(6)]
+    assert order[3:5] == [layout.remove, layout.shoot]  # after "Change operative", "Change ID"
     assert layout.shoot.text() == "Shoot at" and layout.shoot.isEnabled() and layout.shoot.isVisibleTo(idle_rosters)
     assert layout.ring.isVisibleTo(idle_rosters) and not layout.shot.isVisibleTo(idle_rosters)
     layout.change.click()  # the name list closes when the targeting lines start
@@ -1165,7 +1166,7 @@ def test_rosters_add_operative_shows_the_instruction_and_then_the_name_list(idle
     assert layout.change.text() == "Cancel"
     layout.change.click()  # Cancel: the name list closes, wounds, ring and distance come back
     assert not layout.candidates.isVisibleTo(idle_rosters) and layout.details.isVisibleTo(idle_rosters) and layout.wounds.isVisibleTo(idle_rosters)
-    assert layout.change.text() == "Change ID"
+    assert layout.change.text() == "Change operative"
     # A name choice closes the list; the operative stays in the inspector.
     idle_rosters._on_frame(replace(frames["base selected"], state=state), 0)
     layout.change.setChecked(True)
@@ -1526,12 +1527,22 @@ def test_rosters_commands_has_locate_operative(rosters):
 
 
 def test_texts_of_copies():
-    from battlesight.ui.parts import candidate_text, missing_text
+    from battlesight.ui.parts import candidate_text, copy_text, missing_text
 
     assert missing_text({"label": "orks/Nob", "name": "Nob", "max": 1, "copies_in_play": 0}) == "Nob"
     assert missing_text({"label": "orks/Grot", "name": "Grot", "max": 3, "copies_in_play": 2}) == "Grot (3/3)"
-    assert candidate_text({"label": "orks/Nob", "name": "Nob", "copy": None, "score": None, "wounds": 5, "max_wounds": 5}) == "orks/Nob"
-    assert candidate_text({"label": "orks/Grot#2", "name": "Grot #2", "copy": 2, "score": 0.5, "wounds": 3, "max_wounds": 5}) == "orks/Grot #2 (3/5)   50%"
+    assert candidate_text({"label": "orks/Nob", "name": "Nob", "score": None}) == "orks/Nob"
+    assert copy_text({"label": "orks/Grot#2", "name": "Grot #2", "copy": 2, "wounds": 3, "max_wounds": 5}) == "Grot #2 (3/5)"
+
+
+def test_texts_of_models():
+    from battlesight.ui.parts import candidate_text, model_text
+
+    assert candidate_text({"label": "necrons/Guardian - tesla", "name": "Guardian - tesla", "score": 0.81, "locked": True}) == "necrons/Guardian - tesla   81%   (locked)"
+    assert candidate_text({"label": "necrons/Guardian", "name": "Auto model", "score": None, "auto": True, "current": True}) == "Auto model  ✓"
+    base = {"model_name": "Guardian - tesla", "model_locked": False}
+    assert model_text({"selected": 0, "bases": [base]}) == "Model: Guardian - tesla"
+    assert model_text({"selected": 0, "bases": [{"model_name": None, "model_locked": False}]}) == ""
 
 
 def test_status_bar_progress_of_the_model_load(idle_rosters, recorded):

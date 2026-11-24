@@ -2300,21 +2300,99 @@ def test_a_possible_swap_is_unsure_only_when_the_states_differ(grots):
     assert np.allclose(session.positions[first["label"]], found[second["index"]].center_mm)
 
 
-def test_name_menu_lists_each_copy_with_its_wounds(grots):
+def test_change_id_lists_each_copy_with_its_wounds(grots):
     cfg, session = grots
     state = snap(session, paint_copies(cfg, [("Grot", A, 0.0), ("Grot", B, 90.0), *OTHERS]))
     session.dispatch("wounds.set", value=3, label="orks/Grot#2")
     index = grot_bases(session, state)[A]["index"]
     session.dispatch("base.select", index=index)
-    menu = session.state()["candidates"]
-    copies = [c for c in menu if c["label"].startswith("orks/Grot")]
-    assert [(c["name"], c["copy"], c["wounds"]) for c in copies] == [("Grot #1", 1, 5), ("Grot #2", 2, 3)]
-    from battlesight.ui.parts import candidate_text
+    s = session.state()
+    assert [c["label"] for c in s["candidates"] if c["label"].startswith("orks/Grot")] == ["orks/Grot"]  # "Change operative": no copy rows
+    copies = s["copy_choices"]
+    assert [(c["name"], c["copy"], c["wounds"], c["current"]) for c in copies] == [("Grot #1", 1, 5, True), ("Grot #2", 2, 3, False)]
+    from battlesight.ui.parts import copy_text
 
-    assert candidate_text(copies[1]).startswith("orks/Grot #2 (3/5)")
+    assert copy_text(copies[1]) == "Grot #2 (3/5)"
     # A type label picks the copy that the base has.
     session.dispatch("base.choose", label="orks/Grot", index=index)
     assert session.state()["bases"][index]["label"] == "orks/Grot#1"
+
+
+def grot_models(session):
+    """A snapshot of two Grots, plus a variant model `Grot - big` (counts as Grot).
+    Returns the two Grot bases (index, live label)."""
+    session.gallery.ensure_operative("orks", "Grot - big", None, counts_as="Grot")
+    found = [(b["index"], b["label"]) for b in session.state()["bases"] if b["type_label"] == "orks/Grot"]
+    assert len(found) == 2 and all(idt.copy_number(lab) is not None for _, lab in found)
+    return found
+
+
+def model_scores(session, index: int, grot: float, big: float, sure: bool = True) -> idt.Ident:
+    x = session.session.idents[index]
+    session.session.idents[index] = replace(x, candidates=[("orks/Grot", grot), ("orks/Grot - big", big), ("orks/Nob", 0.1)], sure=sure, confirmed=False)
+    return session.session.idents[index]
+
+
+def test_auto_model_switches_only_above_the_margin(grots):
+    cfg, session = grots
+    snap(session, paint_copies(cfg, [("Grot", A, 0.0), ("Grot", B, 90.0), *OTHERS]))
+    (i, label), _ = grot_models(session)
+    model_scores(session, i, 0.6, 0.7)
+    session._update_models()
+    assert session.models[label] == "orks/Grot - big"
+    model_scores(session, i, 0.74, 0.7)  # wins by less than the margin: no change
+    session._update_models()
+    assert session.models[label] == "orks/Grot - big"
+    model_scores(session, i, 0.95, 0.7, sure=False)  # an unsure base keeps its model
+    session._update_models()
+    assert session.models[label] == "orks/Grot - big"
+    model_scores(session, i, 0.76, 0.7)
+    session._update_models()
+    assert session.models[label] == "orks/Grot"
+    # The model shows in the base state and in the "Change operative" list only.
+    session.dispatch("base.select", index=i)
+    s = session.state()
+    base = s["bases"][i]
+    assert base["model"] == "orks/Grot" and base["model_name"] == "Grot" and not base["model_locked"] and base["name"].startswith("Grot #")
+    rows = {c["label"]: c for c in s["candidates"] if not c["auto"]}
+    assert rows["orks/Grot"]["current"] and not rows["orks/Grot - big"]["current"] and rows["orks/Grot - big"]["type_label"] == "orks/Grot"
+    assert s["candidates"][-1]["auto"] and s["candidates"][-1]["current"]
+    assert {b["model"] for b in s["bases"] if b["type_label"] == "orks/Nob"} == {None}  # one model only: no model
+
+
+def test_chosen_model_is_locked_until_auto(grots):
+    cfg, session = grots
+    snap(session, paint_copies(cfg, [("Grot", A, 0.0), ("Grot", B, 90.0), *OTHERS]))
+    (i, label), _ = grot_models(session)
+    model_scores(session, i, 0.8, 0.6)
+    session.dispatch("base.choose", label="orks/Grot - big", index=i)  # "Change operative": a model row
+    s = session.state()
+    assert s["bases"][i]["label"] == label and s["bases"][i]["model"] == "orks/Grot - big" and s["bases"][i]["model_locked"]
+    assert any(p.parent.name == "Grot - big" for p in session.gallery.files)  # the fix photo goes to the model
+    model_scores(session, i, 0.9, 0.1)
+    session._update_models()
+    assert session.models[label] == "orks/Grot - big"  # locked: no auto read
+    session.dispatch("base.model_auto", index=i)
+    assert session.models[label] == "orks/Grot" and label not in session.model_locked
+
+
+def test_change_id_moves_the_models_with_the_bases(grots):
+    cfg, session = grots
+    snap(session, paint_copies(cfg, [("Grot", A, 0.0), ("Grot", B, 90.0), *OTHERS]))
+    (i, first), (j, second) = grot_models(session)
+    session.models = {first: "orks/Grot - big", second: "orks/Grot"}
+    session.model_locked = {first}
+    session.dispatch("base.choose", label=second, index=i)  # "Change ID": the bases swap copies
+    s = session.state()
+    assert s["bases"][i]["label"] == second and s["bases"][j]["label"] == first
+    assert s["bases"][i]["model"] == "orks/Grot - big" and s["bases"][i]["model_locked"]  # the miniature stays on its base
+    assert s["bases"][j]["model"] == "orks/Grot" and not s["bases"][j]["model_locked"]
+    # A removed copy loses its model; a team change drops the models of the old team.
+    session.dispatch("operative.select", label=second)
+    session.dispatch("roster.remove", slot=0)
+    assert second not in session.models and second not in session.model_locked
+    session.dispatch("team.set", slot=0, name=None)
+    assert session.models == {} and session.model_locked == set()
 
 
 def test_movement_shows_the_melee_zone_and_avoid_melee_keeps_out_of_it(tmp_path):

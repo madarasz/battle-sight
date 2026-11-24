@@ -479,7 +479,7 @@ uv run battlesight enroll --team "Hierotek Circle" --operative "Immortal Guardia
 ```
 
 The app shows the model as "Immortal Guardian", with its base size and wounds.
-Only the list of names for a base ("Change ID" and "Locate operative") shows
+Only the list of a base ("Change operative" and "Locate operative") shows
 each model on its own, with its own match percentage.
 
 An operative gets a name only on a base of this size. In a game, the app looks only for the base sizes of the teams

@@ -440,8 +440,10 @@ gives the base its copy, else a copy without a base, else the first copy; a
 copy label that another base of the same type holds swaps the two bases (both
 confirmed). Name photos go to the type folder. State: `bases` entries and
 `rosters` rows have `type_label`, `copy` (number or `null`) and `name`
-(display name); `candidates` list each copy in play with `name`, `copy`,
-`wounds`, `max_wounds`; `selected_wounds` has `name`. The `image-pipeline`
+(display name); `copy_choices` ("Change ID" list of the selected base, empty
+with fewer than 2 copies in play) lists each copy in play with `label`, `name`,
+`copy`, `wounds`, `max_wounds`, `current`; `candidates` have no copy rows;
+`selected_wounds` has `name`. The `image-pipeline`
 report and the `ident` stage give type labels only; the benchmarks compare
 type labels.
 
@@ -452,9 +454,34 @@ type labels.
 | `swap_margin_mm` | 25 | A swap of two copies that costs less than this, with different wounds, makes both names unsure. |
 | `new_cost_mm` | 150 | Pairing cost of a copy without a known position. |
 
+Models (`counts_as` variants, `docs/specs/operative-copies.md` section 12): each
+live label (copy label, or type label for `max = 1`) of a type with variants has
+a model: `LiveSession.models` (live label -> type label of the original or a
+variant) and `LiveSession.model_locked` (saved). After the copy pairing, and
+after "Locate operative", `_read_model` takes the best model score of
+`Ident.candidates`: the first time always, then only on a sure base and when it
+wins by `[models] switch_margin`. A locked model does not change.
+`base.choose(label)` with a type label (a model row of "Change operative") sets
+and locks the model of a type with variants; with a copy label ("Change ID") the
+models and locks stay with the bases (a swap swaps them). `base.model_auto(index)`
+removes the lock and reads the model again. `roster.remove` and `team.set` drop
+models and locks. The overlay and the team list never show a model. State:
+`bases` entries have `model`, `model_name` (`null` for a type with one model) and
+`model_locked`; `candidates` ("Change operative" list) has one row for each
+model with `label`, `name`, `type_label`, `score`, `current`, `locked`,
+`auto` = false, then an `auto` = true row ("Auto model") for a type with
+variants.
+
+`[models]` in `data/board.toml`:
+
+| Key | Default | Meaning |
+|---|---|---|
+| `switch_margin` | 0.05 | The auto model changes only when the new model's score is this much higher than the score of the current model. |
+
 Fixes (plan priority 4, "user confirms or fixes with one click"): after
 `space`, right-click a base, then click a name in the list (a popup at the base
-in `panel`, the panel list in `inspector`). A right click with no base
+in `panel` with the submenus "Change operative" and, with 2 or more copies of the
+type in play, "Change ID"; the panel lists in `inspector`). A right click with no base
 selected, or on the selected base, replaces the selection (`state["right_click"]`
 = "name": the shell opens the popup); a right click on another base sets the
 target of the distance (`right_click` = "measure", no popup). A name choice selects the named base (no ring, no target) and clears `new_base`. The list has the
@@ -517,9 +544,12 @@ of the status bar; off at each layout change). It must not import `pipeline`,
 `rosters` (Option 3 of `docs/specs/ui.md`): a top bar with the sections View
 (`MapPicker`, view toggles and `measure.walls`, bottom row: radio buttons `view.live`, `view.snapshot`, `view.minimap`; `Action.radio` gives a `QRadioButton`, one set per parent widget), Commands (`snapshot.name`, `names.accept` shown
 only with `unconfirmed > 0`, "Locate operative" = `base.add` (the inspector shows the instruction while `adding`)), Inspector (operative: title `Team - Name (40mm)`, crop,
-`WoundsControl`, `RingSlider`, `measure.move`, distance, "Change ID" that shows a
-`CandidateList` (open at once for `new_base`; while open it hides the wounds,
-ring, movement and distance, and the button reads "Cancel": it closes the list), "Remove ID" = `base.remove`, "Shoot at" = `measure.shoot`
+`WoundsControl`, `RingSlider`, `measure.move`, distance, the model in italics
+(`parts.model_text`, only for a type with variants), "Change operative" that shows a
+`CandidateList` (models and scores; open at once for `new_base`; while open it hides the wounds,
+ring, movement and distance, and the button reads "Cancel": it closes the list), "Change ID"
+that shows a `CopyList` (`copy_choices`; the button shows only with 2 or more copies in play;
+one list is open at a time), "Remove ID" = `base.remove`, "Shoot at" = `measure.shoot`
 (reads "Cancel" while `shooting`; the crop is the board under the pointer, OBSCURED / IN COVER from `state["shot"]` take the place of the ring, movement and distance);
 opening: "Hatchway" / "Breach point" and `OpeningControl`
 (state and Open / Close button); `✕` = `base.deselect`) and Reference. The last check box of Commands is "Debug" (debug values in the status bar).
@@ -548,7 +578,7 @@ brings it back. There are no layout options: the defaults apply.
 
 | File | Content |
 |---|---|
-| `state.json` | `schema` 1, `saved_at`, `ui_layout`, `files`, teams and team lists, positions of copies, `terrain_type`, `map_layout`, `opened` openings, light terrain poses, `wounds`, `scores`, `turn`, `crit_op`, `view` (switches, `frozen`, `minimap`), `snapshot` (bases and names), `selection` |
+| `state.json` | `schema` 1, `saved_at`, `ui_layout`, `files`, teams and team lists, positions of copies, `models` and `model_locked`, `terrain_type`, `map_layout`, `opened` openings, light terrain poses, `wounds`, `scores`, `turn`, `crit_op`, `view` (switches, `frozen`, `minimap`), `snapshot` (bases and names), `selection` |
 | `frame.png` | Camera frame of the snapshot. Restore detects the bases on it again, then sets the saved bases and names. |
 | `empty_board.png` | Copy of the empty-board reference. |
 
@@ -590,10 +620,10 @@ another paint or pose): it has its own folder and photos, and `counts_as =
 variants as one operative (best score), so the screen, the team list, wounds and
 copy pairing show the original (`Gallery.canonical`, `Ident.photo_label` = the
 variant with the best score, where an accepted name puts its photo). Only the
-name menu ("Change ID", "Locate operative") lists the variants on their own,
-with their own scores (`state["candidates"]`, a variant copy has the label
-`<team>/<variant>#<k>`); a choice names the original, and the photo goes to the
-variant. `--expendable` sets `expendable = true` for the
+"Change operative" list (also after "Locate operative") and the inspector model
+line show the variants, with their own scores (`state["candidates"]`); a choice
+names the original, locks the model of the base's copy, and the photo goes to
+the variant. The live app keeps the model of each copy (see "Models" above). `--expendable` sets `expendable = true` for the
 operative in `team.toml` (`--not-expendable` removes it; without either option
 the value stays). `--archetype ARCH ...` (one or more of `Infiltration`,
 `"Seek and Destroy"`, `Recon`, `Security`; the keys of `[tac_ops]` in

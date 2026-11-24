@@ -393,6 +393,7 @@ ACTIONS: tuple[Action, ...] = (
     Action("board.hover", "Point at the board", args=("x", "y")),
     Action("board.select", "Right click the board", args=("x", "y"), enabled=_in_snapshot),
     Action("base.choose", "Set name", args=("label", "index"), enabled=_has_selection),
+    Action("base.model_auto", "Auto model", args=("index",), enabled=_has_selection),
     Action("base.select", "Select operative", args=("index",)),
     Action("operative.select", "Select operative of a team", args=("label",)),
     Action("roster.add", "Add operative", args=("slot", "label")),
@@ -504,6 +505,10 @@ class LiveSession:
         # Last known board centre (mm) of each copy of an operative with `max` > 1:
         # identification tells the copies apart by it.
         self.positions: dict[str, np.ndarray] = {}
+        # Model (counts_as variant) of each live label of a type with variants: the
+        # type label of the original or of a variant. Looks only, no game value.
+        self.models: dict[str, str] = {}
+        self.model_locked: set[str] = set()  # live labels whose model the user chose: no auto read
         self.gallery: idt.Gallery | None = None
         self._update_roster()
         self.gallery_tried = False
@@ -615,6 +620,7 @@ class LiveSession:
             "board.click": self._click,
             "board.select": self._select_for_names,
             "base.choose": self._choose,
+            "base.model_auto": self._model_auto,
             "base.select": self._select_index,
             "operative.select": self._select_operative,
             "roster.add": self._roster_add,
@@ -1402,6 +1408,7 @@ class LiveSession:
             "in_ring": self._in_ring(self._found()),
             "distance": self._distance_state(),
             "candidates": self._candidates_state(),
+            "copy_choices": self._copy_choices_state(),
             "can_undo": s is not None and bool(s.added),
             "unconfirmed": 0 if s is None else sum(x.label is not None and not x.confirmed for x in s.idents),
             "notice": None if current is None else {"text": current[0], "level": self.notice.level},
@@ -1469,28 +1476,51 @@ class LiveSession:
                 "wounds": self._wounds_of(None if x is None else x.label)[0],
                 "max_wounds": self._wounds_of(None if x is None else x.label)[1],
                 "dead": x is not None and self._is_dead(x.label),
+                "model": None if x is None else self.models.get(x.label),
+                "model_name": None if x is None or x.label not in self.models else idt.display_name(self.models[x.label]),
+                "model_locked": x is not None and x.label in self.model_locked,
                 "position_px": p,
             }
             for i, (c, x, p) in enumerate(zip(found, idents, positions))
         ]
 
     def _candidates_state(self) -> list[dict[str, Any]]:
+        """The "Change operative" list of the selected base: one row for each
+        model (original or `counts_as` variant) of each allowed type, best
+        score first, then an "Auto model" row when the base's type has
+        variants. No copy rows: `copy_choices` has them."""
         s, i = self.session, self.selected
         if s is None or i is None:
             return []
-        scores = dict(s.idents[i].candidates)
+        x = s.idents[i]
+        scores = dict(x.candidates)
+        own = None if x.label is None else self._canonical(idt.type_of(x.label))
+        variants = bool(self._model_labels(x.label))
+        model = self.models.get(x.label) if variants else own
+        locked = variants and x.label in self.model_locked
         out = []
         for label in s.menu(i):
-            canon = self.gallery.canonical(label) if self.gallery is not None else label
-            op = self._type_op(canon)
-            # Each copy in play of an operative that a team fields more than once. A variant (`counts_as`)
-            # is its own entry with its own score, and the wounds of its original.
-            copies = self._copies_of(canon) if op is not None and op.max > 1 else [canon]
-            labels = copies if canon == label else [idt.copy_label(label, k) if (k := idt.copy_number(c)) is not None else label for c in copies]
-            for lab, own in zip(labels, copies):
-                current, maximum = self._wounds_of(own)
-                out.append({"label": lab, "name": idt.display_name(lab), "copy": idt.copy_number(lab), "score": _num(scores.get(label)), "wounds": current, "max_wounds": maximum})
+            current = label == model
+            out.append({"label": label, "name": idt.display_name(label), "type_label": self._canonical(label), "score": _num(scores.get(label)), "current": current, "locked": current and locked, "auto": False})
+        if variants:
+            out.append({"label": own, "name": "Auto model", "type_label": own, "score": None, "current": not locked, "locked": False, "auto": True})
         return out
+
+    def _copy_choices_state(self) -> list[dict[str, Any]]:
+        """The "Change ID" list of the selected base: the copies in play of its
+        type. Empty when fewer than two copies are in play."""
+        s, i = self.session, self.selected
+        if s is None or i is None or s.idents[i].label is None:
+            return []
+        label = s.idents[i].label
+        op = self._type_op(label)
+        copies = [] if op is None or op.max == 1 else self._copies_of(op.label)
+        if len(copies) < 2:
+            return []
+        return [{"label": c, "name": idt.display_name(c), "copy": idt.copy_number(c), "wounds": self._wounds_of(c)[0], "max_wounds": self._wounds_of(c)[1], "current": c == label} for c in copies]
+
+    def _canonical(self, label: str) -> str:
+        return self.gallery.canonical(label) if self.gallery is not None else label
 
     def _operatives_of(self, team: str) -> list[idt.Operative]:
         if team not in self._team_ops:
@@ -1667,6 +1697,7 @@ class LiveSession:
         if idt.copy_number(label) is not None:  # a copy that comes back starts again
             self.wounds.pop(label, None)
             self.positions.pop(label, None)
+        self._drop_model(label)
         self._set_selected(None)
         self._update_roster()
         self.notice.say(f"{idt.display_name(label)} removed" + (": push space to identify the operatives again" if self.result is not None else ""))
@@ -1934,6 +1965,7 @@ class LiveSession:
             self.session = self._label_session(result, gallery)
             if self.session is not None:
                 self._pair_copies()
+                self._update_models()
             for b in result.stages["ident"].data.get("bases", []):
                 print(f"  {b['label'] or 'unknown':30s} {b['diameter_mm']:g} mm at {b['center_mm']} mm, score {b['score']}")
         else:
@@ -2389,6 +2421,8 @@ class LiveSession:
         old = self.team_slots[slot]
         if old is not None:  # the copies of the old team are gone
             self.positions = {k: v for k, v in self.positions.items() if idt.split_label(k)[0] != old}
+            self.models = {k: v for k, v in self.models.items() if idt.split_label(k)[0] != old}
+            self.model_locked = {k for k in self.model_locked if idt.split_label(k)[0] != old}
         self.team_slots[slot] = name
         self.teams = [t for t in self.team_slots if t] or None
         if self.scores[slot].tac_op not in self._tac_ops_of(slot):  # not a Tac Op of the new team
@@ -2504,14 +2538,22 @@ class LiveSession:
         index = self.selected if index is None else index
         if s is None or index is None:
             return
-        photo = None
+        picked, photo = label, None
         if self.gallery is not None and (canon := self.gallery.canonical(label)) != label:  # a variant model names its original
             photo, label = idt.type_of(label), canon
         label = self._copy_for(label, index)
         if label is None:
             return
         old = s.idents[index].label
+        before = {k: (self.models.get(k), k in self.model_locked) for k in (old, label) if k is not None}
         path = s.choose(label, index, photo)
+        if idt.copy_number(picked) is not None:  # "Change ID": the models stay with the bases (the miniatures)
+            if old is not None and old != label:
+                self._set_model(label, before[old])
+                if any(x.label == old for x in s.idents):  # a swap: the other base keeps its miniature too
+                    self._set_model(old, before[label])
+        elif self._model_labels(label):  # "Change operative": the chosen model, locked
+            self._set_model(label, (idt.type_of(picked), True))
         found = self._found()
         for k, x in enumerate(s.idents):  # the chosen copy and the copy of a swap are where the user says
             if x.label is not None and idt.copy_number(x.label) is not None and x.label in (label, old) and k < len(found):
@@ -2609,6 +2651,77 @@ class LiveSession:
                 s.idents[i] = idt.Ident(label, x.score, x.margin, x.candidates, sure=x.sure and b not in unsure, confirmed=False, masked=x.masked)
                 if b not in unsure:
                     self.positions[label] = centers[b].copy()
+
+    # --- models (counts_as variants) ------------------------------------------------
+
+    def _model_labels(self, label: str | None) -> list[str]:
+        """Type labels of the models of the type of a live label: the original
+        first, then its variants. Empty when the type has no variant (or there
+        is no gallery)."""
+        g = self.gallery
+        if g is None or label is None:
+            return []
+        k = g.index(g.canonical(idt.type_of(label)))
+        if k is None:
+            return []
+        members = sorted(g.members(k), key=lambda j: j != k)
+        return [g.operatives[j].label for j in members] if len(members) > 1 else []
+
+    def _read_model(self, label: str | None, ident: idt.Ident, force: bool = False) -> None:
+        """The auto model of live label `label` from the model scores of
+        `ident`: the best model when there is none yet (or with `force`), else
+        only on a sure base that it wins by `models_switch_margin`. A locked
+        model does not change."""
+        models = self._model_labels(label)
+        if not models or label in self.model_locked:
+            return
+        scores = dict(ident.candidates)
+        known = [(scores[m], m) for m in models if m in scores and np.isfinite(scores[m])]
+        if not known:
+            return
+        best_score, best = max(known)
+        current = self.models.get(label)
+        if current is None or force or (ident.sure and best_score - scores.get(current, -np.inf) >= self.cfg.models_switch_margin):
+            self.models[label] = best
+
+    def _update_models(self) -> None:
+        """The auto model of each named base of the snapshot."""
+        if self.session is None:
+            return
+        for x in self.session.idents:
+            if x.label is not None:
+                self._read_model(x.label, x)
+
+    def _set_model(self, label: str, model: tuple[str | None, bool]) -> None:
+        name, locked = model
+        if name is None:
+            self.models.pop(label, None)
+        else:
+            self.models[label] = name
+        if locked:
+            self.model_locked.add(label)
+        else:
+            self.model_locked.discard(label)
+
+    def _drop_model(self, label: str) -> None:
+        self.models.pop(label, None)
+        self.model_locked.discard(label)
+
+    def _model_auto(self, index: int | None = None) -> None:
+        """"Auto model": the model of the base's copy is read from the
+        identification again, and the user's choice (the lock) goes."""
+        s = self.session
+        index = self.selected if index is None else index
+        if s is None or index is None or not 0 <= index < len(s.idents):
+            return
+        x = s.idents[index]
+        if not self._model_labels(x.label):
+            self.notice.say("this operative has one model only")
+            return
+        self.model_locked.discard(x.label)
+        self._read_model(x.label, x, force=True)
+        self.notice.ok(f"{idt.display_name(x.label)}: auto model")
+        self.dirty = True
 
     def _remove_base(self, index: int | None = None) -> None:
         """Remove base `index` (default: the selected base) from the snapshot:
@@ -2721,6 +2834,8 @@ class LiveSession:
         index = s.add(circle.center_mm, circle.diameter_mm, crop, ident, background)
         if ident.label is not None and idt.copy_number(ident.label) is not None:
             self.positions[ident.label] = np.asarray(circle.center_mm, float)
+        if ident.label is not None:
+            self._read_model(ident.label, ident)
         scratch = self.result.scratch
         scratch["bases"] = [*found, circle]
         for key, item in (("idents", ident), ("base_crops", crop), ("base_backgrounds", background)):

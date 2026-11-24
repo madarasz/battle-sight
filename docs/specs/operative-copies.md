@@ -1,6 +1,6 @@
 # Operative copies
 
-Specification for operatives that a team can field more than once. Status: steps 1 to 6 of section 9 done. Step 7 (sequence done test) waits for O3.
+Specification for operatives that a team can field more than once. Status: steps 1 to 6 of section 9 done. Step 7 (sequence done test) waits for O3. Section 12 (models) done.
 
 ## 1. Problem
 
@@ -165,3 +165,65 @@ When the done test shows too many wrong copies, add tracking between snapshots: 
 | O3 | Test data: a team with copies (for example Kommandos) in the gallery, and a recorded snapshot sequence with copy truth. |
 | O4 | One combined Hungarian (score and distance together) in place of two steps. Only if two steps give errors on O3 data. |
 | O5 | A copy that is dead or out of action must not take a base. Needs the dead status first. |
+
+## 12. Models (counts-as variants)
+
+A player can use more than one miniature for one operative type (`counts_as` in `team.toml`, for example `Immortal Guardian - tesla` counts as `Immortal Guardian`). A model changes the looks only. Rules, wounds, base size and `max` are the values of the original.
+
+### 12.1 Decisions
+
+| ID | Decision |
+|---|---|
+| M1 | The copy is the identity. It holds the game state. The model is an attribute of a copy. It never goes into a label. |
+| M2 | Every copy can use any model of its type. |
+| M3 | The model changes nothing in the game. Measurement, movement and shooting do not use it. |
+| M4 | Auto plus lock (T3). The app reads the model from the identification. A user choice locks the model of that copy. "Auto" removes the lock. |
+| M5 | The overlay, the team list and the notices never show a model name. The model shows only in the inspector (italic line) and in the "Change operative" list (with its score). |
+| M6 | The model belongs to the base (the miniature). A copy swap ("Change ID") moves the models and the locks with the bases. |
+| M7 | Auto changes the model only when the new model wins by `[models] switch_margin` (score, default 0.05). |
+
+### 12.2 State
+
+- `LiveSession.models: dict[str, str]`: live label (copy label, or type label for `max = 1`) to the type label of its model (the original or a variant). Only types with variants have an entry.
+- `LiveSession.model_locked: set[str]`: live labels with a model that the user chose.
+- Both are saved game state (`state.SAVED`).
+- `roster.remove` drops the model and the lock of that copy. `team.set` drops the models and the locks of the old team.
+
+### 12.3 Auto read
+
+After the copy pairing (5.2) of each snapshot, and after "Locate operative" names a base:
+
+1. Only a base with a live label, a type with variants, and no lock.
+2. Scores of the models = the scores of the original and its variants in `Ident.candidates`.
+3. Best model = highest score. No model yet: take it (also on an unsure base). Else take it only on a sure base and when its score minus the score of the current model is `switch_margin` or more.
+
+### 12.4 Actions and fixes
+
+| Action | Effect |
+|---|---|
+| `base.choose(label)` with a type label (original or variant) | "Change operative": sets the type as today. For a type with variants: the model is the chosen one, and it is locked. The fix photo goes to the folder of the chosen model. |
+| `base.choose(label)` with a copy label | "Change ID": the copy as today (swap). The models and the locks stay with the bases (M6). |
+| `base.model_auto` | "Auto model": removes the lock of the selected base's copy and reads the model again now (12.3 step 3 without the margin). |
+
+A type label of a type with copies gives a copy as `_copy_for` does today (the copy of the base, else a free copy, else the first). The user fixes the copy with "Change ID".
+
+### 12.5 UI
+
+- `state["candidates"]` ("Change operative" list): one row for each model of each allowed type, best score first: `label` (type label of the model), `name` (model name), `type_label` (original), `score`, `current` (the model of the base), `locked`. Then one `Auto` row (`auto = true`) when the base's type has variants. No copy rows.
+- `state["copy_choices"]` ("Change ID" list): the copies in play of the base's type, with `label`, `name`, `wounds`, `max_wounds`, `current`. Empty when fewer than 2 copies are in play.
+- `state["bases"]` entries: `model` (type label or None), `model_name` (None when the type has no variants), `model_locked`.
+- Layout `rosters`, inspector section:
+  - The button "Change ID" is now "Change operative". It opens the `candidates` list. "Locate operative" opens it too (as today).
+  - New button "Change ID", visible only when `copy_choices` is not empty. It opens the `copy_choices` list: `Boy #1 (10/10)`, `Boy #2 (4/10)`.
+  - One list is open at a time. A choice, another base or "Cancel" closes it.
+  - Under the title, in italics: the model name, when `model_name` is not None.
+- Name popup (layout `panel`): two submenus, "Change operative" and "Change ID" (only when `copy_choices` is not empty).
+- Layout `inspector`: the model line, and the "Change ID" list under the name list when `copy_choices` is not empty.
+
+### 12.6 Tests
+
+- Auto read: first model, switch only above the margin, unsure base keeps the model, lock stops the auto read.
+- `base.choose` with a variant: model locked. `base.model_auto`: lock gone, model read again.
+- Copy swap: models and locks move with the bases.
+- `roster.remove`, `team.set`, save and restore.
+- `candidates` and `copy_choices` state. Layout tests for the two buttons, the model line and the popup submenus.

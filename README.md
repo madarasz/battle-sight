@@ -74,13 +74,17 @@ Code) and ask it to record the map.
 1. Put the operatives on the board.
 2. Click "Identify all operatives". Check the names with a percentage or a
    `?`.
-3. If a name is wrong, click the base and choose the correct name. The app
-   learns from each correction.
+3. If a name is wrong, click the base, click "Change operative" and choose
+   the correct operative. The app learns from each correction.
 4. If the app found an operative where there is none, click "Remove ID".
 5. If a base is not found, click "Locate operative", then click the centre
    of the base.
-6. To swap two copies of the same operative, right click one base and choose
-   the correct copy.
+6. To swap two copies of the same operative, click one base, click "Change
+   ID" and choose the correct copy.
+7. If you use more than one model for an operative, the app finds the model
+   by itself. If the model is wrong, click "Change operative" and choose the
+   correct model. The app then keeps your choice. Choose "Auto model" to let
+   the app find the model again.
 
 Click "Identify all operatives" again after the operatives move or after a
 change to the teams. The names stay on the live video until then.
