@@ -103,6 +103,8 @@ NOT_SAVED: dict[str, str] = {
     "gallery_tried": "loaded again from the team slots",
     "_shot": "cache",
     "hover_mm": "pointer position",
+    "move_locked": "needs the pointer position, which is not saved; a loaded game starts unlocked",
+    "shot_locked": "needs the pointer position, which is not saved; a loaded game starts unlocked",
     "_move_field": "cache",
     "_move_route": "cache",
     "_navigator": "cache",

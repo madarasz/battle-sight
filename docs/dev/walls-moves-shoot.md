@@ -21,6 +21,7 @@ Modules: `walls.py`, `moves.py`, `shoot.py` (pure geometry in board mm), their h
 - With movement on, each enemy gets a yellow dashed circle 1 in around it and, when the route comes into it (`LiveSession._move_melee`, `state["move_melee"]`), a white `draw_melee_sign`.
 - `measure.avoid_melee` ("Avoid control range", enabled with movement) gives `move_field(avoid_mm=1 in)`, which keeps area and route out of these zones (not for an enemy already within 1 in at the start).
 - `LiveSession._field` / `_route` keep the last result.
+- A left click with movement on and a ring locks the route (`move_locked`, `state["move_locked"]`, not saved), like the shot lock: `_hover` is ignored, the click sets the pointer position, the area, circles, route and numbers stay. `measure.unlock` frees it; a new ring, selection, movement toggle or "Shoot at" clears it. The inspector shows "Movement locked." and "Unlock" at the bottom right.
 
 ## shoot.py
 
@@ -29,4 +30,5 @@ Modules: `walls.py`, `moves.py`, `shoot.py` (pure geometry in board mm), their h
 - `aim` -> `Shot`: `pieces` = intervening heavy rectangles from `walls.obstacles`, `obscured` = a part in the lines outside the 1 in zones of both target and shooter (shooter base, else the pointer), `in_cover` = a part in the 1 in zone of the target.
 - `aim(light=[outlines])`: light terrain gives cover the same way and never obscures (`Shot.light` = indexes of the covering outlines, `cover_by`); no cover while the target is within 2 in of the shooter (`NO_COVER_MM`, `Shot.too_near`; also for heavy terrain).
 - Origin = the mouse pointer (`board.hover`, the shell sends it while `shooting`); shooter = the base under the pointer that is not the target or its team (`LiveSession._shooter_index`).
-- `LiveSession._aim` caches the result; `state["shooting"]`, `state["shot"]`. The inspector crop is `_aim_crop` while shooting.
+- `LiveSession._aim` caches the result; `state["shooting"]`, `state["shot"]`. The inspector keeps the crop of the selected operative at the left; `LiveFrame.aim_crop` (`_aim_crop`, the board under the pointer) is shown at the right with the name of the shooter (`shot["shooter"]`).
+- A left click while shooting locks the shot (`shot_locked`, `state["shot_locked"]`, not saved): `_hover` is ignored, the click sets the origin. Action `measure.unlock` ("Unlock" button, no key) frees it. `Esc`, "Cancel", or any stop of "Shoot at" clears the lock.

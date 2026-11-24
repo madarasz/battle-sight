@@ -220,6 +220,9 @@ class MainWindow(QMainWindow):
     def selected_crop(self) -> np.ndarray | None:
         return None if self.last_frame is None else self.last_frame.crop
 
+    def aim_crop(self) -> np.ndarray | None:
+        return None if self.last_frame is None else self.last_frame.aim_crop
+
     def next_layout(self) -> None:
         names = list(LAYOUTS)
         self.set_layout(names[(names.index(self.current_layout.name) + 1) % len(names)])

@@ -29,6 +29,9 @@ class Shell(Protocol):
     def selected_crop(self) -> np.ndarray | None:
         """The board around the selected base, of the frame that `on_state` shows."""
 
+    def aim_crop(self) -> np.ndarray | None:
+        """The board under the pointer while "Shoot at" is on, of the frame that `on_state` shows."""
+
     def show_debug(self, on: bool) -> None:
         """Show the debug values in the status bar. Off at each layout change."""
 

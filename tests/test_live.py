@@ -1501,6 +1501,7 @@ def test_movement_goes_around_a_wall_and_through_an_open_hatchway(tmp_path):
     around = session.step(frame).state["move"]
     assert len(around["increments"]) >= 2 and around["in"] == sum(around["increments"]) >= 7
 
+    session.dispatch("ring.clear")  # a click with a ring would lock the route
     x, y = opening_px(session)
     session.dispatch("board.click", x=x, y=y)
     session.dispatch("opening.toggle")
@@ -1887,7 +1888,7 @@ def test_shoot_at_draws_targeting_lines_from_the_pointer(tmp_path):
     shot = session.step(frame)
     assert_json_safe(shot.state)
     assert shot.state["shot"] == {"obscured": True, "in_cover": False, "cover_by": None, "too_near": False, "intervening": 3, "shooter": burna}
-    assert shot.crop is not None and not np.array_equal(shot.image, before.image)  # the board under the pointer
+    assert shot.aim_crop is not None and shot.crop is None and not np.array_equal(shot.image, before.image)  # the board under the pointer
 
     hover(session, (300.0, 250.0))  # open floor, no base
     clear = session.step(frame)
@@ -1900,7 +1901,7 @@ def test_shoot_at_draws_targeting_lines_from_the_pointer(tmp_path):
     s = session.state()
     assert s["shooting"] is False and s["selected"] == nob and s["mode"] == "snapshot"
     session.dispatch("measure.shoot")
-    click_base(session, state, burna)  # a new selection stops it
+    session.dispatch("base.select", index=burna)  # a new selection stops it
     assert session.state()["shooting"] is False
 
 
@@ -2607,6 +2608,55 @@ def test_shoot_at_pauses_the_measurement_and_cancel_brings_it_back(tmp_path):
     session.dispatch("measure.move")  # movement on: shooting off, nothing restored
     s = session.state()
     assert s["shooting"] is False and s["movement"] is True and s["ring_in"] is None
+
+
+def test_shoot_at_click_locks_the_shot_and_unlock_frees_it(tmp_path):
+    session, frame, state, nob, burna = wall_session(tmp_path)
+    click_base(session, state, nob)
+    session.dispatch("measure.shoot")
+    session.dispatch("board.hover", x=300.0, y=200.0)
+    at = session.hover_mm.copy()
+    session.dispatch("board.click", x=300.0, y=200.0)
+    s = session.state()
+    assert s["shot_locked"] is True and s["shooting"] is True and s["selected"] == nob
+    session.dispatch("board.hover", x=100.0, y=100.0)  # the pointer moves, the shot stays
+    assert np.allclose(session.hover_mm, at)
+    session.dispatch("board.click", x=100.0, y=100.0)  # a second click changes nothing
+    assert np.allclose(session.hover_mm, at) and session.state()["selected"] == nob
+    session.dispatch("measure.unlock")
+    assert session.state()["shot_locked"] is False
+    session.dispatch("board.hover", x=100.0, y=100.0)
+    assert not np.allclose(session.hover_mm, at)
+    session.dispatch("board.click", x=300.0, y=200.0)
+    session.dispatch("snapshot.back")  # Esc stops it, locked or not
+    s = session.state()
+    assert s["shooting"] is False and s["shot_locked"] is False
+
+
+def test_movement_click_locks_the_route_and_unlock_frees_it(tmp_path):
+    session, frame, state, nob, burna = wall_session(tmp_path)
+    click_base(session, state, nob)
+    session.dispatch("measure.move")
+    session.dispatch("board.click", x=300.0, y=200.0)  # no ring yet: a plain click
+    assert session.state()["move_locked"] is False
+    click_base(session, state, nob)
+    session.dispatch("ring.6")
+    session.dispatch("board.hover", x=300.0, y=250.0)
+    at = session.hover_mm.copy()
+    session.dispatch("board.click", x=300.0, y=250.0)
+    s = session.state()
+    assert s["move_locked"] is True and s["shot_locked"] is False and s["selected"] == nob and s["movement"] is True
+    route = s["move"]
+    session.dispatch("board.hover", x=100.0, y=100.0)
+    assert np.allclose(session.hover_mm, at) and session.state()["move"] == route
+    session.dispatch("measure.unlock")
+    assert session.state()["move_locked"] is False
+    session.dispatch("board.hover", x=100.0, y=100.0)
+    assert not np.allclose(session.hover_mm, at)
+    session.dispatch("board.click", x=100.0, y=100.0)
+    assert session.state()["move_locked"] is True
+    session.dispatch("ring.3")  # a new ring frees the lock
+    assert session.state()["move_locked"] is False
 
 
 def test_ring_goes_up_to_12_in(tmp_path):

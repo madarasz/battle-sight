@@ -1119,15 +1119,31 @@ def test_rosters_shoot_at_shows_cancel_the_pointer_crop_and_the_result(idle_rost
     shooting = dict(selected.state, shooting=True, shot=None)
     idle_rosters._on_frame(replace(selected, state=shooting, crop=aim), 0)
     assert layout.shoot.text() == "Cancel" and not layout.change.isChecked()
-    assert layout.shot.isVisibleTo(idle_rosters) and not layout.ring.isVisibleTo(idle_rosters) and layout.crop._image is not None
+    assert layout.shot.isVisibleTo(idle_rosters) and not layout.ring.isVisibleTo(idle_rosters)
+    assert layout.aim.isVisibleTo(idle_rosters) and layout.shot_crop._image is None and not layout.lock_row.isVisibleTo(idle_rosters)  # no pointer crop yet
+    idle_rosters._on_frame(replace(selected, state=shooting, aim_crop=aim), 0)
+    assert layout.shot_crop._image is not None
     assert not layout.obscured.isVisibleTo(idle_rosters) and not layout.in_cover.isVisibleTo(idle_rosters) and "Esc" in layout.shot_text.text()
     for obscured, in_cover in ((True, False), (False, True), (True, True)):
         state = dict(shooting, shot={"obscured": obscured, "in_cover": in_cover, "intervening": 1, "shooter": 1})
         idle_rosters._on_frame(replace(selected, state=state, crop=aim), 0)
         assert layout.obscured.isVisibleTo(idle_rosters) is obscured and layout.in_cover.isVisibleTo(idle_rosters) is in_cover
         assert layout.obscured.text() == "OBSCURED" and layout.in_cover.text() == "IN COVER"
-    idle_rosters._on_frame(replace(selected, state=dict(shooting, shot={"obscured": False, "in_cover": False, "intervening": 0, "shooter": None}), crop=None), 0)
-    assert layout.crop.isVisibleTo(idle_rosters)  # the pointer is off the board: the crop keeps its place
+    idle_rosters._on_frame(replace(selected, state=dict(shooting, shot={"obscured": False, "in_cover": False, "intervening": 0, "shooter": None}), aim_crop=None), 0)
+    assert layout.aim.isVisibleTo(idle_rosters) and layout.shooter.text() == ""  # the pointer is off the board: the crop keeps its place
+    assert layout.crop.isVisibleTo(idle_rosters)  # the selected operative stays on the left
+    base = dict(selected.state["bases"][0], label="orks/boss_nob", name="Boss Nob")
+    named = dict(shooting, bases=[base] * 3, shot={"obscured": False, "in_cover": False, "intervening": 0, "shooter": 1})
+    idle_rosters._on_frame(replace(selected, state=named, aim_crop=aim), 0)
+    assert layout.shooter.text() == "orks - Boss Nob"
+    sent = []
+    idle_rosters.dispatch = lambda action_id, **args: sent.append(action_id)
+    idle_rosters._on_frame(replace(selected, state=dict(named, shot_locked=True), aim_crop=aim), 0)
+    assert layout.lock_row.isVisibleTo(idle_rosters)
+    layout.unlock.click()
+    assert sent == ["measure.unlock"] and layout.lock_text.text() == "Shot locked."
+    idle_rosters._on_frame(replace(selected, state=dict(selected.state, move_locked=True), aim_crop=None), 0)
+    assert layout.lock_row.isVisibleTo(idle_rosters) and layout.lock_text.text() == "Movement locked." and not layout.aim.isVisibleTo(idle_rosters)
     sent = []
     idle_rosters.dispatch = lambda action_id, **args: sent.append(action_id)
     layout.shoot.click()

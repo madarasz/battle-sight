@@ -257,6 +257,7 @@ def _label(frame: np.ndarray, text: str, org: tuple[int, int], color, s: float, 
     cv2.putText(frame, text, (x, y), cv2.FONT_HERSHEY_SIMPLEX, font, color, thick, cv2.LINE_AA)
 
 
+MEASURE_TEXT_SIZE = 1.6  # font size factor of the inch texts of distances and movement
 INSIDE_NAME_SIZE = 1.6  # font size factor of the names on the minimap
 
 
@@ -343,7 +344,7 @@ def draw_path_mm(frame: np.ndarray, points_mm, text: str, to_px, color: tuple[in
     k = min(int(np.searchsorted(along, half, side="right")) - 1, len(steps) - 1)
     at = pts[k] + (pts[k + 1] - pts[k]) * ((half - along[k]) / steps[k] if steps[k] > 0 else 0.0)
     middle = np.rint(to_px(at.reshape(1, 2))[0]).astype(int)
-    _label(frame, text, (int(middle[0]), int(middle[1])), LABEL_TEXT_COLOR, s, thick)
+    _label(frame, text, (int(middle[0]), int(middle[1])), LABEL_TEXT_COLOR, s, max(thick, round(thick * MEASURE_TEXT_SIZE)), box=True, size=MEASURE_TEXT_SIZE)
 
 
 
@@ -389,6 +390,7 @@ def draw_move_mm(frame: np.ndarray, points_mm, radius_mm: float, costs, total: i
     in all below the end."""
     s = _scale(frame)
     thick = max(1, round(2 * s))
+    big = max(thick, round(thick * MEASURE_TEXT_SIZE))
     pts = np.asarray(points_mm, float).reshape(-1, 2)
 
     def px(points: np.ndarray) -> np.ndarray:
@@ -408,9 +410,9 @@ def draw_move_mm(frame: np.ndarray, points_mm, radius_mm: float, costs, total: i
     if len(costs) > 1:
         for a, b, cost in zip(pts[:-1], pts[1:], costs):
             middle = px(0.5 * (a + b).reshape(1, 2))[0, 0]
-            _label(frame, f'{cost}"', (int(middle[0]), int(middle[1])), color, s, thick)
+            _label(frame, f'{cost}"', (int(middle[0]), int(middle[1])), color, s, big, box=True, size=MEASURE_TEXT_SIZE)
     below = px((pts[-1] + (0.0, radius_mm + 2.0)).reshape(1, 2))[0, 0]
-    _label(frame, f'{total}"', (int(below[0]), int(below[1])), LABEL_TEXT_COLOR, s, thick, box=True)
+    _label(frame, f'{total}"', (int(below[0]), int(below[1])), LABEL_TEXT_COLOR, s, big, box=True, size=MEASURE_TEXT_SIZE)
 
 
 RANGE_ALPHA = 0.25

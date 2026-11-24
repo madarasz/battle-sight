@@ -510,6 +510,8 @@ selected. `Esc` clears the selected base.
 | `-`, `+` | One wound less or more on the selected named base (`wounds.minus`, `wounds.plus`). |
 | `o` | Open or close the selected hatchway or breach point (`opening.toggle`). |
 | left click on a base | Select it (on the selected base: clear the selection). |
+| left click during movement measurement (movement on, ring set) | Lock the route at the pointer (`state["move_locked"]`); "Unlock" frees it (`measure.unlock`). |
+| left click during "Shoot at" | Lock the shot at the pointer (`state["shot_locked"]`); "Unlock" in the inspector (`measure.unlock`) frees it. |
 | right click on another base | With a selected base: measure the distance to it (again: remove the line). |
 | right click on a base | No base selected, or the selected base: show its names (after `space`). |
 | left click on a name | Set the name, add the crop to the gallery. |

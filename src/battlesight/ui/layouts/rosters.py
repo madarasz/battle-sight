@@ -9,7 +9,8 @@ The control bar has separate sections: View, Commands (with the Debug check box
 at the bottom), Inspector and Reference. The inspector shows the selected operative
 (name, crop, wounds, ring slider, name fix, remove a false base, shoot at it)
 or the selected hatchway or breach point (open or closed). While "Shoot at" is
-on, the crop is the board under the pointer, and OBSCURED and IN COVER show
+on, the right side of the inspector shows the board under the pointer and the name of the shooter
+(the crop of the selected operative stays), a left click locks the shot ("Unlock" frees it), and OBSCURED and IN COVER show
 what the terrain in the targeting lines gives. While "Locate operative" or "Locate terrain" waits for a click, it shows what to click and
 the board under the pointer; the base that this finds opens with its name
 list. While the name list is open, it takes the place of the wounds, ring
@@ -24,7 +25,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any, ClassVar
 
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QAbstractButton, QCheckBox, QComboBox, QGridLayout, QGroupBox, QHBoxLayout, QLabel, QPushButton, QStackedWidget, QToolButton, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QAbstractButton, QCheckBox, QComboBox, QGridLayout, QGroupBox, QHBoxLayout, QLabel, QPushButton, QSizePolicy, QStackedWidget, QToolButton, QVBoxLayout, QWidget
 
 from ...live import ACTIONS, Action, shown_view
 from ...colors import MESSAGE_NONE_COLOR, MODE_LIVE_COLOR, MODE_MINIMAP_COLOR, MODE_SNAPSHOT_COLOR, SHOT_IN_COVER_COLOR, SHOT_OBSCURED_COLOR
@@ -69,7 +70,20 @@ def roster_operative_title(state: dict[str, Any]) -> str:
 
 
 MEASURE_HINT = "Right click a second base to measure to."
-SHOOT_HINT = "Point at the shooter. Push Cancel or Esc to stop."
+SHOOT_HINT = "Point at the shooter, click to lock the shot. Push Cancel or Esc to stop."
+
+
+def shooter_text(state: dict[str, Any]) -> str:
+    """`Team - Operative` of the base under the pointer in "Shoot at". Empty when the pointer is not on a base."""
+    shot = state["shot"]
+    index = None if shot is None else shot["shooter"]
+    if index is None or index >= len(state["bases"]):
+        return ""
+    base = state["bases"][index]
+    if base["label"] is None:
+        return "Unknown operative"
+    team, name = base["label"].partition("/")[0], base["name"]
+    return f"{team} - {name}" if name else team
 
 
 def inspector_page(state: dict[str, Any]) -> str:
@@ -96,6 +110,7 @@ class RostersLayout:
     def __init__(self) -> None:
         self.controls: list[tuple[Action, QAbstractButton]] = []
         self.pages: dict[str, QWidget] = {}
+        self._no_distance = False  # "Shoot at" or movement is on: the distance text is hidden
         self.fix_for: int | None = None  # base of the open "Change ID" list
 
     def build(self, shell: Shell, options: dict[str, Any]) -> QWidget:
@@ -293,8 +308,11 @@ class RostersLayout:
         row.addWidget(self.aim_hint, 1, Qt.AlignmentFlag.AlignTop)
 
     def _operative_page(self, page: QWidget) -> None:
-        row = QHBoxLayout(page)
-        row.setContentsMargins(0, 0, 0, 0)
+        outer = QVBoxLayout(page)
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.setSpacing(2)
+        row = QHBoxLayout()
+        outer.addLayout(row, 1)
         self.crop = VideoWidget()
         self.crop.setMinimumSize(80, 80)
         self.crop.setFixedSize(CROP_SIZE, CROP_SIZE)
@@ -324,8 +342,6 @@ class RostersLayout:
         move_row.addWidget(self._control("measure.avoid_melee"))
         move_row.addStretch(1)
         measure.addLayout(move_row)
-        self.distance = QLabel()
-        measure.addWidget(self.distance)
         game.addWidget(self.measure)
         self.shot = QWidget()  # what the terrain in the targeting lines gives
         shot = QVBoxLayout(self.shot)
@@ -360,6 +376,40 @@ class RostersLayout:
         column.addWidget(self.copies, 1)
         column.addStretch(0)
         row.addLayout(column, 1)
+        self.aim = QWidget()  # "Shoot at": the board under the pointer and the name of the shooter, at the right
+        aim = QVBoxLayout(self.aim)
+        aim.setContentsMargins(0, 0, 0, 0)
+        aim.setSpacing(2)
+        self.shot_crop = VideoWidget()
+        self.shot_crop.setMinimumSize(80, 80)
+        self.shot_crop.setFixedSize(CROP_SIZE, CROP_SIZE)
+        aim.addWidget(self.shot_crop, 0, Qt.AlignmentFlag.AlignHCenter)
+        self.shooter = QLabel()
+        self.shooter.setWordWrap(True)
+        self.shooter.setAlignment(Qt.AlignmentFlag.AlignHCenter)
+        self.shooter.setFixedWidth(CROP_SIZE + 24)
+        aim.addWidget(self.shooter)
+        aim.addStretch(1)
+        self.aim.setVisible(False)
+        row.addWidget(self.aim, 0, Qt.AlignmentFlag.AlignTop)
+        bottom = QHBoxLayout()  # last row, right of the crop: a left click locks the shot or the movement (status and "Unlock"); else the distance
+        bottom.setContentsMargins(0, 0, 0, 0)
+        self.lock_row = QWidget()
+        lock = QHBoxLayout(self.lock_row)
+        lock.setContentsMargins(0, 0, 0, 0)
+        lock.setSpacing(10)
+        self.lock_text = QLabel()
+        lock.addWidget(self.lock_text)
+        self.unlock = _no_focus(QPushButton("Unlock"))
+        self.unlock.setSizePolicy(QSizePolicy.Policy.Maximum, QSizePolicy.Policy.Fixed)
+        self.unlock.clicked.connect(lambda: self.shell.dispatch("measure.unlock"))
+        lock.addWidget(self.unlock)
+        self.lock_row.setVisible(False)
+        bottom.addWidget(self.lock_row, 0)
+        self.distance = QLabel()
+        bottom.addWidget(self.distance, 0)
+        bottom.addStretch(1)
+        column.addLayout(bottom)
 
     def _show_fix(self, button: QPushButton, on: bool) -> None:
         """A list takes the place of the wounds, ring and distance: "Change
@@ -374,6 +424,7 @@ class RostersLayout:
         self.candidates.setVisible(self.change.isChecked())
         self.copies.setVisible(self.change_id.isChecked())
         self.details.setVisible(not (self.change.isChecked() or self.change_id.isChecked()))
+        self._place_distance()
 
     def _roster_operative_page(self, page: QWidget) -> None:
         """An operative selected in a team list that has no base: only its wounds."""
@@ -454,13 +505,14 @@ class RostersLayout:
         else:
             self.title.setText(operative_title(state))
             crop = self.shell.selected_crop()
-            self.crop.setVisible(crop is not None or state["shooting"])  # the pointer can be off the board for a moment
+            self.crop.setVisible(crop is not None)
             self.crop.set_image(crop)
             self.wounds.show_state(state)
             self.ring.show_state(state)
             distance = state["distance"]
             self.distance.setText(MEASURE_HINT if distance is None else distance_label(distance))
             self._show_shot(state)
+            self._show_lock(state)
             self.change.setEnabled(bool(state["candidates"]))
             self.candidates.show_state(state)
             self.copies.show_state(state)
@@ -468,13 +520,29 @@ class RostersLayout:
             self.model.setText(model)
             self.model.setVisible(bool(model))
 
+    def _place_distance(self) -> None:
+        """The distance text: hidden while a list takes its place, and with "Shoot at" or the movement measurement (no second base then)."""
+        self.distance.setVisible(not (self._no_distance or self.change.isChecked() or self.change_id.isChecked()))
+
+    def _show_lock(self, state: dict[str, Any]) -> None:
+        """"Shot locked" or "Movement locked" with the "Unlock" button."""
+        shot, move = state["shooting"] and state["shot_locked"], state["move_locked"]
+        self.lock_row.setVisible(shot or move)
+        self._no_distance = state["shooting"] or state["movement"]
+        self._place_distance()
+        self.lock_text.setText("Shot locked." if shot else "Movement locked.")
+        self.unlock.setToolTip("Let the pointer move the " + ("shot" if shot else "movement") + " again")
+
     def _show_shot(self, state: dict[str, Any]) -> None:
         """While "Shoot at" is on: OBSCURED and IN COVER in place of the ring, movement and distance."""
         shooting, shot = state["shooting"], state["shot"]
         self.measure.setVisible(not shooting)
         self.shot.setVisible(shooting)
+        self.aim.setVisible(shooting)  # the crop keeps its place when the pointer is off the board for a moment
         if not shooting:
             return
+        self.shot_crop.set_image(self.shell.aim_crop())
+        self.shooter.setText(shooter_text(state))
         self.obscured.setVisible(shot is not None and shot["obscured"])
         self.in_cover.setVisible(shot is not None and shot["in_cover"])
         if shot is None:

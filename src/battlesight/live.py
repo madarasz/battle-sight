@@ -389,6 +389,7 @@ ACTIONS: tuple[Action, ...] = (
     Action("measure.move", "Measure movement", "m", checked=lambda s: s["movement"]),
     Action("measure.avoid_melee", "Avoid control range", checked=lambda s: s["avoid_melee"], enabled=lambda s: s["movement"]),
     Action("measure.shoot", "Shoot at", checked=lambda s: s["shooting"], enabled=_has_selection),
+    Action("measure.unlock", "Unlock", enabled=lambda s: s["shot_locked"] or s["move_locked"], control=False),
     Action("board.click", "Click the board", args=("x", "y"), enabled=_in_snapshot),
     Action("board.hover", "Point at the board", args=("x", "y")),
     Action("board.select", "Right click the board", args=("x", "y"), enabled=_in_snapshot),
@@ -435,12 +436,14 @@ ACTIONS: tuple[Action, ...] = (
 class LiveFrame:
     """Result of one `LiveSession.step`. `image` is None until the first camera
     frame. `scale` is window pixels per source pixel (`BoardWindow`). `crop` is the board around
-    the selected base or the selected identified light terrain piece, or None."""
+    the selected base or the selected identified light terrain piece, or None.
+    `aim_crop` is the board under the pointer (the shooter's side of "Shoot at"), or None."""
 
     image: np.ndarray | None
     state: dict[str, Any]
     scale: float
     crop: np.ndarray | None = None
+    aim_crop: np.ndarray | None = None
     region: tuple[tuple[float, float], tuple[float, float, float, float]] | None = None  # zoomed: (whole size, region x y w h) in window px; None = `image` is the whole image
 
 
@@ -525,6 +528,8 @@ class LiveSession:
         self.movement = False  # the ring is the area that the selected base can move to
         self.avoid_melee = False  # the movement keeps 1 in away from the enemy bases
         self.shooting = False  # "Shoot at": targeting lines from the pointer to the selected base
+        self.shot_locked = False  # a left click locks the shot: the pointer position stays until "Unlock"
+        self.move_locked = False  # the same for the movement measurement (ring + movement on)
         self._shot: tuple[Any, shoot.Shot | None, int | None] | None = None  # key, last shot, shooter base
         self.hover_mm: np.ndarray | None = None  # board position of the mouse pointer
         self._move_field: tuple[Any, moves.MoveField, list[np.ndarray]] | None = None  # key, field, outline
@@ -611,6 +616,7 @@ class LiveSession:
             "measure.move": self._toggle_movement,
             "measure.avoid_melee": self._toggle_avoid_melee,
             "measure.shoot": self._toggle_shooting,
+            "measure.unlock": self._unlock,
             "board.hover": self._hover,
             "map.terrain_type": self._set_terrain_type,
             "map.layout": self._set_map_layout,
@@ -766,14 +772,15 @@ class LiveSession:
     def current(self) -> LiveFrame:
         """The last image with the state of now."""
         state = self.state()
-        return LiveFrame(self.image, state, self.win.scale, self._selected_crop(), self.image_region)
+        aim = self._aim_crop() if self.shooting else None
+        return LiveFrame(self.image, state, self.win.scale, self._selected_crop(), aim, self.image_region)
 
     def _selected_crop(self) -> np.ndarray | None:
-        """While "Locate operative" waits for a click or "Shoot at" is on: the
+        """While "Locate operative" waits for a click: the
         board under the pointer (`_aim_crop`). Else the selected base with `PREVIEW_PAD_MM` of board around it, cut
         from the centre of its gallery crop (`ident.store_crop`). Else the
         selected identified light terrain piece (`_light_crop`)."""
-        if self.adding or self.shooting:
+        if self.adding:
             return self._aim_crop()
         if self.locating_light:
             return self._aim_crop(self._locate_image, self._piece_span_mm())
@@ -1116,10 +1123,13 @@ class LiveSession:
     def _toggle_movement(self) -> None:
         self._stop_shooting(restore=False)  # a new measurement replaces the paused one
         self.movement = not self.movement
+        self.move_locked = False
         self.dirty = True
 
     def _hover(self, x: float | None, y: float | None) -> None:
         """The mouse pointer is at this pixel of the image (None: not on the image)."""
+        if self.shot_locked or self.move_locked:
+            return
         at = None if x is None or y is None or not self._mapped() else self._to_mm(x, y)
         if (at is None) != (self.hover_mm is None) or (at is not None and not np.allclose(at, self.hover_mm)):
             self.hover_mm = at
@@ -1140,16 +1150,34 @@ class LiveSession:
             # the measurement (ring, second base, movement) waits until "Shoot at" stops
             self._paused_measure = (self.ring_in, self.target, self.movement)
             self.ring_in = self.target = None
-            self.movement = False
+            self.movement = self.move_locked = False
             self.shooting = True
         self.dirty = True
 
     def _stop_shooting(self, restore: bool) -> None:
         """Stop "Shoot at". `restore`: bring back the measurement that it paused."""
         paused, self._paused_measure = self._paused_measure, None
-        self.shooting = False
+        self.shooting = self.shot_locked = False
         if restore and paused is not None:
             self.ring_in, self.target, self.movement = paused
+
+    def _lock_at(self, x: float, y: float) -> None:
+        """A left click while "Shoot at" is on, or while the movement of a
+        base with a ring is measured: keep the shot or the route where the click is."""
+        self.hover_mm = self._to_mm(x, y)
+        if self.shooting:
+            self.shot_locked = True
+            self.notice.say("Shot locked. Push Unlock to move it.")
+        else:
+            self.move_locked = True
+            self.notice.say("Movement locked. Push Unlock to move it.")
+        self.dirty = True
+
+    def _unlock(self) -> None:
+        """The pointer moves the shot or the route again."""
+        if self.shot_locked or self.move_locked:
+            self.shot_locked = self.move_locked = False
+            self.dirty = True
 
     def _shooter_index(self, found: list) -> int | None:
         """The base under the pointer when it is not the selected base and
@@ -1367,6 +1395,8 @@ class LiveSession:
             "move": self._move_state(),
             "shooting": self.shooting,
             "shot": self._shot_state(),
+            "shot_locked": self.shot_locked,
+            "move_locked": self.move_locked,
             "terrain_types": sorted({e.terrain for e in self.maps}),
             "terrain_type": self.terrain_type,
             "map_layouts": [e.name for e in self.maps if e.terrain == self.terrain_type],
@@ -1920,7 +1950,7 @@ class LiveSession:
     def _close_snapshot(self) -> None:
         self.result = self.snap = self.session = self.shown = None
         self.selected = self.target = self.ring_in = self.selected_opening = self.new_base = None
-        self.adding = self.locating_light = False
+        self.adding = self.locating_light = self.move_locked = False
         self._stop_shooting(restore=False)
         self.frozen = False
 
@@ -1995,6 +2025,7 @@ class LiveSession:
         one thing is selected: a base or an opening."""
         self.selected = index
         self.target = self.ring_in = self.selected_opening = self.selected_operative = self.selected_light = None
+        self.move_locked = False
         self._stop_shooting(restore=False)
         if index != self.new_base:
             self.new_base = None
@@ -2485,6 +2516,10 @@ class LiveSession:
         if self.adding:
             self._add_at(x, y)
             return
+        if self.shooting or (self.movement and self.ring_in is not None and self.selected is not None):
+            if not (self.shot_locked or self.move_locked):
+                self._lock_at(x, y)
+            return
         index = self._base_under(x, y)
         if index is None:
             opening = self._opening_under(x, y)
@@ -2527,6 +2562,7 @@ class LiveSession:
             self.notice.say("click a base first")
             return
         self._stop_shooting(restore=False)
+        self.move_locked = False
         self.ring_in = inches
         self.dirty = True
 
