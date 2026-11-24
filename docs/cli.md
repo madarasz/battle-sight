@@ -418,7 +418,7 @@ operative" is enabled when the selected operative is in that list.
 Copies (`docs/specs/operative-copies.md`): an operative with `max = N` (N > 1) in
 `team.toml` can be in a team list N times. Each copy has a copy label
 `<team>/<operative>#<k>` (`ident.copy_label`, `type_of`, `copy_number`,
-`display_name` = "Boy 2"); an operative with `max = 1` keeps its type label.
+`display_name` = "Boy #2"); an operative with `max = 1` keeps its type label.
 `in_play` holds copy labels; at the start each type has one copy (`#1`).
 `roster.add(slot, label)` with a type label adds the lowest free copy (up to
 `max`, else an error notice), with a copy label that copy. `roster.remove`
@@ -569,7 +569,7 @@ frame).
 ## `enroll`: gallery photos of one operative
 
 ```
-uv run battlesight enroll --team NAME --operative NAME [--base-mm 32] [--wounds W] [--expendable | --not-expendable]
+uv run battlesight enroll --team NAME --operative NAME [--base-mm 32] [--wounds W] [--counts-as ORIGINAL] [--expendable | --not-expendable]
                           [--archetype ARCH ...] [--faction-counter TEXT]
                           [--operative-count N|N-M]
                           [--images PATH ...] [--reference FILE]
@@ -581,7 +581,19 @@ Adds crops of one operative to `data/teams/<team>/<operative>/` and its base
 size to `data/teams/<team>/team.toml` (created when new). `--wounds W` (a
 whole number, 1 or more) sets or replaces the maximum wounds of the operative
 in `team.toml` at the start, before the first crop; a bad value gives exit
-code 2 and no change. `--expendable` sets `expendable = true` for the
+code 2 and no change. `--counts-as ORIGINAL` enrolls the operative as another
+model of an operative that is in the gallery already (for example a model with
+another paint or pose): it has its own folder and photos, and `counts_as =
+"ORIGINAL"` in `team.toml`. It takes the base size, wounds, `expendable` and
+`max` of the original (`--wounds` and `--expendable` with it, or another
+`--base-mm`, give exit code 2). Identification scores an original and its
+variants as one operative (best score), so the screen, the team list, wounds and
+copy pairing show the original (`Gallery.canonical`, `Ident.photo_label` = the
+variant with the best score, where an accepted name puts its photo). Only the
+name menu ("Change ID", "Locate operative") lists the variants on their own,
+with their own scores (`state["candidates"]`, a variant copy has the label
+`<team>/<variant>#<k>`); a choice names the original, and the photo goes to the
+variant. `--expendable` sets `expendable = true` for the
 operative in `team.toml` (`--not-expendable` removes it; without either option
 the value stays). `--archetype ARCH ...` (one or more of `Infiltration`,
 `"Seek and Destroy"`, `Recon`, `Security`; the keys of `[tac_ops]` in

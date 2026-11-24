@@ -1,7 +1,7 @@
 """Battle Sight: augmented reality overlay for Kill Team.
 
     battlesight [--team A [B]] [--source S | --image-source FILE] [--reference FILE]   live app
-    battlesight enroll --team NAME --operative NAME [--base-mm 32] [--wounds 15] [--expendable | --not-expendable] [--archetype ARCH ...] [--faction-counter TEXT] [--operative-count N|N-M] [--images PATH...]
+    battlesight enroll --team NAME --operative NAME [--base-mm 32] [--wounds 15] [--counts-as ORIGINAL] [--expendable | --not-expendable] [--archetype ARCH ...] [--faction-counter TEXT] [--operative-count N|N-M] [--images PATH...]
     battlesight gallery --team A [B]
     battlesight calibrate [--source S | --images PATH...]
     battlesight image-pipeline PATH... [--reference FILE] [--team A [B]] [--out DIR] [--json FILE|-] [--show]
@@ -253,7 +253,7 @@ def cmd_enroll(args: argparse.Namespace) -> int:
         name = idt.check_name(args.operative, "operative")
         if args.base_mm is not None and args.base_mm not in cfg.bases_diameters_mm:
             raise ValueError(f"--base-mm {args.base_mm:g} is not in [bases] diameters_mm {list(cfg.bases_diameters_mm)}")
-        op = gallery.ensure_operative(team, name, args.base_mm, args.wounds, args.expendable)
+        op = gallery.ensure_operative(team, name, args.base_mm, args.wounds, args.expendable, args.counts_as)
         if args.archetype is not None or args.faction_counter is not None or args.operative_count is not None:
             count = args.operative_count
             count = int(count) if count is not None and count.strip().isdigit() else count
@@ -264,6 +264,8 @@ def cmd_enroll(args: argparse.Namespace) -> int:
         print(f"error: {exc}", file=sys.stderr)
         return 2
     label = op.label
+    if op.counts_as is not None:
+        print(f"{label}: counts as {op.counts_as} (own photos; base size, wounds and name on the screen are the original's) saved in {idt.TEAM_FILE}")
     if args.expendable is not None:
         print(f"{label}: expendable {'yes' if op.expendable else 'no'} saved in {idt.TEAM_FILE}")
     if args.wounds is not None:
@@ -516,7 +518,7 @@ def cmd_gallery(args: argparse.Namespace) -> int:
     counts = gallery.counts()
     for op in gallery.operatives:
         base = "?" if op.base_mm is None else f"{op.base_mm:g} mm"
-        print(f"  {op.label:32s} base {base:7s} {counts[op.label]:3d} photos")
+        print(f"  {op.label:32s} base {base:7s} {counts[op.label]:3d} photos" + ("" if op.counts_as is None else f"  counts as {op.counts_as}"))
     _print_leave_one_out(*gallery.leave_one_out(), counts)
     return 0
 
@@ -763,6 +765,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--gallery-root", default=str(idt.DEFAULT_GALLERY_ROOT), help="folder with one folder per team")
     p.add_argument("--operative", required=True, help="operative name, for example \"Boss Nob\"")
     p.add_argument("--base-mm", type=float, default=None, help="base diameter; only bases of this size are taken (default: from team.toml, else the found base)")
+    p.add_argument("--counts-as", default=None, metavar="OPERATIVE", help="enroll the operative as another model of this original operative (own photos, but the screen shows the original, with its base size and wounds); sets counts_as in team.toml")
     p.add_argument("--wounds", type=int, default=None, metavar="W", help="maximum wounds of the operative; sets or replaces the value in team.toml at the start")
     p.add_argument("--expendable", dest="expendable", action="store_const", const=True, default=None, help="mark the operative as expendable; sets or replaces the value in team.toml at the start")
     p.add_argument("--not-expendable", dest="expendable", action="store_const", const=False, help="clear the expendable mark of the operative")

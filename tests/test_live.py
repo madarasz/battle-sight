@@ -2230,12 +2230,12 @@ def grot_bases(session, state) -> dict[tuple[float, float], dict]:
 def test_team_list_with_copies(grots):
     _, session = grots
     rows = session.state()["rosters"][0]
-    assert [r["name"] for r in rows["operatives"]] == ["Nob", "Grot 1", "Burna", "Grot 2"]
-    assert [r["label"] for r in rows["operatives"]][-1] == "orks/Grot#2"
+    assert [r["name"] for r in rows["operatives"]] == ["Grot #1", "Grot #2", "Nob", "Burna"]  # maximum wounds first, no value last
+    assert [r["label"] for r in rows["operatives"]][1] == "orks/Grot#2"
     assert rows["missing"] == [{"label": "orks/Grot", "name": "Grot", "max": 3, "copies_in_play": 2}]
     session.dispatch("roster.add", slot=0, label="orks/Grot")
     s = session.state()
-    assert s["rosters"][0]["operatives"][-1]["name"] == "Grot 3" and s["rosters"][0]["missing"] == []
+    assert [r["name"] for r in s["rosters"][0]["operatives"]] == ["Grot #1", "Grot #2", "Grot #3", "Nob", "Burna"] and s["rosters"][0]["missing"] == []
     session.dispatch("roster.add", slot=0, label="orks/Grot")
     assert "all 3 copies" in session.state()["notice"]["text"]
     session.dispatch("roster.add", slot=0, label="orks/Nob#2")
@@ -2245,10 +2245,10 @@ def test_team_list_with_copies(grots):
     session.dispatch("operative.select", label="orks/Grot#2")
     session.dispatch("roster.remove", slot=0)
     names = [r["name"] for r in session.state()["rosters"][0]["operatives"]]
-    assert names == ["Nob", "Grot 1", "Burna", "Grot 3"] and "orks/Grot#2" not in session.wounds
+    assert names == ["Grot #1", "Grot #3", "Nob", "Burna"] and "orks/Grot#2" not in session.wounds
     session.dispatch("roster.add", slot=0, label="orks/Grot")
     rows = session.state()["rosters"][0]["operatives"]
-    assert rows[-1]["name"] == "Grot 2" and rows[-1]["wounds"] == 5
+    assert rows[1]["name"] == "Grot #2" and rows[1]["wounds"] == 5
     assert session.gallery is None or session.gallery.copies["orks/Grot"] == 3
 
 
@@ -2258,7 +2258,7 @@ def test_copies_get_numbers_by_position_and_keep_them(grots):
     assert_json_safe(state)
     grot = grot_bases(session, state)
     assert grot[A]["label"] == "orks/Grot#1" and grot[B]["label"] == "orks/Grot#2"  # first snapshot: nearest the top-left corner first
-    assert grot[B]["name"] == "Grot 2" and grot[B]["copy"] == 2 and grot[B]["sure"]
+    assert grot[B]["name"] == "Grot #2" and grot[B]["copy"] == 2 and grot[B]["sure"]
     session.dispatch("wounds.set", value=2, label="orks/Grot#2")
     # Grot 2 moves from B to C, Grot 1 stays: no question.
     state = snap(session, paint_copies(cfg, [("Grot", A, 10.0), ("Grot", C, 180.0), *OTHERS]))
@@ -2308,10 +2308,10 @@ def test_name_menu_lists_each_copy_with_its_wounds(grots):
     session.dispatch("base.select", index=index)
     menu = session.state()["candidates"]
     copies = [c for c in menu if c["label"].startswith("orks/Grot")]
-    assert [(c["name"], c["copy"], c["wounds"]) for c in copies] == [("Grot 1", 1, 5), ("Grot 2", 2, 3)]
+    assert [(c["name"], c["copy"], c["wounds"]) for c in copies] == [("Grot #1", 1, 5), ("Grot #2", 2, 3)]
     from battlesight.ui.parts import candidate_text
 
-    assert candidate_text(copies[1]).startswith("orks/Grot 2 (3/5)")
+    assert candidate_text(copies[1]).startswith("orks/Grot #2 (3/5)")
     # A type label picks the copy that the base has.
     session.dispatch("base.choose", label="orks/Grot", index=index)
     assert session.state()["bases"][index]["label"] == "orks/Grot#1"

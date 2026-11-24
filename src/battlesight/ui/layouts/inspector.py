@@ -19,7 +19,7 @@ if TYPE_CHECKING:
     from . import Shell
 
 ACTION_BY_ID = {a.id: a for a in ACTIONS}
-PANEL_WIDTH = 300
+PANEL_WIDTH = 340
 CROP_HEIGHT = 220
 OPENING_NAMES = {"hatchway": "Hatchway", "breach": "Breach point"}
 

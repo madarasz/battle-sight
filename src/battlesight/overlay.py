@@ -261,11 +261,11 @@ INSIDE_NAME_SIZE = 1.6  # font size factor of the names on the minimap
 
 
 def _shown_name(label: str) -> str:
-    """Operative name of a label for the board: "Boy 2" for the copy label
+    """Operative name of a label for the board: "Boy #2" for the copy label
     `team/Boy#2` (see `ident.display_name`)."""
     name = label.partition("/")[2] or label
     base, sep, k = name.partition("#")
-    return f"{base} {k}" if sep else name
+    return f"{base} #{k}" if sep else name
 
 
 def ident_color(x) -> tuple[int, int, int]:

@@ -401,10 +401,10 @@ def copy_number(label: str) -> int | None:
 
 
 def display_name(label: str) -> str:
-    """Name for the screen: "Boy 2" for a copy label, "Boy" for a type label."""
+    """Name for the screen: "Boy #2" for a copy label, "Boy" for a type label."""
     name = split_label(type_of(label))[1]
     k = copy_number(label)
-    return name if k is None else f"{name} {k}"
+    return name if k is None else f"{name} #{k}"
 
 
 @dataclass
@@ -420,6 +420,12 @@ class Operative:
     expendable: bool = False  # `expendable = true` in team.toml
     max: int = 1  # copies that a team can field
     copy: int | None = None  # copy number of one copy in play (only with max > 1)
+    counts_as: str | None = None  # name of the original operative (`counts_as` in team.toml): a variant model with its own photos; base size, wounds, `expendable` and `max` are the original's
+
+    @property
+    def original_label(self) -> str:
+        """Type label of the operative that this one counts as (its own type label when it is no variant)."""
+        return self.type_label if self.counts_as is None else label_of(self.team, self.counts_as)
 
     @property
     def type_label(self) -> str:
@@ -540,6 +546,33 @@ def read_team_file(team_dir: Path) -> dict[str, tuple[float | None, int | None]]
     return out
 
 
+def read_counts_as(team_dir: Path) -> dict[str, str]:
+    """{variant name: original name} of the operatives with `counts_as` in
+    `team.toml`. The original must be an operative of the file that is no
+    variant itself. A bad value is a ValueError."""
+    path = team_dir / TEAM_FILE
+    if not path.exists():
+        return {}
+    with path.open("rb") as fh:
+        raw = tomllib.load(fh)
+    ops = raw.get("operatives", {})
+    out = {}
+    for name, v in ops.items():
+        if not isinstance(v, dict) or "counts_as" not in v:
+            continue
+        target = v["counts_as"]
+        if not isinstance(target, str) or not target:
+            raise ValueError(f"{path} {name}: counts_as must be an operative name, not {target!r}")
+        if target == name:
+            raise ValueError(f"{path} {name}: counts_as names the operative itself")
+        if target not in ops:
+            raise ValueError(f"{path} {name}: counts_as {target!r} is not an operative of the file")
+        if isinstance(ops[target], dict) and "counts_as" in ops[target]:
+            raise ValueError(f"{path} {name}: counts_as {target!r}, which counts as another operative itself")
+        out[str(name)] = target
+    return out
+
+
 def read_expendable(team_dir: Path) -> set[str]:
     """Names of the operatives with `expendable = true` in `team.toml`. A value
     that is not true or false is a ValueError."""
@@ -578,18 +611,27 @@ def load_team_file(team_dir: Path) -> dict[str, float | None]:
     return {name: base for name, (base, _wounds) in read_team_file(team_dir).items()}
 
 
-def team_operatives(team: str, team_dir: Path) -> list[Operative]:
+def team_operatives(team: str, team_dir: Path, variants: bool = False) -> list[Operative]:
     """Operatives of a team: the `team.toml` entries in file order, then the
     operative folders that the file does not list, sorted. Needs no photos
-    and no model."""
+    and no model. An operative with `counts_as` is a variant: it has the
+    values of its original, and only `variants` lists it (the gallery needs
+    it for its photos; a team list never does)."""
     listed = read_team_file(team_dir)
     expendable = read_expendable(team_dir)
     copies = read_copies(team_dir)
+    counts_as = read_counts_as(team_dir)
     folders: set[str] = set()
     if team_dir.is_dir():
         folders = {q.name for q in team_dir.iterdir() if q.is_dir() and not q.name.startswith(".")}
     names = [*listed, *sorted(folders - set(listed))]
-    return [Operative(team, name, *listed.get(name, (None, None)), name in expendable, copies.get(name, 1)) for name in names]
+    ops = [Operative(team, name, *listed.get(name, (None, None)), name in expendable, copies.get(name, 1)) for name in names if variants or name not in counts_as]
+    by_name = {op.name: op for op in ops}
+    for op in ops:
+        if op.name in counts_as:  # a variant takes the values of its original
+            orig = by_name.get(counts_as[op.name]) or next(o for o in team_operatives(team, team_dir) if o.name == counts_as[op.name])
+            op.base_mm, op.wounds, op.expendable, op.max, op.counts_as = orig.base_mm, orig.wounds, orig.expendable, orig.max, orig.name
+    return ops
 
 
 def roster_sizes(root: str | Path, teams: Iterable[str]) -> tuple[float, ...] | None:
@@ -610,17 +652,20 @@ def save_team_file(
     info: TeamInfo | None = None,
     expendable: Iterable[str] | None = None,
     copies: dict[str, int] | None = None,
+    counts_as: dict[str, str] | None = None,
 ) -> None:
     """Write `team.toml`: team values, then base size, maximum wounds,
     `expendable` and `max` (copies, only above 1) of each operative, in the
     order of `operatives` (the order of the team lists in the live app).
-    Without `info`, `expendable` or `copies` the values of the existing file
-    stay."""
+    A variant (`counts_as`: variant name -> original name) gets `counts_as`
+    only. Without `info`, `expendable`, `copies` or `counts_as` the values of
+    the existing file stay."""
     wounds = wounds or {}
     if info is None:
         info = read_team_info(team_dir)
     expendable = read_expendable(team_dir) if expendable is None else set(expendable)
     copies = read_copies(team_dir) if copies is None else copies
+    counts_as = read_counts_as(team_dir) if counts_as is None else counts_as
     lines = [
         f"# Battle Sight gallery of team {team!r}. One table per operative.",
         f"# archetype: killteam archetypes, one or more of {', '.join(ARCHETYPES)}.",
@@ -630,6 +675,8 @@ def save_team_file(
         "# wounds: maximum wounds (W) of the operative, for the health bar of the live app.",
         "# expendable: true for an expendable operative (optional, default false).",
         "# max: copies of the operative that the team can field (optional, default 1).",
+        "# counts_as: name of an original operative (optional). The operative is another model of the original (own photos);",
+        "#   it has the base size, wounds, expendable and max of the original and shows as the original.",
         "# Photos: one folder per operative next to this file, written by `battlesight enroll` and by fixes.",
         "",
     ]
@@ -644,6 +691,10 @@ def save_team_file(
         lines.append("")
     for name in operatives:
         lines.append(f"[operatives.{json.dumps(name)}]")
+        if name in counts_as:
+            lines.append(f"counts_as = {json.dumps(counts_as[name])}")
+            lines.append("")
+            continue
         if operatives[name] is not None:
             lines.append(f"base_mm = {operatives[name]:g}")
         if wounds.get(name) is not None:
@@ -707,8 +758,24 @@ class Gallery:
     def columns(self) -> list[int]:
         """Operative index of each column of the name assignment: one column
         for each copy in play (`copies`, else the operative's `max`), so a
-        type goes to at most that many bases."""
-        return [k for k, op in enumerate(self.operatives) for _ in range(max(1, self.copies.get(op.label, op.max)))]
+        type goes to at most that many bases. A variant (`counts_as`) has no
+        column: its photos count for its original (`members`)."""
+        return [k for k, op in enumerate(self.operatives) if op.counts_as is None for _ in range(max(1, self.copies.get(op.label, op.max)))]
+
+    def members(self, k: int) -> list[int]:
+        """Operative indexes of an original and its variants."""
+        label = self.operatives[k].label
+        return [j for j, op in enumerate(self.operatives) if j == k or op.original_label == label]
+
+    def canonical(self, label: str) -> str:
+        """The label of the original for a type label or a copy label of a
+        variant (the copy number stays); other labels return themselves."""
+        i = self.index(type_of(label))
+        if i is None or self.operatives[i].counts_as is None:
+            return label
+        original = self.operatives[i].original_label
+        k = copy_number(label)
+        return original if k is None else copy_label(original, k)
 
     def counts(self) -> dict[str, int]:
         c = {op.label: 0 for op in self.operatives}
@@ -719,14 +786,48 @@ class Gallery:
     def __len__(self) -> int:
         return len(self.files)
 
-    def ensure_operative(self, team: str, name: str, base_mm: float | None, wounds: int | None = None, expendable: bool | None = None) -> Operative:
+    def ensure_operative(
+        self, team: str, name: str, base_mm: float | None, wounds: int | None = None, expendable: bool | None = None, counts_as: str | None = None
+    ) -> Operative:
         """The operative, created (and written to team.toml) when new. Raises
         ValueError when it exists with another base size. `wounds` (maximum
         wounds) and `expendable` set or replace the value in team.toml (None
-        keeps it)."""
+        keeps it). `counts_as` (the name of an original operative of the team)
+        makes the operative a variant of it: it takes the values of the
+        original, so `base_mm` must match, and `wounds` and `expendable` are
+        refused."""
         if team not in self.team_dirs:
             raise ValueError(f"team {team!r} is not loaded, loaded: {sorted(self.team_dirs)}")
         name = check_name(name, "operative")
+        if counts_as is not None:
+            counts_as = check_name(counts_as, "operative")
+            orig = self.index(label_of(team, counts_as))
+            if counts_as == name:
+                raise ValueError(f"{name}: --counts-as names the operative itself")
+            if orig is None:
+                raise ValueError(f"--counts-as: {label_of(team, counts_as)} is not in the gallery: enroll it first")
+            original = self.operatives[orig]
+            if original.counts_as is not None:
+                raise ValueError(f"--counts-as: {counts_as} counts as {original.counts_as} itself")
+            if wounds is not None or expendable is not None:
+                raise ValueError(f"{name}: a variant uses the wounds and the expendable mark of {counts_as}, do not set them")
+            if base_mm is not None and original.base_mm not in (None, base_mm):
+                raise ValueError(f"{name}: {counts_as} has a {original.base_mm:g} mm base, not {base_mm:g} mm")
+            existing = self.index(label_of(team, name))
+            if existing is not None:
+                if self.operatives[existing].counts_as == counts_as:
+                    return self.operatives[existing]
+                if self.operatives[existing].counts_as is not None or self.counts()[label_of(team, name)] or any(o.counts_as == name for o in self.operatives):
+                    raise ValueError(f"{label_of(team, name)} exists already and does not count as {counts_as}")
+                self.operatives.pop(existing)  # an operative without photos that nothing counts as: now a variant
+                self._fix_file_ops(existing)
+            op = Operative(team, name, original.base_mm, original.wounds, original.expendable, original.max, counts_as=counts_as)
+            self.operatives.append(op)
+            self._save_team(team)
+            return op
+        existing_op = self.index(label_of(team, name))
+        if existing_op is not None and self.operatives[existing_op].counts_as is not None and (wounds is not None or expendable is not None):
+            raise ValueError(f"{name} counts as {self.operatives[existing_op].counts_as}: set wounds and expendable on the original")
         if wounds is not None:
             check_wounds(wounds, label_of(team, name))
         i = self.index(label_of(team, name))
@@ -749,9 +850,23 @@ class Gallery:
         self._save_team(team)
         return op
 
+    def _fix_file_ops(self, removed: int) -> None:
+        """Operative indexes of the photos after operative `removed` left the list."""
+        self.file_op = [k - (k > removed) for k in self.file_op]
+
     def _save_team(self, team: str) -> None:
         ops = [op for op in self.operatives if op.team == team]
-        save_team_file(self.team_dirs[team], team, {op.name: op.base_mm for op in ops}, {op.name: op.wounds for op in ops}, self.team_info[team], [op.name for op in ops if op.expendable], {op.name: op.max for op in ops})
+        orig = [op for op in ops if op.counts_as is None]
+        save_team_file(
+            self.team_dirs[team],
+            team,
+            {op.name: op.base_mm for op in ops},
+            {op.name: op.wounds for op in orig},
+            self.team_info[team],
+            [op.name for op in orig if op.expendable],
+            {op.name: op.max for op in orig},
+            {op.name: op.counts_as for op in ops if op.counts_as is not None},
+        )
 
     def set_team_info(
         self, team: str, archetypes: Iterable[str] | None = None, faction_counter: str | None = None, operative_count: int | str | None = None
@@ -782,7 +897,7 @@ class Gallery:
         file_op: list[int] = []
         self.team_info = {team: read_team_info(d) for team, d in self.team_dirs.items()}
         for team, d in self.team_dirs.items():
-            for op in team_operatives(team, d):
+            for op in team_operatives(team, d, variants=True):
                 ops.append(op)
                 folder = d / op.name
                 if folder.is_dir():
@@ -968,7 +1083,7 @@ class Gallery:
             if not np.isfinite(sc).any():
                 continue
             guess = self.operatives[int(np.argmax(sc))].label
-            if guess == op.label:
+            if self.canonical(guess) == self.canonical(op.label):
                 right += 1
             else:
                 misses.append((op.label, guess))
@@ -983,8 +1098,9 @@ class Gallery:
         return tuple(sorted(set(sizes)))  # type: ignore[arg-type]
 
     def allowed(self, diameter_mm: float | None) -> np.ndarray:
-        """Operatives that can stand on a base of this diameter and are in play."""
-        return np.array([op.label not in self.out_of_play and (op.base_mm is None or diameter_mm is None or op.base_mm == diameter_mm) for op in self.operatives], bool)
+        """Operatives that can stand on a base of this diameter and are in play
+        (a variant is in play when its original is)."""
+        return np.array([op.label not in self.out_of_play and op.original_label not in self.out_of_play and (op.base_mm is None or diameter_mm is None or op.base_mm == diameter_mm) for op in self.operatives], bool)
 
 
 def _top_photos(sim: np.ndarray, files: np.ndarray, k: int) -> np.ndarray:
@@ -1031,6 +1147,7 @@ class Ident:
     sure: bool = False  # named, and the margin is at least `min_margin` (or confirmed)
     confirmed: bool = False  # the user picked or accepted this label
     masked: bool = False  # the masked crop was compared with the masked gallery
+    photo_label: str | None = None  # type label of the variant (`counts_as`) whose photos match best, when not the original's: a fix photo goes there
 
     def to_dict(self) -> dict:
         def num(v: float) -> float | None:
@@ -1117,9 +1234,22 @@ def identify(
     allowed = np.stack([gallery.allowed(d) for d in diameters_mm]) if gallery.operatives else np.zeros((len(crops), 0), bool)
     cols = gallery.columns()
     labels = gallery.labels()
-    out = assign(scores[:, cols], allowed[:, cols], [labels[k] for k in cols], p.min_score, p.min_margin)
-    for x, m in zip(out, masked):
+    # An original and its variants compete as one operative: the best score of the models.
+    usable = np.where(allowed & np.isfinite(scores), scores, -np.inf)
+    group = usable.copy()
+    for k in set(cols):
+        group[:, k] = usable[:, gallery.members(k)].max(axis=1)
+    out = assign(group[:, cols], np.isfinite(group[:, cols]), [labels[k] for k in cols], p.min_score, p.min_margin)
+    for i, (x, m) in enumerate(zip(out, masked)):
         x.masked = bool(m)
+        # The fix menu names each model on its own, with its own score.
+        order = [j for j in np.argsort(-usable[i], kind="stable") if np.isfinite(usable[i, j])]
+        x.candidates = [(labels[j], float(usable[i, j])) for j in order]
+        if x.label is not None:
+            members = gallery.members(gallery.index(x.label))  # type: ignore[arg-type]
+            best = max(members, key=lambda j: usable[i, j])
+            if labels[best] != x.label:
+                x.photo_label = labels[best]
     return out
 
 
@@ -1161,20 +1291,24 @@ class LabelSession:
         names += [op.label for k, op in enumerate(self.gallery.operatives) if allowed[k] and op.label not in names]
         return names
 
-    def choose(self, label: str, i: int | None = None) -> Path | None:
+    def choose(self, label: str, i: int | None = None, photo: str | None = None) -> Path | None:
         """Set the name of base i (default: the selected base) and add its crop
         to the gallery (the photo of a copy label goes to its type). A label
         that another base holds moves to this base; the other base becomes
         unknown, or, for a copy label when this base had another copy of the
         same type, gets that copy (a swap). Returns the new gallery photo, or
-        None when the gallery has this photo already (the name is set, no file)."""
+        None when the gallery has this photo already (the name is set, no file).
+        The label of a variant (`counts_as`) names its original; the photo goes
+        to the variant, or to `photo` (a type label) when given."""
         i = self.selected if i is None else i
         if i is None:
             raise ValueError("no base selected")
+        photo = photo or type_of(label)
+        label = self.gallery.canonical(label)
         path = None
         if self.gallery.record:
             try:
-                path = self.gallery.add(type_of(label), self.crops[i], self.diameters_mm[i], self.backgrounds[i] if self.backgrounds else None)
+                path = self.gallery.add(photo, self.crops[i], self.diameters_mm[i], self.backgrounds[i] if self.backgrounds else None)
             except DuplicatePhoto:
                 pass
         self.added.append((i, path, self.idents[i]))
@@ -1207,7 +1341,7 @@ class LabelSession:
         out = []
         for i, x in enumerate(self.idents):
             if x.label is not None and not x.confirmed:
-                out.append(self.choose(x.label, i))
+                out.append(self.choose(x.label, i, x.photo_label))
         return out
 
     def remove(self, i: int) -> list[Path]:

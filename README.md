@@ -139,7 +139,7 @@ add `--team kommandos veterans`.
 - Name colour: green = sure, yellow = not sure, check it, red `?` = unknown.
 - Health bar: green = unharmed, orange = wounded, red = injured.
 - Skull on a base or in a team list: dead operative.
-- Magenta: range ring and distance. A yellow rim: a base in the range of the ring.
+- Mint green: range ring and distance. A orange rim: a base in the range of the ring.
 - Yellow lines around a hatchway: 1 in and 2 in from it.
 - Yellow crossed swords: melee. Yellow arrow heads: objective control.
 

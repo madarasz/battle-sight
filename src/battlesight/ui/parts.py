@@ -710,9 +710,10 @@ def roster_row(operative: dict[str, Any]) -> tuple[str, str, str, str]:
 
 def missing_text(operative: dict[str, Any]) -> str:
     """A row of the "Add operative" list: the name, and for an operative
-    that a team fields more than once the copies in the list, `Boy (1/3)`."""
+    that a team fields more than once the number of the copy that the click
+    adds, `Boy (2/3)` when one is in the list."""
     if operative.get("max", 1) > 1:
-        return f"{operative['name']} ({operative['copies_in_play']}/{operative['max']})"
+        return f"{operative['name']} ({operative['copies_in_play'] + 1}/{operative['max']})"
     return operative["name"]
 
 

@@ -1481,10 +1481,14 @@ class LiveSession:
         scores = dict(s.idents[i].candidates)
         out = []
         for label in s.menu(i):
-            op = self._type_op(label)
-            labels = self._copies_of(label) if op is not None and op.max > 1 else [label]
-            for lab in labels:  # each copy in play of an operative that a team fields more than once
-                current, maximum = self._wounds_of(lab)
+            canon = self.gallery.canonical(label) if self.gallery is not None else label
+            op = self._type_op(canon)
+            # Each copy in play of an operative that a team fields more than once. A variant (`counts_as`)
+            # is its own entry with its own score, and the wounds of its original.
+            copies = self._copies_of(canon) if op is not None and op.max > 1 else [canon]
+            labels = copies if canon == label else [idt.copy_label(label, k) if (k := idt.copy_number(c)) is not None else label for c in copies]
+            for lab, own in zip(labels, copies):
+                current, maximum = self._wounds_of(own)
                 out.append({"label": lab, "name": idt.display_name(lab), "copy": idt.copy_number(lab), "score": _num(scores.get(label)), "wounds": current, "max_wounds": maximum})
         return out
 
@@ -1549,21 +1553,28 @@ class LiveSession:
     # --- team lists -------------------------------------------------------------
 
     def _listed(self, slot: int) -> list[idt.Operative]:
-        """Operatives in the team list of one side, in list order: one entry
-        for each copy (`copy` set) of an operative with `max` > 1."""
+        """Operatives in the team list of one side, by maximum wounds (highest
+        first): one entry for each copy (`copy` set) of an operative with
+        `max` > 1."""
         team = self.team_slots[slot]
         if team is None:
             return []
         ops = self._operatives_of(team)
         if self.in_play[slot] is None:
-            return [replace(op, copy=1) if op.max > 1 else op for op in ops]
-        by_label = {op.label: op for op in ops}
-        out = []
-        for label in self.in_play[slot]:
-            op, k = by_label.get(idt.type_of(label)), idt.copy_number(label)
-            if op is not None and (k is None) == (op.max == 1) and (k is None or k <= op.max):
-                out.append(op if k is None else replace(op, copy=k))
-        return out
+            out = [replace(op, copy=1) if op.max > 1 else op for op in ops]
+        else:
+            by_label = {op.label: op for op in ops}
+            out = []
+            for label in self.in_play[slot]:
+                op, k = by_label.get(idt.type_of(label)), idt.copy_number(label)
+                if op is not None and (k is None) == (op.max == 1) and (k is None or k <= op.max):
+                    out.append(op if k is None else replace(op, copy=k))
+        # Maximum wounds, highest first (no value last); the copies of one type stay together in copy order,
+        # equal wounds keep the order of the file.
+        first = {}
+        for op in out:
+            first.setdefault(op.type_label, len(first))
+        return sorted(out, key=lambda op: (-(op.wounds or 0) if op.wounds is not None else 1, first[op.type_label], op.copy or 0))
 
     def _type_op(self, label: str | None) -> idt.Operative | None:
         """The team file operative of a type label or a copy label."""
@@ -2493,11 +2504,14 @@ class LiveSession:
         index = self.selected if index is None else index
         if s is None or index is None:
             return
+        photo = None
+        if self.gallery is not None and (canon := self.gallery.canonical(label)) != label:  # a variant model names its original
+            photo, label = idt.type_of(label), canon
         label = self._copy_for(label, index)
         if label is None:
             return
         old = s.idents[index].label
-        path = s.choose(label, index)
+        path = s.choose(label, index, photo)
         found = self._found()
         for k, x in enumerate(s.idents):  # the chosen copy and the copy of a swap are where the user says
             if x.label is not None and idt.copy_number(x.label) is not None and x.label in (label, old) and k < len(found):

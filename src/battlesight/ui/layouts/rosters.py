@@ -36,7 +36,7 @@ if TYPE_CHECKING:
 ACTION_BY_ID = {a.id: a for a in ACTIONS}
 TOP_HEIGHT = 175
 GAME_BAR_STYLE = "#game_bar { border-top: 1px solid palette(mid); border-bottom: 1px solid palette(mid); }"
-ROSTER_WIDTH = 240
+ROSTER_WIDTH = 310
 CROP_SIZE = 96
 OPENING_NAMES = {"hatchway": "Hatchway", "breach": "Breach point"}
 MODE_BADGE = {"live": ("Live", MODE_LIVE_COLOR, "dot"), "snapshot": ("Snapshot", MODE_SNAPSHOT_COLOR, "pause"), "minimap": ("Minimap", MODE_MINIMAP_COLOR, "square")}

@@ -470,6 +470,18 @@ wounds = 10
 max = 3
 ```
 
+When you have more than one model for an operative (for example one painted
+in another way, or in another pose), enroll each model as its own operative
+and tell the app which operative it is:
+
+```bash
+uv run battlesight enroll --team "Hierotek Circle" --operative "Immortal Guardian - pose 2" --counts-as "Immortal Guardian"
+```
+
+The app shows the model as "Immortal Guardian", with its base size and wounds.
+Only the list of names for a base ("Change ID" and "Locate operative") shows
+each model on its own, with its own match percentage.
+
 An operative gets a name only on a base of this size. In a game, the app looks only for the base sizes of the teams
 that you start it with. Thus a token or a terrain part of another size does
 not show as a base.

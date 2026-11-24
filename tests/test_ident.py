@@ -1101,9 +1101,9 @@ def test_copy_labels():
     assert idt.copy_label("orks/Boy", 2) == "orks/Boy#2"
     assert idt.type_of("orks/Boy#2") == "orks/Boy" and idt.type_of("orks/Boy") == "orks/Boy"
     assert idt.copy_number("orks/Boy#2") == 2 and idt.copy_number("orks/Boy") is None
-    assert idt.display_name("orks/Boy#2") == "Boy 2" and idt.display_name("orks/Nob") == "Nob"
+    assert idt.display_name("orks/Boy#2") == "Boy #2" and idt.display_name("orks/Nob") == "Nob"
     op = idt.Operative("orks", "Boy", 32.0, 10, max=3, copy=2)
-    assert op.label == "orks/Boy#2" and op.type_label == "orks/Boy" and op.display == "Boy 2"
+    assert op.label == "orks/Boy#2" and op.type_label == "orks/Boy" and op.display == "Boy #2"
     assert idt.Operative("orks", "Nob").label == "orks/Nob"
     with pytest.raises(ValueError, match="#"):
         idt.check_name("Boy#1", "operative")
@@ -1167,3 +1167,54 @@ def test_enroll_marks_the_found_base_green_until_the_next_grab(tmp_path, monkeyp
     code = main(["enroll", "--team", "orks", "--operative", "Nob", "--base-mm", "40", "--gallery-root", str(tmp_path / "gallery"), "--config", str(cfg_file), "--reference", str(tmp_path / "none.png")])
     assert code == 0
     assert calls[-1] == (1, app.ENROLL_FOUND_COLOR)  # drawn after the photo was added
+
+
+# --- variant models (counts_as) ----------------------------------------------------
+
+
+def test_team_file_counts_as(tmp_path):
+    team = tmp_path / "orks"
+    idt.save_team_file(team, "orks", {"Boy": 32.0, "Boy - pose 2": 32.0}, {"Boy": 10}, None, None, {"Boy": 3}, {"Boy - pose 2": "Boy"})
+    text = (team / idt.TEAM_FILE).read_text()
+    assert 'counts_as = "Boy"' in text and "# counts_as:" in text and text.count("wounds =") == 1
+    assert idt.read_counts_as(team) == {"Boy - pose 2": "Boy"}
+    lists = [op.name for op in idt.team_operatives("orks", team)]
+    assert lists == ["Boy"]  # a team list has no variants
+    ops = {op.name: op for op in idt.team_operatives("orks", team, variants=True)}
+    v = ops["Boy - pose 2"]
+    assert (v.base_mm, v.wounds, v.max, v.counts_as) == (32.0, 10, 3, "Boy") and v.original_label == "orks/Boy"
+    for bad in ('"Nope"', '"Boy - pose 2"', "3"):
+        (team / idt.TEAM_FILE).write_text(f'[operatives."Boy"]\nbase_mm = 32\n[operatives."Boy - pose 2"]\ncounts_as = {bad}\n')
+        with pytest.raises(ValueError, match="counts_as"):
+            idt.read_counts_as(team)
+
+
+def _flat(v: int) -> np.ndarray:
+    return idt.store_crop(np.full((300, 300, 3), v, np.uint8), (150, 150), 32.0, 4.0)
+
+
+def test_variant_names_its_original_and_keeps_own_photos(tmp_path):
+    cfg = ident_cfg()
+    g = make_gallery(tmp_path, cfg)
+    g.add("orks/Boy", _flat(10), 32.0)
+    g.add("orks/Nob", _flat(120), 32.0)
+    with pytest.raises(ValueError, match="enroll it first"):
+        g.ensure_operative("orks", "X", None, counts_as="Ghost")
+    with pytest.raises(ValueError, match="wounds"):
+        g.ensure_operative("orks", "Boy - pose 2", None, wounds=5, counts_as="Boy")
+    with pytest.raises(ValueError, match="mm base"):
+        g.ensure_operative("orks", "Boy - pose 2", 40.0, counts_as="Boy")
+    g.ensure_operative("orks", "Boy - pose 2", 32.0, counts_as="Boy")
+    g.add("orks/Boy - pose 2", _flat(250), 32.0)
+    assert g.columns() == [0, 1] and g.members(0) == [0, 2] and g.canonical("orks/Boy - pose 2#2") == "orks/Boy#2"
+    g2 = make_gallery(tmp_path, cfg)  # the file and the photos load again
+    assert g2.operatives[2].counts_as == "Boy" and g2.counts()["orks/Boy - pose 2"] == 1
+    x = idt.identify([_flat(250)], [32.0], g2)[0]
+    assert x.label == "orks/Boy" and x.photo_label == "orks/Boy - pose 2"  # the variant model matches best
+    scores = dict(x.candidates)
+    assert "orks/Boy" in scores and "orks/Boy - pose 2" in scores and scores["orks/Boy - pose 2"] > scores["orks/Boy"]  # separate entries
+    s = idt.LabelSession(np.array([[0.0, 0.0]]), [32.0], [_flat(248)], [x], g2)
+    path = s.choose("orks/Boy - pose 2", 0)
+    assert path is not None and path.parent.name == "Boy - pose 2" and s.idents[0].label == "orks/Boy"
+    g2.out_of_play = {"orks/Boy"}
+    assert not g2.allowed(32.0)[2]  # a variant is out of play with its original

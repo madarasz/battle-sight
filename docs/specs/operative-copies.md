@@ -51,7 +51,7 @@ max = 4
 
 - An operative with `max = 1` has no copy label. Its copy label is its type label. Wounds, `in_play`, ground truth files and baselines of existing teams do not change.
 - New helpers in `ident.py`: `copy_label(type_label, k)`, `type_of(label)` (copy label to type label; a type label returns itself), `copy_number(label)` (None for a type label).
-- Display name: `Boy 2` for a copy, `Boy` for an operative with `max = 1`. Overlay names, the team list, the name popup and notices use the display name.
+- Display name: `Boy #2` for a copy, `Boy` for an operative with `max = 1`. Overlay names, the team list, the name popup and notices use the display name.
 
 ## 5. Identification with copies
 
@@ -94,7 +94,7 @@ Positions are not saved to a file (wounds are not saved either). A team change (
 
 ### 6.1 Name popup and swap
 
-- The popup lists each copy of a type with its wounds, for example `Boy 1 (10/10)`, `Boy 2 (4/10)`.
+- The popup lists each copy of a type with its wounds, for example `Boy #1 (10/10)`, `Boy #2 (4/10)`.
 - `base.choose(label)` with a copy label:
   - when another base holds that copy and that base has the same type: the two bases swap copies. Both bases become confirmed. Both positions change.
   - else: as today (the other base becomes unknown).
@@ -103,9 +103,9 @@ Positions are not saved to a file (wounds are not saved either). A team change (
 
 ### 6.2 Team list
 
-- One row for each copy in play: `Boy 1`, `Boy 2`.
+- One row for each copy in play: `Boy #1`, `Boy #2`.
 - `roster.add(slot, label)` with a type label adds the lowest free copy number of that type, up to `max`. With a copy label it adds that copy when it is free. Above `max`: an error notice.
-- The "add operative" list of a side shows a type while its copies in play are less than `max`.
+- The "add operative" list of a side shows a type while its copies in play are less than `max`, with the number of the copy that the click adds: `Boy (2/3)` when one copy is in play.
 - `roster.remove(slot)` removes the selected copy. It drops the wounds and the position of that copy. When a removed copy is added again it starts with full wounds.
 - When no copy of a type is in play, the type goes to `Gallery.out_of_play` and its base size leaves the known sizes, as today. While one copy is in play, both stay.
 - `in_play` holds copy labels.

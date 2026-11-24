@@ -37,6 +37,7 @@ Pure geometry in board mm, no window: `ring_radius_mm`, `rim_gap` (distance and 
 ## Teams, rosters, copies
 
 - `team.set(slot, name)` changes the teams at run time (gallery loads again at the next `space`).
+- The team list shows the operatives by maximum wounds, highest first (`LiveSession._listed`: no value last, copies of one type together in copy order, equal wounds in file order). `in_play` keeps the order of adding; only the display sorts.
 - `roster.remove(slot)` / `roster.add(slot, label)` change the team list of a side (`LiveSession.in_play`, reset at team change); removed operatives go to `Gallery.out_of_play` (not `allowed`, never named) and out of the known base sizes.
 - Copies (`max` in `team.toml`, `docs/specs/operative-copies.md`): copy labels `<team>/<operative>#<k>` in `in_play`, wounds and selection; `Gallery.copies` gives `assign` one column per copy; `LiveSession._pair_copies` gives copies to bases by `LiveSession.positions` (`[copies]` config); never compare a copy label with a gallery label without `idt.type_of`.
 
