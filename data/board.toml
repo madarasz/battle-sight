@@ -80,6 +80,8 @@ mask = true              # true: grey out the board around each operative (needs
 mask_threshold = 25.0    # Lab colour distance from the empty board that counts as the operative
 mask_min_base = 0.25     # under this changed part of the base disc the empty-board photo is wrong: no mask for this crop
 mask_max_fraction = 0.6  # over this part of the crop circle the mask is wrong (light change, old photo): no mask for this crop
+reuse_move_mm = 2.0      # "Identify all": a base that moved less than this since the last identification of the run may keep its scores
+reuse_crop_diff = 0.03   # ... when its crop changed less than this (mean grey difference, 0..1). 0 = read every base again
 
 [copies]
 # Operatives that a team fields more than once (max in team.toml): the live

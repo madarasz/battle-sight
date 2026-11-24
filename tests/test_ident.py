@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import json
 import re
+from dataclasses import replace
 
 import cv2
 import numpy as np
@@ -1218,3 +1219,73 @@ def test_variant_names_its_original_and_keeps_own_photos(tmp_path):
     assert path is not None and path.parent.name == "Boy - pose 2" and s.idents[0].label == "orks/Boy"
     g2.out_of_play = {"orks/Boy"}
     assert not g2.allowed(32.0)[2]  # a variant is out of play with its original
+
+
+# --- reuse of the last identification --------------------------------------------
+
+
+def _reuse_setup(tmp_path):
+    cfg = ident_cfg()
+    base = {"Nob": ((150.0, 120.0), 0.0), "Grot": ((300.0, 200.0), 90.0), "Burna": ((200.0, 300.0), 180.0)}
+    img = paint_board(cfg, base)
+    g = make_gallery(tmp_path, cfg)
+    enroll_from(g, cfg, img, {n: c for n, (c, _) in base.items()})
+    return cfg, base, g
+
+
+def _run(pipe: Pipeline, img: np.ndarray):
+    r = pipe.analyze(img)
+    assert r.ok, r.summary()
+    by_label = {x.label: i for i, x in enumerate(r.scratch["idents"])}
+    return r, by_label, r.stages["ident"].data["reuse"]
+
+
+def test_identify_reuses_bases_that_did_not_move(tmp_path):
+    cfg, base, g = _reuse_setup(tmp_path)
+    pipe = Pipeline(cfg, gallery=g)
+    r1, _, reuse1 = _run(pipe, paint_board(cfg, base))
+    assert not any(x["reused"] for x in reuse1)  # first call of the run: everything is read
+    first = {x.label: x.score for x in r1.scratch["idents"]}
+    # Second call: the Burna moved 60 mm, the others stay.
+    moved = {**base, "Burna": ((260.0, 340.0), 180.0)}
+    r2, by_label, reuse2 = _run(pipe, paint_board(cfg, moved))
+    got = {i["reason"] for i in reuse2}
+    assert sum(x["reused"] for x in reuse2) == 2 and "moved" in got
+    burna = by_label[idt.label_of("orks", "Burna")]
+    assert not reuse2[burna]["reused"] and reuse2[burna]["moved_mm"] > cfg.ident_reuse_move_mm
+    # Reuse gives the names and scores of a full read.
+    assert all(x.label is not None for x in r2.scratch["idents"])
+    for x in r2.scratch["idents"]:
+        if x.label in first and x.label != idt.label_of("orks", "Burna"):
+            assert x.score == pytest.approx(first[x.label], abs=1e-4)
+    full, _, _ = _run(Pipeline(cfg, gallery=g), paint_board(cfg, moved))
+    assert [x.label for x in full.scratch["idents"]] == [x.label for x in r2.scratch["idents"]]
+
+
+def test_identify_reads_again_when_the_picture_changes_on_the_same_spot(tmp_path, monkeypatch):
+    cfg, base, g = _reuse_setup(tmp_path)
+    pipe = Pipeline(cfg, gallery=g)
+    _run(pipe, paint_board(cfg, base))
+    # The Burna stays on its spot but another paint job (a grey body) stands there: same position, other picture.
+    monkeypatch.setitem(PAINT, "Burna", ((200, 200, 200), (255, 255, 255)))
+    _, _, reuse = _run(pipe, paint_board(cfg, base))
+    assert sum(x["reused"] for x in reuse) >= 2  # the two still bases stay reused
+    turned = next(x for x in reuse if not x["reused"])
+    assert turned["reason"] == "crop changed" and turned["diff"] > cfg.ident_reuse_crop_diff
+
+
+def test_identify_memory_drops_with_gallery_change_and_zero_threshold(tmp_path):
+    cfg, base, g = _reuse_setup(tmp_path)
+    pipe = Pipeline(cfg, gallery=g)
+    img = paint_board(cfg, base)
+    _run(pipe, img)
+    _, _, reuse = _run(pipe, img)
+    assert all(x["reused"] for x in reuse)
+    g.add(idt.label_of("orks", "Nob"), pipe.analyze(img).scratch["base_crops"][0], 40.0)  # new photo: gallery.version changes
+    _, _, reuse = _run(pipe, img)
+    assert not any(x["reused"] for x in reuse)
+    g.params = replace(g.params, reuse_crop_diff=0.0)
+    off = Pipeline(cfg, gallery=g)
+    _run(off, img)
+    _, _, reuse = _run(off, img)
+    assert not any(x["reused"] for x in reuse)

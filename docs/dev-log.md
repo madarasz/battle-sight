@@ -14,12 +14,22 @@ Battle Sight is under development. This list shows what is finished and what com
 10. ✅ Minimap, Control marks (contesting objective, melee engagement)
 11. ✅ Scoreboard, turn number, CP counter, faction ability counter, show CritOp
 12. ✅ Edit roster: Add / Remove operative from the list
-13. ⏳ Support multiple identical models: copies in the team list, told apart by position (UNTESTED)
-14. ⏳ Shoot at measurements (UNTESTED)
+13. ✅ Support multiple identical models: copies in the team list, told apart by position
+14. ✅ Shoot at measurements
 15. ✅ Tomb World light terrain: real outlines, found on the board, cover for Shoot at
 16. ✅ KillOp calculation, dead operatives
 17. ✅ Save and restore the game state: auto-save, Save state button, `--state`
-optional 🚧 Operative states: injured, dead, borrowed, poisioned, etc.
-optional 🚧 Tokens: handle tokens
+18. ✅ Simplify operative detection based on previous states (some operatives do not move compared to previous identification run)
+
+Optional:
+- 🚧 Progression reports: compare game states, show with arrows which operatives moved from where to where
+- 🚧 highlight only the intervening parts of the terrain while "Shoot at" measurements
+- 🚧 Operative states: injured, dead, borrowed, poisioned, etc.
+- 🚧 Tokens: handle tokens
+
+🚧 Add support for more terrain types:
+- Gallowdark
+- Gallowdark narrative elements
+- Volkus
 
 ✅ done · ⏳ next · 🚧 not started

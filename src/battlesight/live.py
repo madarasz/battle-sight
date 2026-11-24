@@ -1996,8 +1996,12 @@ class LiveSession:
             if self.session is not None:
                 self._pair_copies()
                 self._update_models()
-            for b in result.stages["ident"].data.get("bases", []):
-                print(f"  {b['label'] or 'unknown':30s} {b['diameter_mm']:g} mm at {b['center_mm']} mm, score {b['score']}")
+            data = result.stages["ident"].data
+            reuse = data.get("reuse", [])
+            for k, b in enumerate(data.get("bases", [])):
+                print(f"  {b['label'] or 'unknown':30s} {b['diameter_mm']:g} mm at {b['center_mm']} mm, score {b['score']}" + (f"  {self._reuse_text(reuse[k])}" if k < len(reuse) else ""))
+            if reuse:
+                print(f"  ident: {sum(r['reused'] for r in reuse)}/{len(reuse)} not moved, {data.get('embed_ms', 0):.0f} ms to read the others")
         else:
             for b in result.stages["bases"].data.get("bases", []) if "bases" in result.stages else []:
                 print(f"  {b['diameter_mm']:g} mm at {b['center_mm']} mm, rim {b['coverage']:.0%} visible")
@@ -2010,6 +2014,16 @@ class LiveSession:
         total = before + len(result.stages) + after
         step(total, total)
         self.dirty = True
+
+    def _reuse_text(self, r: dict) -> str:
+        """Stdout text of one base: kept (not moved) or read again, with the numbers behind the choice."""
+        move, crop = self.cfg.ident_reuse_move_mm, self.cfg.ident_reuse_crop_diff
+        if r["moved_mm"] is None:
+            return f"read ({r['reason']})"
+        text = f"moved {r['moved_mm']:g} mm" + (f" > {move:g}" if r["reason"] == "moved" else "")
+        if r["diff"] is not None:
+            text += f", crop diff {r['diff']:g}" + (f" > {crop:g}" if r["reason"] == "crop changed" else "")
+        return ("kept (" if r["reused"] else "read (") + text + ")"
 
     @staticmethod
     def _label_session(result, gallery: idt.Gallery) -> idt.LabelSession | None:

@@ -952,6 +952,8 @@ Fields of the `ident` stage:
 | `model` | Embedder (`ident.model`). |
 | `gallery_photos` | Number of gallery crops. |
 | `masked` | Number of bases compared with a masked crop (only with a gallery that has photos). |
+| `reuse` | One entry per base: `reused` (the base kept the scores of the last identification of the run, no embedding), `reason` (`not moved`, `moved`, `crop changed`, `new base`, `no earlier result`), `moved_mm` (distance to the nearest earlier base of the same size, `null` when none), `diff` (crop difference 0..1, `null` when not compared). Only a run with several calls (live app) can reuse; one `image-pipeline` call always reads every base. |
+| `embed_ms` | Time of the masks and the embedding of the bases that were read, in ms. |
 | `bases` | One entry per found base, in the order of the `bases` stage: `center_mm`, `diameter_mm`, `label` (`<team>/<operative>` or `null` = unknown), `score` (mean cosine similarity of the `top_k` best gallery photos), `margin` (score minus the best other allowed name; negative when the assignment took a second choice; `null` when there is no other), `sure`, `confirmed`, `candidates` (up to 5 `[label, score]`, best first, only operatives of this base size). |
 
 ## Operative identity
@@ -1022,6 +1024,8 @@ identity stay separate: the stage only reads the bases of the `bases` stage.
 | `mask_threshold` | 25.0 | Lab colour distance from the empty board that counts as foreground. |
 | `mask_min_base` | 0.25 | No mask under this changed part of the base disc. |
 | `mask_max_fraction` | 0.6 | No mask over this kept part of the crop circle. |
+| `reuse_move_mm` | 2.0 | "Identify all": a base that moved less than this since the last identification of the run may keep its scores. |
+| `reuse_crop_diff` | 0.03 | ... when its crop changed less than this (mean grey difference of the model input at 48 px, 0..1). 0 = read every base again. |
 
 First check on the two test photos (no real gallery yet, each found base
 enrolled as its own operative): the board around the base makes crops of

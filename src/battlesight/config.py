@@ -70,6 +70,8 @@ class BoardConfig:
     ident_mask_threshold: float = 25.0
     ident_mask_min_base: float = 0.25
     ident_mask_max_fraction: float = 0.6
+    ident_reuse_move_mm: float = 2.0  # "Identify all": a base that moved less than this may keep its last scores
+    ident_reuse_crop_diff: float = 0.03  # ... when its crop changed less than this (0..1); 0 = every base is read again
     # Copies of one operative type (live app): pairing of copies to bases by last position.
     copies_swap_margin_mm: float = 25.0  # a swap that costs less than this, with a different state, makes both names unsure
     copies_new_cost_mm: float = 150.0  # pairing cost of a copy without a known position

@@ -200,6 +200,7 @@ class Pipeline:
         return self.cache.get("gallery")
 
     def set_gallery(self, gallery: idt.Gallery | None) -> None:
+        self.cache.pop("ident_memory", None)
         if gallery is None:
             self.cache.pop("gallery", None)
         else:
@@ -213,9 +214,11 @@ class Pipeline:
         if not r.ok:
             raise ValueError(f"empty-board reference: {r.summary()}")
         self.cache["bases_reference"] = bases_image(frame, r.scratch["view"], self.cfg)
+        self.cache.pop("ident_memory", None)  # the masks come from the reference
 
     def clear_reference(self) -> None:
         self.cache.pop("bases_reference", None)
+        self.cache.pop("ident_memory", None)
 
     @property
     def has_reference(self) -> bool:
@@ -607,13 +610,19 @@ def _ident(ctx: Context) -> StageResult:
     data: dict[str, Any] = {"teams": sorted(gallery.team_dirs), "model": gallery.embedder.name, "gallery_photos": len(gallery), "bases": []}
     if len(gallery) == 0:
         return StageResult(ok=True, message="gallery has no photos: enroll the operatives", data=data)
-    idents = idt.identify(crops, [c.diameter_mm for c in found], gallery, ctx.scratch["base_backgrounds"], [c.center_mm for c in found])
+    memory: idt.IdentMemory = ctx.cache.setdefault("ident_memory", idt.IdentMemory())
+    idents = idt.identify(crops, [c.diameter_mm for c in found], gallery, ctx.scratch["base_backgrounds"], [c.center_mm for c in found], memory)
     ctx.scratch["idents"] = idents
+    data["reuse"] = memory.report
+    data["embed_ms"] = round(memory.embed_ms, 1)
     data["bases"] = [{"center_mm": _round(c.center_mm), "diameter_mm": c.diameter_mm, **x.to_dict()} for c, x in zip(found, idents)]
     named = sum(x.label is not None for x in idents)
     unsure = sum(x.label is not None and not x.sure for x in idents)
     data["masked"] = sum(x.masked for x in idents)
     msg = f"{named}/{len(idents)} named" + (f", {unsure} unsure" if unsure else "")
+    reused = sum(r["reused"] for r in memory.report)
+    if reused:
+        msg += f", {reused} not moved"
     if gallery.params.mask:
         msg += f", {data['masked']} masked" if gallery.can_mask else ", no mask: gallery photos without background"
     return StageResult(ok=True, message=msg, data=data)

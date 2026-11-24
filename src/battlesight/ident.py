@@ -77,6 +77,8 @@ class IdentParams:
     mask_threshold: float = 25.0
     mask_min_base: float = 0.25
     mask_max_fraction: float = 0.6
+    reuse_move_mm: float = 2.0  # a base that moved less than this may keep its last scores
+    reuse_crop_diff: float = 0.03  # ... when its crop changed less than this (mean grey difference, 0..1); 0 = never reuse
 
     @classmethod
     def from_config(cls, cfg: BoardConfig) -> IdentParams:
@@ -93,6 +95,8 @@ class IdentParams:
             mask_threshold=cfg.ident_mask_threshold,
             mask_min_base=cfg.ident_mask_min_base,
             mask_max_fraction=cfg.ident_mask_max_fraction,
+            reuse_move_mm=cfg.ident_reuse_move_mm,
+            reuse_crop_diff=cfg.ident_reuse_crop_diff,
         )
 
     def cache_key(self, embedder: str) -> str:
@@ -737,6 +741,7 @@ class Gallery:
         self.out_of_play: set[str] = set()  # labels that no base can get (removed from a team list of the live app)
         self.record = True  # False: `LabelSession.choose` adds no photo (live app on `--image-source`: one frame, the same photo each time)
         self.copies: dict[str, int] = {}  # type label -> copies in play (live app); a type not here: its `max`
+        self.version = 0  # +1 each time the views change: the score rows of an `IdentMemory` are old then
         self.reload()
 
     @classmethod
@@ -958,6 +963,7 @@ class Gallery:
         self.view_emb, self.view_op, self.view_file = self._stack_views([(i, e[:n]) for i, e in enumerate(per_file)])
         self.masked_emb, self.masked_op, self.masked_file = self._stack_views([(i, e[n:]) for i, e in enumerate(per_file) if self._has_mask(e)])
         self._per_file = per_file
+        self.version += 1
 
     def _view_count(self) -> int:
         return len(rotation_angles(self.params))
@@ -1206,32 +1212,130 @@ def assign(scores: np.ndarray, allowed: np.ndarray, labels: list[str], min_score
     return out
 
 
+REUSE_THUMB_PX = 48
+
+
+def _thumb(crop: np.ndarray, diameter_mm: float, p: IdentParams) -> np.ndarray:
+    """Small grey picture of what the model sees (`prepare` at angle 0), for the unchanged check."""
+    g = cv2.cvtColor(prepare(crop, diameter_mm, p), cv2.COLOR_BGR2GRAY)
+    return cv2.resize(g, (REUSE_THUMB_PX, REUSE_THUMB_PX), interpolation=cv2.INTER_AREA).astype(np.float32) / 255.0
+
+
+@dataclass
+class _Seen:
+    center: np.ndarray
+    diameter: float
+    thumb: np.ndarray
+    scores: np.ndarray  # (n_operatives,) raw scores of the base
+    masked: bool
+
+
+@dataclass
+class IdentMemory:
+    """The last identification of a run, so that `identify` embeds only the
+    bases that changed. The score row of a base is reused when a base of the
+    same diameter stood within `reuse_move_mm` of it and its crop looks the
+    same (`reuse_crop_diff`). The memory is in RAM only: a new run starts
+    empty. It is dropped (`clear`) when the gallery or the empty-board
+    reference changes. `report` has one entry per base of the last call:
+    `reused`, `reason`, `moved_mm` (to the nearest base of the same size),
+    `diff` (crop difference, None when not compared); `embed_ms` is the
+    time of the masks and the embedding."""
+
+    key: tuple | None = None
+    seen: list[_Seen] = field(default_factory=list)
+    report: list[dict] = field(default_factory=list)
+    embed_ms: float = 0.0
+
+    def clear(self) -> None:
+        self.key = None
+        self.seen = []
+
+
+def _gallery_key(gallery: Gallery, masking: bool) -> tuple:
+    return (id(gallery), gallery.version, frozenset(gallery.hidden), masking)
+
+
 def identify(
     crops: list[np.ndarray],
     diameters_mm: list[float],
     gallery: Gallery,
     backgrounds: Sequence[np.ndarray] = (),
     centers_mm: Sequence[Sequence[float]] = (),
+    memory: IdentMemory | None = None,
 ) -> list[Ident]:
     """Identity of each base from its stored crop (`store_crop`) and its size
     class. With `backgrounds` (empty-board crops) and centres and a gallery
     that `can_mask`, a base with a usable mask compares masked crops; all other
-    bases compare full crops."""
+    bases compare full crops. With `memory` (and centres), a base that did not
+    move and looks the same as in the last call keeps its scores and is not
+    embedded again."""
     p = gallery.params
     if not crops:
+        if memory is not None:
+            memory.report, memory.seen, memory.embed_ms = [], [], 0.0
         return []
-    cut: list[np.ndarray | None] = [None] * len(crops)
-    if gallery.can_mask and len(backgrounds) == len(crops) and len(centers_mm) == len(crops):
-        centres = np.asarray(centers_mm, float)
-        for i, (c, b, d) in enumerate(zip(crops, backgrounds, diameters_mm)):
-            others = [(*(centres[j] - centres[i]), diameters_mm[j]) for j in range(len(crops)) if j != i]
-            cut[i] = mask_crop(c, b, d, p, others)
-    emb = gallery.embedder.embed([prepare(c if m is None else m, d, p) for c, m, d in zip(crops, cut, diameters_mm)])
-    masked = np.array([m is not None for m in cut], bool)
-    scores = np.full((len(crops), len(gallery.operatives)), -np.inf)
-    scores[~masked] = gallery.scores(emb[~masked])
-    scores[masked] = gallery.scores(emb[masked], masked=True)
-    allowed = np.stack([gallery.allowed(d) for d in diameters_mm]) if gallery.operatives else np.zeros((len(crops), 0), bool)
+    n = len(crops)
+    masking = gallery.can_mask and len(backgrounds) == n and len(centers_mm) == n
+    centres = np.asarray(centers_mm, float).reshape(-1, 2) if len(centers_mm) == n else None
+    scores = np.full((n, len(gallery.operatives)), -np.inf)
+    masked = np.zeros(n, bool)
+    reused = np.zeros(n, bool)
+    report: list[dict] = [{"reused": False, "reason": "no earlier result", "moved_mm": None, "diff": None} for _ in range(n)]
+    thumbs: list[np.ndarray | None] = [None] * n
+    kept: dict[int, _Seen] = {}  # new base -> the old entry that it keeps
+    if memory is not None and centres is not None and p.reuse_crop_diff > 0:
+        key = _gallery_key(gallery, masking)
+        if memory.key != key:
+            memory.clear()
+            memory.key = key
+        free = list(range(len(memory.seen)))
+        for i in range(n):
+            thumbs[i] = _thumb(crops[i], diameters_mm[i], p)
+            near = sorted(((float(np.hypot(*(memory.seen[j].center - centres[i]))), j) for j in free if memory.seen[j].diameter == diameters_mm[i]))
+            if not near:
+                report[i].update(reason="new base" if memory.seen else "no earlier result")
+                continue
+            dist, j = near[0]
+            report[i]["moved_mm"] = round(dist, 2)
+            if dist > p.reuse_move_mm:
+                report[i]["reason"] = "moved"
+                continue
+            diff = float(np.abs(thumbs[i] - memory.seen[j].thumb).mean())
+            report[i]["diff"] = round(diff, 4)
+            if diff > p.reuse_crop_diff:
+                report[i]["reason"] = "crop changed"
+                continue
+            free.remove(j)
+            kept[i] = memory.seen[j]
+            reused[i] = True
+            report[i].update(reused=True, reason="not moved")
+            scores[i], masked[i] = memory.seen[j].scores, memory.seen[j].masked
+    todo = [i for i in range(n) if not reused[i]]
+    t0 = time.perf_counter()
+    if todo:
+        cut: dict[int, np.ndarray | None] = {i: None for i in todo}
+        if masking:
+            allc = np.asarray(centers_mm, float)
+            for i in todo:
+                others = [(*(allc[j] - allc[i]), diameters_mm[j]) for j in range(n) if j != i]
+                cut[i] = mask_crop(crops[i], backgrounds[i], diameters_mm[i], p, others)
+        emb = gallery.embedder.embed([prepare(crops[i] if cut[i] is None else cut[i], diameters_mm[i], p) for i in todo])
+        m = np.array([cut[i] is not None for i in todo], bool)
+        part = np.full((len(todo), len(gallery.operatives)), -np.inf)
+        part[~m] = gallery.scores(emb[~m])
+        part[m] = gallery.scores(emb[m], masked=True)
+        for r, i in enumerate(todo):
+            scores[i], masked[i] = part[r], m[r]
+    if memory is not None:
+        memory.embed_ms = (time.perf_counter() - t0) * 1000.0
+        memory.report = report
+        if centres is not None and p.reuse_crop_diff > 0:
+            memory.seen = [
+                kept[i] if i in kept else _Seen(centres[i].copy(), diameters_mm[i], thumbs[i], scores[i].copy(), bool(masked[i]))
+                for i in range(n)
+            ]  # a kept base keeps its old centre and picture: slow drift adds up and ends the reuse
+    allowed = np.stack([gallery.allowed(d) for d in diameters_mm]) if gallery.operatives else np.zeros((n, 0), bool)
     cols = gallery.columns()
     labels = gallery.labels()
     # An original and its variants compete as one operative: the best score of the models.
@@ -1240,8 +1344,8 @@ def identify(
     for k in set(cols):
         group[:, k] = usable[:, gallery.members(k)].max(axis=1)
     out = assign(group[:, cols], np.isfinite(group[:, cols]), [labels[k] for k in cols], p.min_score, p.min_margin)
-    for i, (x, m) in enumerate(zip(out, masked)):
-        x.masked = bool(m)
+    for i, (x, mk) in enumerate(zip(out, masked)):
+        x.masked = bool(mk)
         # The fix menu names each model on its own, with its own score.
         order = [j for j in np.argsort(-usable[i], kind="stable") if np.isfinite(usable[i, j])]
         x.candidates = [(labels[j], float(usable[i, j])) for j in order]
