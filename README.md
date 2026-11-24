@@ -1,4 +1,4 @@
-# Battle Sight
+![Battle Sight logo](branding/BattleSight-Logo-text-long-small.png)
 
 Battle Sight is an augmented reality helper for Warhammer 40k: Kill Team. A
 camera above the table looks down on the board. A window on your computer

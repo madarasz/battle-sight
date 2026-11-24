@@ -57,13 +57,13 @@ dead_back = "#000000"        # disc behind the skull of a dead operative
 # --- measurement -----------------------------------------------------------------
 
 [measure]
-measure = "#e646e6"          # rings, distance lines, ranges, target base
-range_zone = "#ffc828"       # 1 in and 2 in zones: around an enemy, a shooter, a target, a selected opening; bases near the opening
+measure = "#42C9A5"          # rings, distance lines, ranges, target base
+range_zone = "#F57C00"       # 1 in and 2 in zones: around an enemy, a shooter, a target, a selected opening; bases near the opening
 move = "#d7d7d7"             # movement route
 move_melee = "#ffffff"       # melee sign of a move into control range
 targeting = "#ffffff"        # targeting lines ("Shoot at")
 intervening = "#e63c3c"      # intervening heavy terrain of a shot
-mark = "#ffe100"             # control marks: melee signs and objective arrows
+mark = "#F57C00"             # control marks: melee signs and objective arrows
 mark_back = "#1e1e1e"        # dark sign behind the crossed swords
 
 # --- terrain ---------------------------------------------------------------------
@@ -95,6 +95,7 @@ map_text = "#000000"         # board edge, grid numbers and map name
 
 [tools]
 enroll_candidate = "#ffc828" # bases that can be the operative to enroll
+enroll_found = "#50dc50"     # base of the last added photo, until the next grab
 charuco_corner = "#50dc50"   # found corners of the calibration sheet
 
 # --- developer tools: tools/bench_bases.py and tools/annotate_bases.py -----------
@@ -122,14 +123,14 @@ message_warn = "#c98a00"     # warning or hint message
 message_error = "#d03a3a"    # error message
 message_info = "#3d8bfd"     # information message
 mode_live = "#d03a3a"        # badge sign: live video
-mode_snapshot = "#3d8bfd"    # badge sign: snapshot
-mode_minimap = "#2e9e4f"     # badge sign: minimap
-shot_obscured = "#d03a3a"    # "Obscured" in the shot panel
-shot_in_cover = "#3d8bfd"    # "In cover" in the shot panel
+mode_snapshot = "#42C9A5"    # badge sign: snapshot
+mode_minimap = "#E5B544"     # badge sign: minimap
+shot_obscured = "#E5B544"    # "Obscured" in the shot panel
+shot_in_cover = "#42C9A5"    # "In cover" in the shot panel
 video_back = "#000000"       # around the video image
 badge_back = "#000000aa"     # box behind the mode badge
 badge_text = "#ffffff"       # mode badge text
 selected_row = "#8080805a"   # background of the selected row of a team list
-skull_on = "#e8c547"         # score skull, scored
+skull_on = "#E5B544"         # score skull, scored
 skull_off = "#5a5a5a"        # score skull, not scored
 score_grid = "#8a8a8a"       # lines of the score grid
