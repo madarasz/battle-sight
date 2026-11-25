@@ -1178,7 +1178,7 @@ def test_team_file_counts_as(tmp_path):
     idt.save_team_file(team, "orks", {"Boy": 32.0, "Boy - pose 2": 32.0}, {"Boy": 10}, None, None, {"Boy": 3}, {"Boy - pose 2": "Boy"})
     text = (team / idt.TEAM_FILE).read_text()
     assert 'counts_as = "Boy"' in text and "# counts_as:" in text and text.count("wounds =") == 1
-    assert idt.read_counts_as(team) == {"Boy - pose 2": "Boy"}
+    assert idt.read_counts_as(team) == {"Boy - pose 2": ("Boy",)}
     lists = [op.name for op in idt.team_operatives("orks", team)]
     assert lists == ["Boy"]  # a team list has no variants
     ops = {op.name: op for op in idt.team_operatives("orks", team, variants=True)}
@@ -1186,6 +1186,38 @@ def test_team_file_counts_as(tmp_path):
     assert (v.base_mm, v.wounds, v.max, v.counts_as) == (32.0, 10, 3, "Boy") and v.original_label == "orks/Boy"
     for bad in ('"Nope"', '"Boy - pose 2"', "3"):
         (team / idt.TEAM_FILE).write_text(f'[operatives."Boy"]\nbase_mm = 32\n[operatives."Boy - pose 2"]\ncounts_as = {bad}\n')
+        with pytest.raises(ValueError, match="counts_as"):
+            idt.read_counts_as(team)
+
+
+def test_counts_as_list_takes_the_first_in_play(tmp_path):
+    team = tmp_path / "gallery" / "orks"
+    team.mkdir(parents=True)
+    text = (
+        '[operatives."Boy"]\nbase_mm = 32\nwounds = 10\n[operatives."Nob"]\nbase_mm = 32\nwounds = 12\n'
+        '[operatives."Big"]\ncounts_as = ["Boy", "Nob"]\n'
+    )
+    (team / idt.TEAM_FILE).write_text(text)
+    g = make_gallery(tmp_path, ident_cfg())
+    g.add("orks/Big", _flat(250), 32.0)
+
+    def named() -> str | None:
+        return idt.identify([_flat(250)], [32.0], g)[0].label
+
+    assert named() == "orks/Boy" and g.canonical("orks/Big") == "orks/Boy" and g.operatives[2].wounds == 10
+    g.out_of_play = {"orks/Boy"}
+    assert named() == "orks/Nob" and g.canonical("orks/Big") == "orks/Nob" and g.operatives[2].wounds == 12
+    assert g.members(0) == [0] and g.members(1) == [1, 2]
+    g.out_of_play = {"orks/Boy", "orks/Nob"}
+    assert not g.allowed(32.0).any()
+    g.out_of_play = set()
+    assert named() == "orks/Boy"
+    assert g.ensure_operative("orks", "Big", None, counts_as="Nob").targets == ("Boy", "Nob")
+    g._save_team("orks")
+    assert 'counts_as = ["Boy", "Nob"]' in (team / idt.TEAM_FILE).read_text()
+    base = '[operatives."Boy"]\nbase_mm = 32\n[operatives."Nob"]\nbase_mm = 40\n[operatives."Big"]\ncounts_as = '
+    for bad in ('[]', '["Boy", "Boy"]', '["Boy", "Nope"]', '["Boy", 3]', '["Boy", "Big"]', '["Boy", "Nob"]'):
+        (team / idt.TEAM_FILE).write_text(base + bad + "\n")
         with pytest.raises(ValueError, match="counts_as"):
             idt.read_counts_as(team)
 

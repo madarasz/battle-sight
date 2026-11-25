@@ -425,6 +425,11 @@ class Operative:
     max: int = 1  # copies that a team can field
     copy: int | None = None  # copy number of one copy in play (only with max > 1)
     counts_as: str | None = None  # name of the original operative (`counts_as` in team.toml): a variant model with its own photos; base size, wounds, `expendable` and `max` are the original's
+    targets: tuple[str, ...] = ()  # all names of `counts_as`, in file order; `counts_as` is the one in use (`Gallery.out_of_play`)
+
+    def __post_init__(self) -> None:
+        if not self.targets and self.counts_as is not None:
+            self.targets = (self.counts_as,)
 
     @property
     def original_label(self) -> str:
@@ -550,10 +555,11 @@ def read_team_file(team_dir: Path) -> dict[str, tuple[float | None, int | None]]
     return out
 
 
-def read_counts_as(team_dir: Path) -> dict[str, str]:
-    """{variant name: original name} of the operatives with `counts_as` in
-    `team.toml`. The original must be an operative of the file that is no
-    variant itself. A bad value is a ValueError."""
+def read_counts_as(team_dir: Path) -> dict[str, tuple[str, ...]]:
+    """{variant name: original names} of the operatives with `counts_as` (a
+    name, or a list of names) in `team.toml`. Each original must be an
+    operative of the file that is no variant itself, and the originals of one
+    variant must not have different base sizes. A bad value is a ValueError."""
     path = team_dir / TEAM_FILE
     if not path.exists():
         return {}
@@ -564,16 +570,23 @@ def read_counts_as(team_dir: Path) -> dict[str, str]:
     for name, v in ops.items():
         if not isinstance(v, dict) or "counts_as" not in v:
             continue
-        target = v["counts_as"]
-        if not isinstance(target, str) or not target:
-            raise ValueError(f"{path} {name}: counts_as must be an operative name, not {target!r}")
-        if target == name:
-            raise ValueError(f"{path} {name}: counts_as names the operative itself")
-        if target not in ops:
-            raise ValueError(f"{path} {name}: counts_as {target!r} is not an operative of the file")
-        if isinstance(ops[target], dict) and "counts_as" in ops[target]:
-            raise ValueError(f"{path} {name}: counts_as {target!r}, which counts as another operative itself")
-        out[str(name)] = target
+        value = v["counts_as"]
+        targets = value if isinstance(value, list) else [value]
+        if not targets or not all(isinstance(t, str) and t for t in targets):
+            raise ValueError(f"{path} {name}: counts_as must be an operative name or a list of names, not {value!r}")
+        if len(set(targets)) != len(targets):
+            raise ValueError(f"{path} {name}: counts_as has a repeated name: {targets}")
+        for target in targets:
+            if target == name:
+                raise ValueError(f"{path} {name}: counts_as names the operative itself")
+            if target not in ops:
+                raise ValueError(f"{path} {name}: counts_as {target!r} is not an operative of the file")
+            if isinstance(ops[target], dict) and "counts_as" in ops[target]:
+                raise ValueError(f"{path} {name}: counts_as {target!r}, which counts as another operative itself")
+        sizes = {float(ops[t]["base_mm"]) for t in targets if isinstance(ops[t], dict) and "base_mm" in ops[t]}
+        if len(sizes) > 1:
+            raise ValueError(f"{path} {name}: the operatives of counts_as have different base sizes: {sorted(sizes)}")
+        out[str(name)] = tuple(targets)
     return out
 
 
@@ -632,10 +645,17 @@ def team_operatives(team: str, team_dir: Path, variants: bool = False) -> list[O
     ops = [Operative(team, name, *listed.get(name, (None, None)), name in expendable, copies.get(name, 1)) for name in names if variants or name not in counts_as]
     by_name = {op.name: op for op in ops}
     for op in ops:
-        if op.name in counts_as:  # a variant takes the values of its original
-            orig = by_name.get(counts_as[op.name]) or next(o for o in team_operatives(team, team_dir) if o.name == counts_as[op.name])
-            op.base_mm, op.wounds, op.expendable, op.max, op.counts_as = orig.base_mm, orig.wounds, orig.expendable, orig.max, orig.name
+        if op.name in counts_as:  # a variant takes the values of its (first) original
+            op.targets = counts_as[op.name]
+            _take_values(op, by_name[op.targets[0]])
     return ops
+
+
+def _take_values(variant: Operative, original: Operative) -> None:
+    """Make `variant` count as `original`: it gets the values of the original."""
+    variant.counts_as = original.name
+    variant.base_mm, variant.wounds = original.base_mm, original.wounds
+    variant.expendable, variant.max = original.expendable, original.max
 
 
 def roster_sizes(root: str | Path, teams: Iterable[str]) -> tuple[float, ...] | None:
@@ -656,13 +676,13 @@ def save_team_file(
     info: TeamInfo | None = None,
     expendable: Iterable[str] | None = None,
     copies: dict[str, int] | None = None,
-    counts_as: dict[str, str] | None = None,
+    counts_as: dict[str, str | Sequence[str]] | None = None,
 ) -> None:
     """Write `team.toml`: team values, then base size, maximum wounds,
     `expendable` and `max` (copies, only above 1) of each operative, in the
     order of `operatives` (the order of the team lists in the live app).
-    A variant (`counts_as`: variant name -> original name) gets `counts_as`
-    only. Without `info`, `expendable`, `copies` or `counts_as` the values of
+    A variant (`counts_as`: variant name -> original names) gets `counts_as`
+    only (a name for one original, else a list). Without `info`, `expendable`, `copies` or `counts_as` the values of
     the existing file stay."""
     wounds = wounds or {}
     if info is None:
@@ -679,8 +699,9 @@ def save_team_file(
         "# wounds: maximum wounds (W) of the operative, for the health bar of the live app.",
         "# expendable: true for an expendable operative (optional, default false).",
         "# max: copies of the operative that the team can field (optional, default 1).",
-        "# counts_as: name of an original operative (optional). The operative is another model of the original (own photos);",
+        "# counts_as: name of an original operative, or a list of names (optional). The operative is another model of the original (own photos);",
         "#   it has the base size, wounds, expendable and max of the original and shows as the original.",
+        "#   With a list, the original is the first name of the list that is in the team list.",
         "# Photos: one folder per operative next to this file, written by `battlesight enroll` and by fixes.",
         "",
     ]
@@ -696,7 +717,9 @@ def save_team_file(
     for name in operatives:
         lines.append(f"[operatives.{json.dumps(name)}]")
         if name in counts_as:
-            lines.append(f"counts_as = {json.dumps(counts_as[name])}")
+            value = counts_as[name]
+            targets = [value] if isinstance(value, str) else list(value)
+            lines.append(f"counts_as = {json.dumps(targets[0] if len(targets) == 1 else targets)}")
             lines.append("")
             continue
         if operatives[name] is not None:
@@ -738,7 +761,7 @@ class Gallery:
         self.masked_op = np.zeros(0, int)
         self.masked_file = np.zeros(0, int)
         self.hidden: set[int] = set()  # file indexes that `scores` must not use (the benchmark hides copies of a test photo)
-        self.out_of_play: set[str] = set()  # labels that no base can get (removed from a team list of the live app)
+        self._out_of_play: set[str] = set()  # see `out_of_play`
         self.record = True  # False: `LabelSession.choose` adds no photo (live app on `--image-source`: one frame, the same photo each time)
         self.copies: dict[str, int] = {}  # type label -> copies in play (live app); a type not here: its `max`
         self.version = 0  # +1 each time the views change: the score rows of an `IdentMemory` are old then
@@ -759,6 +782,26 @@ class Gallery:
 
     def labels(self) -> list[str]:
         return [op.label for op in self.operatives]
+
+    @property
+    def out_of_play(self) -> set[str]:
+        """Labels that no base can get (removed from a team list of the live
+        app). Assign a new set to change it: a variant with a list in
+        `counts_as` then counts as the first operative of the list that is in
+        play."""
+        return self._out_of_play
+
+    @out_of_play.setter
+    def out_of_play(self, labels: set[str]) -> None:
+        self._out_of_play = set(labels)
+        self._resolve_variants()
+
+    def _resolve_variants(self) -> None:
+        by_label = {op.label: op for op in self.operatives}
+        for op in self.operatives:
+            if op.targets:
+                labels = [label_of(op.team, t) for t in op.targets]
+                _take_values(op, by_label[next((x for x in labels if x not in self._out_of_play), labels[0])])
 
     def columns(self) -> list[int]:
         """Operative index of each column of the name assignment: one column
@@ -820,9 +863,9 @@ class Gallery:
                 raise ValueError(f"{name}: {counts_as} has a {original.base_mm:g} mm base, not {base_mm:g} mm")
             existing = self.index(label_of(team, name))
             if existing is not None:
-                if self.operatives[existing].counts_as == counts_as:
+                if counts_as in self.operatives[existing].targets:
                     return self.operatives[existing]
-                if self.operatives[existing].counts_as is not None or self.counts()[label_of(team, name)] or any(o.counts_as == name for o in self.operatives):
+                if self.operatives[existing].counts_as is not None or self.counts()[label_of(team, name)] or any(name in o.targets for o in self.operatives):
                     raise ValueError(f"{label_of(team, name)} exists already and does not count as {counts_as}")
                 self.operatives.pop(existing)  # an operative without photos that nothing counts as: now a variant
                 self._fix_file_ops(existing)
@@ -870,7 +913,7 @@ class Gallery:
             self.team_info[team],
             [op.name for op in orig if op.expendable],
             {op.name: op.max for op in orig},
-            {op.name: op.counts_as for op in ops if op.counts_as is not None},
+            {op.name: op.targets for op in ops if op.targets},
         )
 
     def set_team_info(
@@ -911,6 +954,7 @@ class Gallery:
                             files.append(f)
                             file_op.append(len(ops) - 1)
         self.operatives, self.files, self.file_op = ops, files, file_op
+        self._resolve_variants()
         self._embed_all()
 
     def _diameter(self, op: Operative, crop: np.ndarray) -> float:

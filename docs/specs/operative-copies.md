@@ -170,6 +170,8 @@ When the done test shows too many wrong copies, add tracking between snapshots: 
 
 A player can use more than one miniature for one operative type (`counts_as` in `team.toml`, for example `Immortal Guardian - tesla` counts as `Immortal Guardian`). A model changes the looks only. Rules, wounds, base size and `max` are the values of the original.
 
+`counts_as` can be a list of operative names with one base size, for a model that can stand in for more than one operative. The model counts as the first name of the list that is in the team list. Wounds and `max` are the values of that operative.
+
 ### 12.1 Decisions
 
 | ID | Decision |

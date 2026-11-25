@@ -482,6 +482,17 @@ The app shows the model as "Immortal Guardian", with its base size and wounds.
 Only the list of a base ("Change operative" and "Locate operative") shows
 each model on its own, with its own match percentage.
 
+One model can replace more than one operative. To set this, open the
+`team.toml` file of the team. Write a list of the operative names:
+
+```toml
+[operatives."Gravis"]
+counts_as = ["Bombard", "Breacher", "Horde-Slayer"]
+```
+
+The app shows the model as the first operative of the list that is in the
+team list. These operatives must have the same base size.
+
 An operative gets a name only on a base of this size. In a game, the app looks only for the base sizes of the teams
 that you start it with. Thus a token or a terrain part of another size does
 not show as a base.

@@ -265,7 +265,7 @@ def cmd_enroll(args: argparse.Namespace) -> int:
         return 2
     label = op.label
     if op.counts_as is not None:
-        print(f"{label}: counts as {op.counts_as} (own photos; base size, wounds and name on the screen are the original's) saved in {idt.TEAM_FILE}")
+        print(f"{label}: counts as {' or '.join(op.targets)} (own photos; base size, wounds and name on the screen are the original's) saved in {idt.TEAM_FILE}")
     if args.expendable is not None:
         print(f"{label}: expendable {'yes' if op.expendable else 'no'} saved in {idt.TEAM_FILE}")
     if args.wounds is not None:
@@ -518,7 +518,7 @@ def cmd_gallery(args: argparse.Namespace) -> int:
     counts = gallery.counts()
     for op in gallery.operatives:
         base = "?" if op.base_mm is None else f"{op.base_mm:g} mm"
-        print(f"  {op.label:32s} base {base:7s} {counts[op.label]:3d} photos" + ("" if op.counts_as is None else f"  counts as {op.counts_as}"))
+        print(f"  {op.label:32s} base {base:7s} {counts[op.label]:3d} photos" + ("" if op.counts_as is None else f"  counts as {' or '.join(op.targets)}"))
     _print_leave_one_out(*gallery.leave_one_out(), counts)
     return 0
 

@@ -621,7 +621,10 @@ another paint or pose): it has its own folder and photos, and `counts_as =
 `--base-mm`, give exit code 2). Identification scores an original and its
 variants as one operative (best score), so the screen, the team list, wounds and
 copy pairing show the original (`Gallery.canonical`, `Ident.photo_label` = the
-variant with the best score, where an accepted name puts its photo). Only the
+variant with the best score, where an accepted name puts its photo). In
+`team.toml`, `counts_as` can also be a list of names (for example
+`["Bombard", "Breacher"]`): the variant counts as the first name of the list
+that is in the team list. These originals must have the same base size. Only the
 "Change operative" list (also after "Locate operative") and the inspector model
 line show the variants, with their own scores (`state["candidates"]`); a choice
 names the original, locks the model of the base's copy, and the photo goes to
