@@ -664,6 +664,26 @@ def draw_dashed_outline_mm(frame: np.ndarray, points_mm, to_px, color: tuple[int
         cv2.polylines(frame, [np.rint(to_px(dash)).astype(np.int32).reshape(-1, 1, 2)], False, color, thick, cv2.LINE_AA)
 
 
+def draw_move_trail_mm(frame: np.ndarray, from_mm, to_mm, diameter_mm: float, to_px, color: tuple[int, int, int]) -> None:
+    """Where a base was before it moved: a dashed circle on the old rim and an
+    arrow from the old base to the new one (rim to rim; centre to centre when
+    the two bases overlap)."""
+    a, b = np.asarray(from_mm, float), np.asarray(to_mm, float)
+    r = 0.5 * diameter_mm
+    draw_dashed_circle_mm(frame, a, r, to_px, color)
+    between = float(np.linalg.norm(b - a))
+    if between <= 0.0:
+        return
+    u = (b - a) / between
+    start, end = (a + r * u, b - r * u) if between > 2 * r + ARROW_LEN_MM else (a, b)
+    side = np.array([-u[1], u[0]])
+    back = end - ARROW_LEN_MM * u
+    head = np.array([back + ARROW_HALF_MM * side, end, back - ARROW_HALF_MM * side])
+    thick = max(1, round(2 * _scale(frame)))
+    cv2.polylines(frame, [np.rint(to_px(np.array([start, end]))).astype(np.int32).reshape(-1, 1, 2)], False, color, thick, cv2.LINE_AA)
+    cv2.polylines(frame, [np.rint(to_px(head)).astype(np.int32).reshape(-1, 1, 2)], False, color, thick, cv2.LINE_AA)
+
+
 def draw_melee_sign(frame: np.ndarray, at_mm, to_px, color: tuple[int, int, int] = MARK_COLOR) -> None:
     """Crossed swords on a dark octagon (a stop sign), centred on a board
     point. The sign stays upright; its size follows the board scale."""

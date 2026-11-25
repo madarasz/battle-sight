@@ -42,7 +42,7 @@ from .calib import DriftMonitor, DriftReport, DriftStatus, TagDetector, board_co
 from .camera import CameraSettings
 from .config import BoardConfig
 from .colors import MEASURE_COLOR, MINIMAP_BACK_COLOR, MINIMAP_BOARD_COLOR, MOVE_MELEE_COLOR, NAME_SURE_COLOR, NO_TEAM_COLOR, POINTER_CROSS_COLOR, POINTER_CROSS_EDGE_COLOR, RANGE_ZONE_COLOR, SELECTED_COLOR, STATUS_ERROR_COLOR, STATUS_HINT_COLOR, STATUS_OK_COLOR, TEAM_COLORS
-from .overlay import draw_base_discs, draw_bases, draw_board_corners, draw_circle_mm, draw_dashed_circle_mm, draw_dead_marks, draw_dashed_outline_mm, draw_grid, draw_health_bars, draw_idents, draw_melee_sign, draw_objective_arrows, draw_move_mm, draw_outline_mm, draw_path_mm, draw_range_mm, draw_rim_line, draw_tags, draw_targeting_mm, draw_terrain, fit_to_width, frame_scale, style_scale
+from .overlay import draw_base_discs, draw_bases, draw_board_corners, draw_circle_mm, draw_dashed_circle_mm, draw_dead_marks, draw_dashed_outline_mm, draw_grid, draw_health_bars, draw_idents, draw_melee_sign, draw_objective_arrows, draw_move_mm, draw_move_trail_mm, draw_outline_mm, draw_path_mm, draw_range_mm, draw_rim_line, draw_tags, draw_targeting_mm, draw_terrain, fit_to_width, frame_scale, style_scale
 from .pipeline import BASES_MARGIN_MM, Pipeline, base_crops, bases_config, bases_image, find_base_near
 from .rectify import fit_view, mm_to_rect, rect_transform, warp_board
 
@@ -508,6 +508,11 @@ class LiveSession:
         # Last known board centre (mm) of each copy of an operative with `max` > 1:
         # identification tells the copies apart by it.
         self.positions: dict[str, np.ndarray] = {}
+        # Board centre and diameter (mm) of each named base of the last closed
+        # identification, and the old place of each base that moved since then
+        # (`moved_from`): a dashed circle and an arrow until its name is confirmed.
+        self.last_positions: dict[str, tuple[np.ndarray, float]] = {}
+        self.moved_from: dict[str, tuple[np.ndarray, float]] = {}
         # Model (counts_as variant) of each live label of a type with variants: the
         # type label of the original or of a variant. Looks only, no game value.
         self.models: dict[str, str] = {}
@@ -967,6 +972,7 @@ class LiveSession:
                 for i, k in control["objectives"]:
                     draw_objective_arrows(img, found[i].center_mm, found[i].diameter_mm, objectives[k], to_px)
             draw_idents(img, found, self.session.idents, to_px, scores=False, team_colors=colors, inside=minimap)
+            self._draw_moves(img, found)  # over the names: an arrow from below ends under a name
             bars = []
             for c, x in zip(found, self.session.idents):
                 current, maximum = self._wounds_of(x.label)
@@ -1948,6 +1954,12 @@ class LiveSession:
         return True
 
     def _close_snapshot(self) -> None:
+        if self.session is not None:  # the names of this identification are the old places of the next one
+            found = self._found()
+            named = {x.label: (np.asarray(found[k].center_mm, float), float(found[k].diameter_mm)) for k, x in enumerate(self.session.idents) if x.label is not None and k < len(found)}
+            if named:
+                self.last_positions = named
+        self.moved_from = {}
         self.result = self.snap = self.session = self.shown = None
         self.selected = self.target = self.ring_in = self.selected_opening = self.new_base = None
         self.adding = self.locating_light = self.move_locked = False
@@ -1996,6 +2008,7 @@ class LiveSession:
             if self.session is not None:
                 self._pair_copies()
                 self._update_models()
+                self._find_moves()
             data = result.stages["ident"].data
             reuse = data.get("reuse", [])
             for k, b in enumerate(data.get("bases", [])):
@@ -2024,6 +2037,29 @@ class LiveSession:
         if r["diff"] is not None:
             text += f", crop diff {r['diff']:g}" + (f" > {crop:g}" if r["reason"] == "crop changed" else "")
         return ("kept (" if r["reused"] else "read (") + text + ")"
+
+    def _find_moves(self) -> None:
+        """`moved_from`: the old place of each named base that moved at least
+        `ident_reuse_move_mm` since the last identification. A base with no
+        old place, or one that did not move, gets nothing."""
+        found = self._found()
+        self.moved_from = {}
+        for k, x in enumerate(self.session.idents):
+            old = self.last_positions.get(x.label) if x.label is not None else None
+            if old is None or k >= len(found):
+                continue
+            center, diameter = old
+            if float(np.linalg.norm(np.asarray(found[k].center_mm, float) - center)) >= self.cfg.ident_reuse_move_mm:
+                self.moved_from[x.label] = (center.copy(), diameter)
+
+    def _draw_moves(self, img: np.ndarray, found: list) -> None:
+        """Dashed old base and an arrow to the new base, for each moved base
+        whose name is not confirmed yet ("Accept all identification", or a name
+        or model chosen for it)."""
+        for c, x in zip(found, self.session.idents):
+            old = self.moved_from.get(x.label) if x.label is not None and not x.confirmed else None
+            if old is not None:
+                draw_move_trail_mm(img, old[0], c.center_mm, old[1], self._to_px, SELECTED_COLOR)
 
     @staticmethod
     def _label_session(result, gallery: idt.Gallery) -> idt.LabelSession | None:

@@ -87,7 +87,10 @@ Code) and ask it to record the map.
    the app find the model again.
 
 Click "Identify all operatives" again after the operatives move or after a
-change to the teams. The names stay on the live video until then.
+change to the teams. The names stay on the live video until then. A dashed
+circle and an arrow show where each moved operative was before. Check the
+name of each moved operative. The arrows go when you click "Accept all
+identification" or choose a name for the base.
 
 ### 3. Measure
 

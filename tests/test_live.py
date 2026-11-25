@@ -2706,3 +2706,39 @@ def test_style_scale_keeps_lines_the_same_size_on_the_screen():
     with overlay.style_scale(0.7):
         assert overlay._scale(img) == 0.7
     assert overlay._scale(img) == pytest.approx(4000 / 1920)
+
+
+def test_moved_operatives_show_their_old_place_until_the_names_are_confirmed(tmp_path, named, monkeypatch):
+    cfg, frame = named
+    calls = []
+    real = live_mod.draw_move_trail_mm
+    monkeypatch.setattr(live_mod, "draw_move_trail_mm", lambda img, a, b, d, to_px, color: (calls.append((tuple(np.round(a)), tuple(np.round(b)), d, color)), real(img, a, b, d, to_px, color)))
+    train = paint_board(cfg, TRAIN)
+    session = make_session(tmp_path, cfg, train, teams=("orks",))
+    settled(session, train)
+    session.dispatch("snapshot.name")
+    session.step(train)
+    assert session.moved_from == {} and not calls  # the first identification has no old places
+
+    # Two operatives move, the Grot stays.
+    game = paint_board(cfg, {**TRAIN, "Nob": GAME["Nob"], "Burna": GAME["Burna"]})
+    settled(session, game)
+    session.dispatch("snapshot.name")
+    calls.clear()
+    s = session.step(game).state
+    moved = {idt.label_of("orks", n) for n in ("Nob", "Burna")}
+    assert set(session.moved_from) == moved
+    assert {(a, b) for a, b, _, _ in calls} == {(TRAIN[n][0], GAME[n][0]) for n in ("Nob", "Burna")}
+    assert all(c == colors.SELECTED_COLOR for *_, c in calls)
+    assert {d for _, _, d, _ in calls} == {SIZES["Nob"], SIZES["Burna"]}
+
+    # A name chosen for one base ends its arrow; "Accept all identification" ends the rest.
+    nob = next(i for i, b in enumerate(s["bases"]) if b["label"] == idt.label_of("orks", "Nob"))
+    session.dispatch("base.choose", label=idt.label_of("orks", "Nob"), index=nob)
+    calls.clear()
+    session.step(game)
+    assert {b for _, b, _, _ in calls} == {GAME["Burna"][0]}
+    session.dispatch("names.accept")
+    calls.clear()
+    session.step(game)
+    assert not calls
