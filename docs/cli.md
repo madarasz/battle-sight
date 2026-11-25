@@ -127,7 +127,7 @@ Live", key and menu only) or the "Live" radio button (`view.live`). The
 "Snapshot" radio button (`view.snapshot`, enabled with a snapshot or a camera
 frame) shows the last snapshot again; with no snapshot it stops the video on
 the current frame (`LiveSession._still_snapshot`: corners and rectify only, no
-bases, no names; "Locate operative" from the live video uses the same). Then the live video shows again, and the bases, names and selection
+bases, no names; "Locate operative" from the live video with no names uses the same). Then the live video shows again, and the bases, names and selection
 of the snapshot stay on it, in board mm, until the next `space` or `b`
 (`LiveSession.frozen` is the mode, `result` the last snapshot). Clicks, rings
 and distances work on the live video too, while it has a board fit. Without
@@ -293,8 +293,10 @@ Each base with its rim within 2 in (`live.OPENING_NEAR_IN`,
 Missed bases: `base.add` ("Locate operative", no key; `Esc` stops it, the action
 is off while `adding` or `busy`) sets `adding`. It needs a name session
 (`_prepare_adding`, busy while it runs; it loads the gallery): a named
-snapshot is used as it is; in the live video the snapshot of the last names
-comes back; with no names yet, a new snapshot of the frame runs until
+snapshot on the screen is used as it is; in the live video a new snapshot of
+the frame runs until `rectify` and gets the bases and names of the last
+identification at their board places (`_refresh_snapshot`; the name session
+and its crops stay); with no names yet, a new snapshot of the frame runs until
 `rectify` and gets an empty bases list and its `bases_image` (the user adds
 each base); a bases-only snapshot (`b`) gets a session with all bases unknown. While
 `adding`, the shell sends `board.hover` and `LiveFrame.crop` is the snapshot
@@ -309,6 +311,16 @@ counts, unless its centre lies inside a known base. No result: a notice, and
 this one base (a name that another base holds is left out), selected, and
 `state["new_base"]` is its index, so a layout can open the name list. Choosing
 a name is the usual `base.choose`; `new_base` clears on any other selection.
+
+A moved operative: while the new base has no name, its most probable operative
+(`LiveSession._proposed`: the best candidate, also one that another base holds;
+of several copies, a copy with no base, else the nearest) has
+`candidates[].proposed` (the list highlights the row), and the move trail
+(dashed circle, arrow) goes from its old place to the new base. A name that
+the new base takes from another base removes that base (`_drop_base`; its
+gallery photos stay). `names.undo` takes the name off the new base but does
+not bring the old base back. A name that "Locate operative" gives by itself has
+the move trail of "Identify all operatives" (`moved_from`).
 
 False bases: `base.remove` ("Remove ID", no key: `Backspace` and `Delete` edit
 the wounds box) removes the selected base from the snapshot (terrain or board

@@ -270,6 +270,10 @@ class CandidateList(_ActionList):
 
     def show_state(self, state: dict[str, Any]) -> None:
         self.fill((state["selected"], state["candidates"]), [(candidate_text(c), None) for c in state["candidates"]])
+        for row, candidate in enumerate(state["candidates"]):
+            if candidate.get("proposed"):  # "Locate operative": the most probable one
+                self.item(row).setBackground(SELECTED_BACK)
+                self.scrollToItem(self.item(row))
 
     def on_row(self, row: int) -> None:
         index, candidates = self.shown

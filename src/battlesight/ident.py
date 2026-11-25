@@ -1492,11 +1492,12 @@ class LabelSession:
                 out.append(self.choose(x.label, i, x.photo_label))
         return out
 
-    def remove(self, i: int) -> list[Path]:
+    def remove(self, i: int, keep_photos: bool = False) -> list[Path]:
         """Remove base i from the session: a false base (terrain, board print).
         The later bases move one index down. The gallery photos that a choice
-        of this session added for this base are removed too; returns them."""
-        removed = [path for k, path, _ in self.added if k == i and path is not None]
+        of this session added for this base are removed too (not with
+        `keep_photos`); returns the removed ones."""
+        removed = [] if keep_photos else [path for k, path, _ in self.added if k == i and path is not None]
         for path in removed:
             self.gallery.remove(path)
         self.centers_mm = np.delete(np.asarray(self.centers_mm, float).reshape(-1, 2), i, axis=0)

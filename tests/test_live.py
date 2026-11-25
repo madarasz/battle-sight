@@ -447,9 +447,51 @@ def test_add_operative_after_bases_only_and_from_the_live_video(tmp_path, named)
     session.dispatch("snapshot.back")  # stops adding
     session.dispatch("snapshot.back")  # back to the live video, the names stay
     assert session.state()["mode"] == "live"
-    session.dispatch("base.add")  # the snapshot of those names comes back
+    session.dispatch("base.add")  # a new snapshot with those bases
     s = session.step(frame).state
     assert s["adding"] and s["mode"] == "snapshot" and len(s["bases"]) == 3
+
+
+def test_add_operative_from_the_live_video_takes_a_new_snapshot(tmp_path, named):
+    cfg, frame = named
+    session = make_session(tmp_path, cfg, frame, teams=("orks",))
+    settled(session, frame)
+    session.dispatch("snapshot.name")
+    before = session.step(frame).state["bases"]
+    session.dispatch("snapshot.back")
+    later = frame.copy()
+    later[:20, :20] = (0, 0, 255)  # a change outside the board: the fit stays
+    settled(session, later)
+    session.dispatch("base.add")
+    s = session.step(later).state
+    assert s["adding"] and s["mode"] == "snapshot"
+    assert np.array_equal(session.snap, later)
+    assert [b["label"] for b in s["bases"]] == [b["label"] for b in before]
+
+
+def test_locating_a_moved_operative_proposes_it_and_removes_the_old_base(tmp_path, named):
+    cfg, frame = named
+    session = make_session(tmp_path, cfg, frame, teams=("orks",))
+    settled(session, frame)
+    session.dispatch("snapshot.name")
+    session.step(frame)
+    session.dispatch("names.accept")
+    session.dispatch("snapshot.back")
+    moved = paint_board(cfg, {**GAME, "Nob": ((150.0, 300.0), 120.0)})
+    settled(session, moved)
+    session.dispatch("base.add")
+    session.step(moved)
+    x, y = session._to_px(np.array([(150.0, 300.0)]))[0] * session.win.scale
+    session.dispatch("board.click", x=float(x), y=float(y))
+    s = session.step(moved).state
+    new = s["bases"][s["new_base"]]
+    assert len(s["bases"]) == 4 and new["label"] is None
+    assert [c["label"] for c in s["candidates"] if c["proposed"]] == ["orks/Nob"]
+    assert session._proposed() == "orks/Nob"
+    session.dispatch("base.choose", label="orks/Nob")
+    s = session.step(moved).state
+    assert len(s["bases"]) == 3 and s["bases"][s["selected"]]["label"] == "orks/Nob"
+    assert all(b["label"] is not None for b in s["bases"]) and s["new_base"] is None
 
 
 def test_add_operative_does_not_double_an_existing_base_and_only_esc_cancels(tmp_path, named):

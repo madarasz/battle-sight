@@ -973,6 +973,7 @@ class LiveSession:
                     draw_objective_arrows(img, found[i].center_mm, found[i].diameter_mm, objectives[k], to_px)
             draw_idents(img, found, self.session.idents, to_px, scores=False, team_colors=colors, inside=minimap)
             self._draw_moves(img, found)  # over the names: an arrow from below ends under a name
+            self._draw_proposed_move(img, found)
             bars = []
             for c, x in zip(found, self.session.idents):
                 current, maximum = self._wounds_of(x.label)
@@ -1541,10 +1542,12 @@ class LiveSession:
         variants = bool(self._model_labels(x.label))
         model = self.models.get(x.label) if variants else own
         locked = variants and x.label in self.model_locked
+        guess = self._proposed() if i == self.new_base else None
+        best = None if guess is None else x.candidates[0][0]  # the model of the proposed operative
         out = []
         for label in s.menu(i):
             current = label == model
-            out.append({"label": label, "name": idt.display_name(label), "type_label": self._canonical(label), "score": _num(scores.get(label)), "current": current, "locked": current and locked, "auto": False})
+            out.append({"label": label, "name": idt.display_name(label), "type_label": self._canonical(label), "score": _num(scores.get(label)), "current": current, "locked": current and locked, "auto": False, "proposed": label == best})
         if variants:
             out.append({"label": own, "name": "Auto model", "type_label": own, "score": None, "current": not locked, "locked": False, "auto": True})
         return out
@@ -2058,6 +2061,38 @@ class LiveSession:
             center, diameter = old
             if float(np.linalg.norm(np.asarray(found[k].center_mm, float) - center)) >= self.cfg.ident_reuse_move_mm:
                 self.moved_from[x.label] = (center.copy(), diameter)
+
+    def _proposed(self) -> str | None:
+        """The most probable operative of the base that "Locate operative"
+        made and that has no name yet: the best candidate, also one that
+        another base holds (it moved). For a type with more than one copy: a
+        copy with no base, else the copy on the nearest base. None without a
+        candidate."""
+        s, i, g = self.session, self.new_base, self.gallery
+        if s is None or g is None or i is None or s.idents[i].label is not None or not s.idents[i].candidates:
+            return None
+        label = g.canonical(s.idents[i].candidates[0][0])
+        op = self._type_op(label)
+        if op is None or op.max == 1:
+            return label
+        copies = self._copies_of(op.label)
+        if not copies:
+            return None
+        found = self._found()
+        held = {x.label: found[k].center_mm for k, x in enumerate(s.idents) if x.label in copies}
+        free = [c for c in copies if c not in held]
+        return free[0] if free else min(held, key=lambda c: float(np.linalg.norm(np.asarray(held[c], float) - found[i].center_mm)))
+
+    def _draw_proposed_move(self, img: np.ndarray, found: list) -> None:
+        """The move trail to a located base from the place of its most
+        probable operative: the base that holds that name now, else its place
+        in the last identification."""
+        label = self._proposed()
+        if label is None:
+            return
+        old = next(((found[k].center_mm, found[k].diameter_mm) for k, x in enumerate(self.session.idents) if x.label == label), self.last_positions.get(label))
+        if old is not None:
+            draw_move_trail_mm(img, old[0], found[self.new_base].center_mm, old[1], self._to_px, SELECTED_COLOR)
 
     def _draw_moves(self, img: np.ndarray, found: list) -> None:
         """Dashed old base and an arrow to the new base, for each moved base
@@ -2637,12 +2672,18 @@ class LiveSession:
         if s is None or index is None:
             return
         picked, photo = label, None
+        located = index == self.new_base  # "Locate operative": its name leaves the old place
+        guess = self._proposed() if located else None
         if self.gallery is not None and (canon := self.gallery.canonical(label)) != label:  # a variant model names its original
             photo, label = idt.type_of(label), canon
-        label = self._copy_for(label, index)
+        if guess is not None and idt.copy_number(label) is None and idt.type_of(guess) == label:
+            label = guess  # the copy of the move trail
+        else:
+            label = self._copy_for(label, index)
         if label is None:
             return
         old = s.idents[index].label
+        left = next((k for k, x in enumerate(s.idents) if k != index and x.label == label), None) if located else None
         before = {k: (self.models.get(k), k in self.model_locked) for k in (old, label) if k is not None}
         path = s.choose(label, index, photo)
         if idt.copy_number(picked) is not None:  # "Change ID": the models stay with the bases (the miniatures)
@@ -2657,6 +2698,9 @@ class LiveSession:
             if x.label is not None and idt.copy_number(x.label) is not None and x.label in (label, old) and k < len(found):
                 self.positions[x.label] = np.asarray(found[k].center_mm, float)
         self.new_base = None
+        if left is not None:  # the base at the old place goes, its gallery photos stay
+            self._drop_base(left, keep_photos=True)
+            index -= left < index
         self._set_selected(index)  # the named base stays selected
         name = idt.display_name(label)
         if path is None:
@@ -2830,18 +2874,24 @@ class LiveSession:
         if index is None or not 0 <= index < len(found):
             self.notice.say("click a base first")
             return
+        removed = self._drop_base(index)
+        self._set_selected(None)
+        for path in removed:
+            print(f"removed {path}")
+        self.notice.say("base removed" + (f", {len(removed)} gallery photo removed" if len(removed) == 1 else f", {len(removed)} gallery photos removed" if removed else ""))
+        self.dirty = True
+
+    def _drop_base(self, index: int, keep_photos: bool = False) -> list:
+        """Take base `index` out of the snapshot and its name session. Returns
+        the gallery photos that went with it."""
+        found = self._found()
         scratch = self.result.scratch
         scratch["bases"] = [c for k, c in enumerate(found) if k != index]
         for key in ("idents", "base_crops", "base_backgrounds"):
             items = scratch.get(key)
             if items is not None and index < len(items):
                 scratch[key] = [x for k, x in enumerate(items) if k != index]
-        removed = self.session.remove(index) if self.session is not None else []
-        self._set_selected(None)
-        for path in removed:
-            print(f"removed {path}")
-        self.notice.say("base removed" + (f", {len(removed)} gallery photo removed" if len(removed) == 1 else f", {len(removed)} gallery photos removed" if removed else ""))
-        self.dirty = True
+        return self.session.remove(index, keep_photos) if self.session is not None else []
 
     def _start_adding(self) -> None:
         """"Locate operative": the next click is the centre of a base that the
@@ -2865,9 +2915,9 @@ class LiveSession:
 
     def _prepare_adding(self) -> bool:
         """A snapshot with a name session for "Locate operative". In the live
-        video, the names of the last identification come back with their
-        snapshot; with no names yet, a new snapshot of the frame with no bases
-        (the user adds each one). A snapshot of bases only (`b`) gets a name
+        video, always a new snapshot of the frame: with the bases and names of
+        the last identification (`_refresh_snapshot`), or, with no names yet,
+        with no bases (the user adds each one). A snapshot of bases only (`b`) gets a name
         session with its bases unknown."""
         if not self.gallery_tried:
             self._load_gallery()
@@ -2876,10 +2926,7 @@ class LiveSession:
             self.notice.error("no gallery: cannot name an operative")
             return False
         if not self.frozen and self.session is not None:
-            self.frozen = True
-            self.win.top_down = True
-            self.dirty = True
-            return True
+            return self._refresh_snapshot()
         if not self.frozen and not self._still_snapshot():
             return False
         result = self.result
@@ -2893,6 +2940,28 @@ class LiveSession:
             result.scratch["base_backgrounds"] = [] if ref is None else base_crops(ref, found, self.cfg)
             self.session = self._label_session(result, gallery)
             self.dirty = True
+        return True
+
+    def _refresh_snapshot(self) -> bool:
+        """The current frame as the snapshot, with the bases of the last
+        identification at their board places. The name session stays, so each
+        base keeps the crop of its identification (a later name fix must not
+        learn from a place that the operative left). False when the board fit
+        failed; the last snapshot stays."""
+        if not self._need_frame():
+            return False
+        snap = self.frame.copy()
+        result = self.pipe.analyze(snap, source="camera", until="rectify")
+        if not result.ok:
+            self.notice.error(failed_stage(result))
+            return False
+        old = self.result.scratch
+        result.scratch.update({key: old[key] for key in ("bases", "idents", "base_crops", "base_backgrounds") if key in old})
+        result.scratch["bases_image"] = bases_image(snap, result.scratch["view"], self.cfg)
+        self.snap, self.result = snap, result
+        self.frozen = True
+        self.win.top_down = True
+        self.dirty = True
         return True
 
     def _add_at(self, x: float, y: float) -> None:
@@ -2941,6 +3010,9 @@ class LiveSession:
                 scratch[key] = [*scratch[key], item]
         self._set_selected(index)
         self.new_base = index
+        old_place = self.last_positions.get(ident.label)
+        if old_place is not None and float(np.linalg.norm(old_place[0] - circle.center_mm)) >= self.cfg.ident_reuse_move_mm:
+            self.moved_from[ident.label] = old_place
         if not s.menu(index):
             self.notice.error(f"no operative with a {circle.diameter_mm:g} mm base in the gallery: battlesight enroll")
         else:

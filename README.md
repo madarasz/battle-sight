@@ -77,8 +77,10 @@ Code) and ask it to record the map.
 3. If a name is wrong, click the base, click "Change operative" and choose
    the correct operative. The app learns from each correction.
 4. If the app found an operative where there is none, click "Remove ID".
-5. If a base is not found, click "Locate operative", then click the centre
-   of the base.
+5. If a base is not found, or an operative moved, click "Locate operative",
+   then click the centre of the base. Choose the operative from the list. The
+   most probable one has a grey background, and a dashed circle and an arrow
+   show where it was. The app removes the base at the old place.
 6. To swap two copies of the same operative, click one base, click "Change
    ID" and choose the correct copy.
 7. If you use more than one model for an operative, the app finds the model
