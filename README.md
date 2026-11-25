@@ -101,7 +101,8 @@ With a layout, measurements go around walls and closed hatchways. Clear
 "Measure around walls" to measure in a straight line.
 
 "Measure movement" shows where the selected operative can move. Put the
-mouse pointer in the area to see the best move. "Avoid control range" keeps
+mouse pointer in the area to see the best move. Left click in the area to lock
+the move. During this measurement, there is no distance to a second base. "Avoid control range" keeps
 the move out of enemy control range.
 
 "Shoot at" (with the target selected): put the mouse pointer on the shooter.

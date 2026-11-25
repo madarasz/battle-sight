@@ -27,7 +27,7 @@ Pure geometry in board mm, no window: `ring_radius_mm`, `rim_gap` (distance and 
 
 - `LiveSession` holds `selected`, `target`, `ring_in`, also without names (after `b`).
 - Left click (`board.click`): select a base (replaces the selection).
-- Right click (`board.select`): with a selected base, on another base: set or clear the target (`state["right_click"] = "measure"`); else replace the selection, the shell then opens the name popup in layouts with `name_popup` (`right_click = "name"`).
+- Right click (`board.select`): with a selected base, on another base: set or clear the target (`state["right_click"] = "measure"`; no effect while movement is on, and `measure.move` clears the target); else replace the selection, the shell then opens the name popup in layouts with `name_popup` (`right_click = "name"`).
 - A click without a base under it selects a hatchway or breach point (`selected_opening`; yellow line 1 in and dashed 2 in around it, `measure.offset_outline`; bases with rim within 2 in get a yellow rim circle, `state["near_opening"]`, `measure.near_polygon`). A click on a light piece sets `selected_light`.
 - `base.select(index)` selects a base; `operative.select(label)` (team list click) selects its base, or without one the operative alone (`selected_operative`, wounds only; `selected_label` for both).
 - A new selection clears the ring and the target.

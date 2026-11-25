@@ -1086,7 +1086,7 @@ class LiveSession:
         if route is None:
             return []
         a = found[self.selected]
-        return [i for i in self._enemy_indexes(found) if measure.path_distance(route[1], found[i].center_mm) < 0.5 * a.diameter_mm + 0.5 * found[i].diameter_mm + measure.MM_PER_INCH - 0.5]
+        return [i for i in self._enemy_indexes(found) if measure.path_distance(route[1], found[i].center_mm) < 0.5 * a.diameter_mm + 0.5 * found[i].diameter_mm + measure.MM_PER_INCH]
 
     def _toggle_avoid_melee(self) -> None:
         self.avoid_melee = not self.avoid_melee
@@ -1130,6 +1130,8 @@ class LiveSession:
         self._stop_shooting(restore=False)  # a new measurement replaces the paused one
         self.movement = not self.movement
         self.move_locked = False
+        if self.movement:
+            self.target = None  # no second base while the movement is measured
         self.dirty = True
 
     def _hover(self, x: float | None, y: float | None) -> None:
@@ -1168,8 +1170,8 @@ class LiveSession:
             self.ring_in, self.target, self.movement = paused
 
     def _lock_at(self, x: float, y: float) -> None:
-        """A left click while "Shoot at" is on, or while the movement of a
-        base with a ring is measured: keep the shot or the route where the click is."""
+        """A left click while "Shoot at" is on, or on the movement area of a
+        base with a ring: keep the shot or the route where the click is."""
         self.hover_mm = self._to_mm(x, y)
         if self.shooting:
             self.shot_locked = True
@@ -1178,6 +1180,11 @@ class LiveSession:
             self.move_locked = True
             self.notice.say("Movement locked. Push Unlock to move it.")
         self.dirty = True
+
+    def _can_move_to(self, x: float, y: float) -> bool:
+        """The pixel is on the movement area: the selected base has a route to it."""
+        found = self._found()
+        return bool(found) and self._field(found)[0].route(self._to_mm(x, y)) is not None
 
     def _unlock(self) -> None:
         """The pointer moves the shot or the route again."""
@@ -2567,9 +2574,11 @@ class LiveSession:
             self._add_at(x, y)
             return
         if self.shooting or (self.movement and self.ring_in is not None and self.selected is not None):
-            if not (self.shot_locked or self.move_locked):
+            if self.shot_locked or self.move_locked:
+                return
+            if self.shooting or self._can_move_to(x, y):
                 self._lock_at(x, y)
-            return
+                return
         index = self._base_under(x, y)
         if index is None:
             opening = self._opening_under(x, y)
@@ -2583,7 +2592,8 @@ class LiveSession:
 
     def _select_for_names(self, x: float, y: float) -> None:
         """A right click. With a selected base, a right click on another base
-        makes it the target of the distance (again: takes it away). Else the
+        makes it the target of the distance (again: takes it away; nothing while
+        the movement is measured). Else the
         base there becomes the selected base, to fix its name (a front end
         can open its name popup: `right_click` is "name")."""
         self.right_click = None
@@ -2594,6 +2604,8 @@ class LiveSession:
             self._select_opening(self._opening_under(x, y))
             return
         if self.selected is not None and index != self.selected:
+            if self.movement:
+                return
             self._stop_shooting(restore=False)
             self.target = None if index == self.target else index
             self.right_click = "measure"

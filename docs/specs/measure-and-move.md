@@ -35,7 +35,7 @@ All results are 2D in the board plane, in board mm, from the base rim. No height
 - M6. The operative can move through operatives of its own team, but it cannot stop on one.
 - M7. Light terrain does not change a measurement or a move (drawn only).
 - M8. Melee zone: 1 in around each enemy base, rim to rim. With movement on, the zone shows as a yellow dashed circle. A move whose base comes into a zone at any point gets a white crossed swords sign on that enemy.
-- M9. "Avoid control range" (check box, off at the start, enabled only with movement on): the base keeps out of all melee zones, for the area and for each move. An enemy that is already within 1 in at the start blocks only with its base.
+- M9. "Avoid control range" (check box, off at the start, enabled only with movement on): the base keeps out of all melee zones (a rim gap of exactly 1 in is in the zone), for the area and for each move. An enemy that is already within 1 in at the start blocks only with its base.
 
 Not in scope: teleporter pads, vantage and height, climb and jump, dash and charge limits, movement through closed openings, tokens.
 
@@ -57,7 +57,7 @@ What the ring control (keys `1` to `9`, slider) shows for the selected base:
 | on | any | movement area (2.2). Terrain always applies when a layout is loaded |
 
 - Areas: magenta fill (alpha 0.25) and a heavy magenta edge. A hole in the area is not filled.
-- Distance to a second base (left click): a magenta line with bends, inches at half its length. With "Measure around walls" off it is the straight line. Movement does not change it.
+- Distance to a second base (left click): a magenta line with bends, inches at half its length. With "Measure around walls" off it is the straight line. There is no second base while movement is on: "Measure movement" removes it.
 - Move to the pointer: grey circles (the base at each bend and at the end), the two lines that the rim follows, the inches of each increment at its middle (when there is more than one), the inches in all in a box below the end.
 - Status bar: `around walls 6.10"`, `around walls no path`, `move 5" (3 + 2)`.
 - The movement area is the base footprint: all points that some part of the base can cover. The pointer in the outer band of the area (where the centre cannot go) snaps to the nearest position that the centre can get to. The pointer out of the area gives no move.

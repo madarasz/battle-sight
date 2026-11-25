@@ -2640,10 +2640,15 @@ def test_movement_click_locks_the_route_and_unlock_frees_it(tmp_path):
     session.dispatch("board.click", x=300.0, y=200.0)  # no ring yet: a plain click
     assert session.state()["move_locked"] is False
     click_base(session, state, nob)
+    session.dispatch("ring.1")
+    session.dispatch("board.click", x=100.0, y=100.0)  # out of the movement area: a plain click, no lock
+    assert session.state()["move_locked"] is False
+    click_base(session, state, nob)
     session.dispatch("ring.6")
-    session.dispatch("board.hover", x=300.0, y=250.0)
+    near = dict(zip("xy", np.add(state["bases"][nob]["position_px"], (0.0, 20.0)).tolist()))  # on the movement area
+    session.dispatch("board.hover", **near)
     at = session.hover_mm.copy()
-    session.dispatch("board.click", x=300.0, y=250.0)
+    session.dispatch("board.click", **near)
     s = session.state()
     assert s["move_locked"] is True and s["shot_locked"] is False and s["selected"] == nob and s["movement"] is True
     route = s["move"]
@@ -2653,10 +2658,23 @@ def test_movement_click_locks_the_route_and_unlock_frees_it(tmp_path):
     assert session.state()["move_locked"] is False
     session.dispatch("board.hover", x=100.0, y=100.0)
     assert not np.allclose(session.hover_mm, at)
-    session.dispatch("board.click", x=100.0, y=100.0)
+    session.dispatch("board.click", **near)
     assert session.state()["move_locked"] is True
     session.dispatch("ring.3")  # a new ring frees the lock
     assert session.state()["move_locked"] is False
+
+
+def test_movement_has_no_second_base(tmp_path):
+    session, frame, state, nob, burna = wall_session(tmp_path)
+    click_base(session, state, nob)
+    click_base(session, state, burna, "board.select")
+    assert session.state()["target"] == burna
+    session.dispatch("measure.move")
+    s = session.state()
+    assert s["target"] is None and s["distance"] is None
+    click_base(session, state, burna, "board.select")
+    s = session.state()
+    assert s["target"] is None and s["selected"] == nob and s["movement"] is True
 
 
 def test_ring_goes_up_to_12_in(tmp_path):

@@ -156,6 +156,17 @@ def test_avoid_keeps_the_rim_one_inch_from_the_enemy_rim():
     assert not contains(area, (300.0, 300.0 - 20.0 - MM_PER_INCH + 3.0)) and contains(area, (300.0, 300.0 - 20.0 - MM_PER_INCH - 3.0))
 
 
+def test_avoid_never_stops_in_control_range():
+    enemy = ((300.3, 299.6), 40.0)  # off the raster
+    field = move_field((220.4, 300.2), D, 6, enemies=[enemy], avoid_mm=MM_PER_INCH)
+    limit = 16.0 + 20.0 + MM_PER_INCH  # centre to centre: at this distance it is control range
+    for radius in np.arange(limit - 4.0, limit + 3.0, 0.3):
+        for angle in np.linspace(0.0, 2 * np.pi, 180):
+            route = field.route(np.asarray(enemy[0]) + radius * np.array([np.cos(angle), np.sin(angle)]))
+            if route is not None:
+                assert np.linalg.norm(route[1][-1] - enemy[0]) > limit and seg_dist(route[1], enemy[0]) > limit
+
+
 def test_avoid_does_not_lock_a_base_that_starts_in_melee():
     enemy = ((300.0, 300.0), 40.0)
     field = move_field((250.0, 300.0), D, 3, enemies=[enemy], avoid_mm=MM_PER_INCH)  # rims 14 mm apart

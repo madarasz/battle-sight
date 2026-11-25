@@ -19,9 +19,9 @@ Modules: `walls.py`, `moves.py`, `shoot.py` (pure geometry in board mm), their h
 - `MoveField.outline` (covered area), `MoveField.route` (increments to a point, snaps a point on the covered area to the nearest centre in reach). The route total can be less than the field level near a level edge (raster); never more.
 - `overlay.draw_move_mm` draws the base at each bend.
 - With movement on, each enemy gets a yellow dashed circle 1 in around it and, when the route comes into it (`LiveSession._move_melee`, `state["move_melee"]`), a white `draw_melee_sign`.
-- `measure.avoid_melee` ("Avoid control range", enabled with movement) gives `move_field(avoid_mm=1 in)`, which keeps area and route out of these zones (not for an enemy already within 1 in at the start).
+- `measure.avoid_melee` ("Avoid control range", enabled with movement) gives `move_field(avoid_mm=1 in)`, which keeps area and route out of these zones (not for an enemy already within 1 in at the start). The zone has no `SLACK_MM`: it comes from the exact enemy centre plus `AVOID_PAD_MM`, so no position in reach is at 1 in or less.
 - `LiveSession._field` / `_route` keep the last result.
-- A left click with movement on and a ring locks the route (`move_locked`, `state["move_locked"]`, not saved), like the shot lock: `_hover` is ignored, the click sets the pointer position, the area, circles, route and numbers stay. `measure.unlock` frees it; a new ring, selection, movement toggle or "Shoot at" clears it. The inspector shows "Movement locked." and "Unlock" at the bottom right.
+- A left click on the movement area (`MoveField.route` is not None, `LiveSession._can_move_to`) with movement on and a ring locks the route; a click out of the area is a plain click (select a base, opening or light terrain) (`move_locked`, `state["move_locked"]`, not saved), like the shot lock: `_hover` is ignored, the click sets the pointer position, the area, circles, route and numbers stay. `measure.unlock` frees it; a new ring, selection, movement toggle or "Shoot at" clears it. The inspector shows "Movement locked." and "Unlock" at the bottom right.
 
 ## shoot.py
 

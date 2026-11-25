@@ -213,6 +213,7 @@ class InspectorLayout:
             self.wounds.show_state(state)
             distance = state["distance"]
             self.distance.setText("Right click a second base to measure to." if distance is None else distance_label(distance))
+            self.distance.setVisible(not state["movement"])
             self.candidates.show_state(state)
             self.copies.show_state(state)
             self.copies.setVisible(bool(state["copy_choices"]))

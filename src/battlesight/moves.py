@@ -27,6 +27,7 @@ from .measure import MM_PER_INCH
 MOVE_PX_PER_MM = 1.0  # raster of the movement field
 SLACK_MM = 0.5  # the base can be this far into terrain (detection error of a base that touches a wall)
 ESCAPE_MM = 3.0  # a base that starts in terrain gets out of it over this length
+AVOID_PAD_MM = 0.75  # more than the raster error (half a pixel diagonal): no position in reach is in control range
 GAP_PAST_MM = 3.0  # the zone around an open gap, where the base can be over the wall, is this much more than the base radius
 GAP_WALL_MM = 1.0  # in that zone the centre keeps this distance to the terrain
 RAY_ANGLES = 240
@@ -353,9 +354,15 @@ def move_field(
             cv2.circle(stand, px(*corner), grow, 0, -1)
     for at, size in enemies:
         near = float(np.hypot(c[0] - at[0], c[1] - at[1])) <= r + 0.5 * size + avoid_mm
-        keep = clear + 0.5 * size + (0.0 if near else avoid_mm)
-        for mask in (stand, free):
-            cv2.circle(mask, px(float(at[0]), float(at[1])), int(round(keep * k)), 0, -1)
+        if near or avoid_mm <= 0.0:
+            for mask in (stand, free):
+                cv2.circle(mask, px(float(at[0]), float(at[1])), int(round((clear + 0.5 * size) * k)), 0, -1)
+            continue
+        # A limit of the rules, not a contact with terrain: no slack, and from the exact enemy centre.
+        dx = origin[0] + np.arange(w) / k - at[0]
+        dy = origin[1] + np.arange(h) / k - at[1]
+        zone_px = np.hypot(dx[None, :], dy[:, None]) <= r + 0.5 * size + avoid_mm + AVOID_PAD_MM
+        stand[zone_px], free[zone_px] = 0, 0
     for at, size in friends:  # no stop on a friend; the move goes through
         cv2.circle(stand, px(float(at[0]), float(at[1])), int(round((clear + 0.5 * size) * k)), 0, -1)
     for band in (stand, free, barrier):
