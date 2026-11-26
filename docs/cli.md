@@ -411,8 +411,8 @@ their side, the `selected_label` row on a grey background; the inspector
 page `roster_operative` shows only the title and the wounds.
 
 Team list contents: `LiveSession.in_play[slot]` = labels in list order, `None`
-= all operatives of the team (file order; also after `team.set` and at the
-start; not saved). `roster.remove(slot)` removes the selected operative
+= the start list: `default_copies` of each operative of the team (file order;
+default 1, 0 leaves it out; also after `team.set` and at the start; not saved). `roster.remove(slot)` removes the selected operative
 (`selected_label`) from the list of that side and clears the selection (a
 hint when the selection is not in that list). `roster.add(slot, label)` puts
 an operative of the side's team that is not in the list at its end (else an
@@ -431,7 +431,8 @@ Copies (`docs/specs/operative-copies.md`): an operative with `max = N` (N > 1) i
 `team.toml` can be in a team list N times. Each copy has a copy label
 `<team>/<operative>#<k>` (`ident.copy_label`, `type_of`, `copy_number`,
 `display_name` = "Boy #2"); an operative with `max = 1` keeps its type label.
-`in_play` holds copy labels; at the start each type has one copy (`#1`).
+`in_play` holds copy labels; at the start each type has copies `#1` to
+`#default_copies` (`team.toml`, 0 to `max`, default 1).
 `roster.add(slot, label)` with a type label adds the lowest free copy (up to
 `max`, else an error notice), with a copy label that copy. `roster.remove`
 of a copy drops its wounds and position: it comes back with all wounds.
@@ -613,7 +614,7 @@ frame).
 ## `enroll`: gallery photos of one operative
 
 ```
-uv run battlesight enroll --team NAME --operative NAME [--base-mm 32] [--wounds W] [--counts-as ORIGINAL] [--expendable | --not-expendable]
+uv run battlesight enroll --team NAME --operative NAME [--base-mm 32] [--wounds W] [--counts-as ORIGINAL] [--expendable | --not-expendable] [--default-copies N]
                           [--archetype ARCH ...] [--faction-counter TEXT]
                           [--operative-count N|N-M]
                           [--images PATH ...] [--reference FILE]
@@ -640,7 +641,7 @@ that is in the team list. These originals must have the same base size. Only the
 "Change operative" list (also after "Locate operative") and the inspector model
 line show the variants, with their own scores (`state["candidates"]`); a choice
 names the original, locks the model of the base's copy, and the photo goes to
-the variant. The live app keeps the model of each copy (see "Models" above). `--expendable` sets `expendable = true` for the
+the variant. The live app keeps the model of each copy (see "Models" above). `--default-copies N` sets `default_copies` (copies in a new team list, 0 to `max` of `team.toml`; a new operative has `max` 1; another value, or the option with a variant, gives exit code 2 and no change). `--expendable` sets `expendable = true` for the
 operative in `team.toml` (`--not-expendable` removes it; without either option
 the value stays). `--archetype ARCH ...` (one or more of `Infiltration`,
 `"Seek and Destroy"`, `Recon`, `Security`; the keys of `[tac_ops]` in

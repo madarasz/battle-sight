@@ -2221,6 +2221,25 @@ def test_team_list_remove_and_add_operatives(tmp_path, named):
     assert names() == ["Nob", "Grot", "Burna"]
 
 
+def test_new_team_list_has_the_default_copies(tmp_path, named):
+    cfg, frame = named
+    team = tmp_path / "gallery" / "orks"
+    idt.save_team_file(team, "orks", idt.load_team_file(team), None, None, None, {"Grot": 3}, None, {"Grot": 2, "Nob": 0})
+    session = make_session(tmp_path, cfg, frame, teams=("orks",))
+    settled(session, frame)
+    roster = lambda: session.state()["rosters"][0]  # noqa: E731
+    assert [r["name"] for r in roster()["operatives"]] == ["Grot #1", "Grot #2", "Burna"]
+    assert {m["label"]: m["copies_in_play"] for m in roster()["missing"]} == {"orks/Nob": 0, "orks/Grot": 2}
+
+    session.dispatch("snapshot.name")  # Nob is not in the list: no base gets its name
+    s = session.step(frame).state
+    assert session.gallery.out_of_play == {"orks/Nob"}
+    assert "orks/Nob" not in {b["label"] for b in s["bases"]}
+
+    session.dispatch("roster.add", slot=0, label="orks/Nob")
+    assert "Nob" in [r["name"] for r in roster()["operatives"]] and session.gallery.out_of_play == set()
+
+
 # --- copies of one operative -------------------------------------------------------
 
 

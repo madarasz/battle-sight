@@ -414,7 +414,8 @@ def display_name(label: str) -> str:
 @dataclass
 class Operative:
     """An operative type of a team file. `max` = copies that a team can field
-    (`max` in team.toml, default 1). The live app makes one Operative for each
+    (`max` in team.toml, default 1). `default_copies` = copies in a new team
+    list (0 to `max`, default 1). The live app makes one Operative for each
     copy in play with `copy` set; a gallery operative has no `copy`."""
 
     team: str
@@ -424,8 +425,9 @@ class Operative:
     expendable: bool = False  # `expendable = true` in team.toml
     max: int = 1  # copies that a team can field
     copy: int | None = None  # copy number of one copy in play (only with max > 1)
-    counts_as: str | None = None  # name of the original operative (`counts_as` in team.toml): a variant model with its own photos; base size, wounds, `expendable` and `max` are the original's
+    counts_as: str | None = None  # name of the original operative (`counts_as` in team.toml): a variant model with its own photos; base size, wounds, `expendable`, `max` and `default_copies` are the original's
     targets: tuple[str, ...] = ()  # all names of `counts_as`, in file order; `counts_as` is the one in use (`Gallery.out_of_play`)
+    default_copies: int = 1  # copies in a new team list of the live app (`default_copies` in team.toml)
 
     def __post_init__(self) -> None:
         if not self.targets and self.counts_as is not None:
@@ -484,6 +486,14 @@ def check_max(value, where: str) -> int:
     """A maximum count of copies: a whole number of 1 or more. Else a ValueError."""
     if isinstance(value, bool) or not isinstance(value, int) or value < 1:
         raise ValueError(f"{where}: max must be a whole number of 1 or more, not {value!r}")
+    return value
+
+
+def check_default_copies(value, maximum: int, where: str) -> int:
+    """Copies in a new team list: a whole number from 0 to `maximum` (`max`).
+    Else a ValueError."""
+    if isinstance(value, bool) or not isinstance(value, int) or not 0 <= value <= maximum:
+        raise ValueError(f"{where}: default_copies must be a whole number from 0 to max ({maximum}), not {value!r}")
     return value
 
 
@@ -623,6 +633,23 @@ def read_copies(team_dir: Path) -> dict[str, int]:
     return out
 
 
+def read_default_copies(team_dir: Path) -> dict[str, int]:
+    """{operative name: default_copies} of the operatives with `default_copies`
+    in `team.toml` (the others start with one copy). A bad value, or a value
+    above `max`, is a ValueError."""
+    path = team_dir / TEAM_FILE
+    if not path.exists():
+        return {}
+    maximum = read_copies(team_dir)
+    with path.open("rb") as fh:
+        raw = tomllib.load(fh)
+    out = {}
+    for name, v in raw.get("operatives", {}).items():
+        if isinstance(v, dict) and "default_copies" in v:
+            out[str(name)] = check_default_copies(v["default_copies"], maximum.get(str(name), 1), f"{path} {name}")
+    return out
+
+
 def load_team_file(team_dir: Path) -> dict[str, float | None]:
     """{operative name: base diameter in mm or None} from `team.toml`."""
     return {name: base for name, (base, _wounds) in read_team_file(team_dir).items()}
@@ -637,12 +664,13 @@ def team_operatives(team: str, team_dir: Path, variants: bool = False) -> list[O
     listed = read_team_file(team_dir)
     expendable = read_expendable(team_dir)
     copies = read_copies(team_dir)
+    defaults = read_default_copies(team_dir)
     counts_as = read_counts_as(team_dir)
     folders: set[str] = set()
     if team_dir.is_dir():
         folders = {q.name for q in team_dir.iterdir() if q.is_dir() and not q.name.startswith(".")}
     names = [*listed, *sorted(folders - set(listed))]
-    ops = [Operative(team, name, *listed.get(name, (None, None)), name in expendable, copies.get(name, 1)) for name in names if variants or name not in counts_as]
+    ops = [Operative(team, name, *listed.get(name, (None, None)), name in expendable, copies.get(name, 1), default_copies=defaults.get(name, 1)) for name in names if variants or name not in counts_as]
     by_name = {op.name: op for op in ops}
     for op in ops:
         if op.name in counts_as:  # a variant takes the values of its (first) original
@@ -656,6 +684,7 @@ def _take_values(variant: Operative, original: Operative) -> None:
     variant.counts_as = original.name
     variant.base_mm, variant.wounds = original.base_mm, original.wounds
     variant.expendable, variant.max = original.expendable, original.max
+    variant.default_copies = original.default_copies
 
 
 def roster_sizes(root: str | Path, teams: Iterable[str]) -> tuple[float, ...] | None:
@@ -677,12 +706,14 @@ def save_team_file(
     expendable: Iterable[str] | None = None,
     copies: dict[str, int] | None = None,
     counts_as: dict[str, str | Sequence[str]] | None = None,
+    default_copies: dict[str, int] | None = None,
 ) -> None:
     """Write `team.toml`: team values, then base size, maximum wounds,
-    `expendable` and `max` (copies, only above 1) of each operative, in the
+    `expendable`, `max` (copies, only above 1) and `default_copies` (only when
+    not 1) of each operative, in the
     order of `operatives` (the order of the team lists in the live app).
     A variant (`counts_as`: variant name -> original names) gets `counts_as`
-    only (a name for one original, else a list). Without `info`, `expendable`, `copies` or `counts_as` the values of
+    only (a name for one original, else a list). Without `info`, `expendable`, `copies`, `counts_as` or `default_copies` the values of
     the existing file stay."""
     wounds = wounds or {}
     if info is None:
@@ -690,6 +721,7 @@ def save_team_file(
     expendable = read_expendable(team_dir) if expendable is None else set(expendable)
     copies = read_copies(team_dir) if copies is None else copies
     counts_as = read_counts_as(team_dir) if counts_as is None else counts_as
+    default_copies = read_default_copies(team_dir) if default_copies is None else default_copies
     lines = [
         f"# Battle Sight gallery of team {team!r}. One table per operative.",
         f"# archetype: killteam archetypes, one or more of {', '.join(ARCHETYPES)}.",
@@ -699,8 +731,9 @@ def save_team_file(
         "# wounds: maximum wounds (W) of the operative, for the health bar of the live app.",
         "# expendable: true for an expendable operative (optional, default false).",
         "# max: copies of the operative that the team can field (optional, default 1).",
+        "# default_copies: copies of the operative in a new team list, 0 to max (optional, default 1).",
         "# counts_as: name of an original operative, or a list of names (optional). The operative is another model of the original (own photos);",
-        "#   it has the base size, wounds, expendable and max of the original and shows as the original.",
+        "#   it has the base size, wounds, expendable, max and default_copies of the original and shows as the original.",
         "#   With a list, the original is the first name of the list that is in the team list.",
         "# Photos: one folder per operative next to this file, written by `battlesight enroll` and by fixes.",
         "",
@@ -730,6 +763,8 @@ def save_team_file(
             lines.append("expendable = true")
         if copies.get(name, 1) > 1:
             lines.append(f"max = {copies[name]:d}")
+        if default_copies.get(name, 1) != 1:
+            lines.append(f"default_copies = {default_copies[name]:d}")
         lines.append("")
     team_dir.mkdir(parents=True, exist_ok=True)
     (team_dir / TEAM_FILE).write_text("\n".join(lines))
@@ -835,15 +870,16 @@ class Gallery:
         return len(self.files)
 
     def ensure_operative(
-        self, team: str, name: str, base_mm: float | None, wounds: int | None = None, expendable: bool | None = None, counts_as: str | None = None
+        self, team: str, name: str, base_mm: float | None, wounds: int | None = None, expendable: bool | None = None, counts_as: str | None = None,
+        default_copies: int | None = None,
     ) -> Operative:
         """The operative, created (and written to team.toml) when new. Raises
         ValueError when it exists with another base size. `wounds` (maximum
         wounds) and `expendable` set or replace the value in team.toml (None
-        keeps it). `counts_as` (the name of an original operative of the team)
+        keeps it). `default_copies` (0 to `max`) does the same. `counts_as` (the name of an original operative of the team)
         makes the operative a variant of it: it takes the values of the
-        original, so `base_mm` must match, and `wounds` and `expendable` are
-        refused."""
+        original, so `base_mm` must match, and `wounds`, `expendable` and
+        `default_copies` are refused."""
         if team not in self.team_dirs:
             raise ValueError(f"team {team!r} is not loaded, loaded: {sorted(self.team_dirs)}")
         name = check_name(name, "operative")
@@ -857,8 +893,8 @@ class Gallery:
             original = self.operatives[orig]
             if original.counts_as is not None:
                 raise ValueError(f"--counts-as: {counts_as} counts as {original.counts_as} itself")
-            if wounds is not None or expendable is not None:
-                raise ValueError(f"{name}: a variant uses the wounds and the expendable mark of {counts_as}, do not set them")
+            if wounds is not None or expendable is not None or default_copies is not None:
+                raise ValueError(f"{name}: a variant uses the wounds, the expendable mark and default_copies of {counts_as}, do not set them")
             if base_mm is not None and original.base_mm not in (None, base_mm):
                 raise ValueError(f"{name}: {counts_as} has a {original.base_mm:g} mm base, not {base_mm:g} mm")
             existing = self.index(label_of(team, name))
@@ -869,13 +905,16 @@ class Gallery:
                     raise ValueError(f"{label_of(team, name)} exists already and does not count as {counts_as}")
                 self.operatives.pop(existing)  # an operative without photos that nothing counts as: now a variant
                 self._fix_file_ops(existing)
-            op = Operative(team, name, original.base_mm, original.wounds, original.expendable, original.max, counts_as=counts_as)
+            op = Operative(team, name, original.base_mm, original.wounds, original.expendable, original.max, counts_as=counts_as, default_copies=original.default_copies)
             self.operatives.append(op)
             self._save_team(team)
             return op
         existing_op = self.index(label_of(team, name))
-        if existing_op is not None and self.operatives[existing_op].counts_as is not None and (wounds is not None or expendable is not None):
-            raise ValueError(f"{name} counts as {self.operatives[existing_op].counts_as}: set wounds and expendable on the original")
+        if existing_op is not None and self.operatives[existing_op].counts_as is not None and (wounds is not None or expendable is not None or default_copies is not None):
+            raise ValueError(f"{name} counts as {self.operatives[existing_op].counts_as}: set wounds, expendable and default_copies on the original")
+        if default_copies is not None:  # a new operative has max = 1
+            maximum = 1 if existing_op is None else self.operatives[existing_op].max
+            check_default_copies(default_copies, maximum, label_of(team, name))
         if wounds is not None:
             check_wounds(wounds, label_of(team, name))
         i = self.index(label_of(team, name))
@@ -890,10 +929,12 @@ class Gallery:
                 op.wounds, changed = wounds, True
             if expendable is not None and op.expendable != expendable:
                 op.expendable, changed = expendable, True
+            if default_copies is not None and op.default_copies != default_copies:
+                op.default_copies, changed = default_copies, True
             if changed:
                 self._save_team(team)
             return op
-        op = Operative(team, name, base_mm, wounds, bool(expendable))
+        op = Operative(team, name, base_mm, wounds, bool(expendable), default_copies=1 if default_copies is None else default_copies)
         self.operatives.append(op)
         self._save_team(team)
         return op
@@ -914,6 +955,7 @@ class Gallery:
             [op.name for op in orig if op.expendable],
             {op.name: op.max for op in orig},
             {op.name: op.targets for op in ops if op.targets},
+            {op.name: op.default_copies for op in orig},
         )
 
     def set_team_info(

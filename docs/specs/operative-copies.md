@@ -34,13 +34,15 @@ The app must:
 base_mm = 32
 wounds = 10
 max = 4
+default_copies = 2
 ```
 
 - `max`: a whole number of 1 or more. Default 1. The loader rejects other values with a `ValueError` that names the file and the operative, as `check_wounds` does.
+- `default_copies`: copies in a new team list, a whole number from 0 to `max`. Default 1. Other values are a `ValueError`, as for `max`.
 - An operative name must not contain `#`. The loader rejects it (`#` separates the copy number in a label).
 - `operative-count` stays the team total. The app shows a notice when the in-play total is out of its range. It does not block the change.
 - The file header comment gets one line for `max`.
-- `ident.Operative` gets a field `max: int = 1`.
+- `ident.Operative` gets a field `max: int = 1` and a field `default_copies: int = 1`.
 
 ## 4. Labels
 
@@ -112,7 +114,7 @@ Positions are not saved to a file (wounds are not saved either). A team change (
 
 ### 6.3 Start of a team
 
-When a team is set, each type starts with **one** copy in play. The user adds more copies with the team list. Open point O1 keeps an automatic add.
+When a team is set, each type starts with `default_copies` copies in play (default 1; 0 = not in the list). The user adds more copies with the team list. Open point O1 keeps an automatic add.
 
 ### 6.4 State
 

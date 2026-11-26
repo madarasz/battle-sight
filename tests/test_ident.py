@@ -1129,6 +1129,42 @@ def test_team_file_max_copies(tmp_path):
         idt.read_team_file(team)
 
 
+def test_team_file_default_copies(tmp_path):
+    team = tmp_path / "orks"
+    ops = {"Nob": 40.0, "Boy": 32.0, "Grot": 25.0, "Boy - pose 2": 32.0}
+    idt.save_team_file(team, "orks", ops, None, None, None, {"Boy": 3}, {"Boy - pose 2": "Boy"}, {"Boy": 2, "Grot": 0, "Nob": 1})
+    text = (team / idt.TEAM_FILE).read_text()
+    assert text.count("\ndefault_copies =") == 2 and "# default_copies:" in text  # 1 is not written
+    assert idt.read_default_copies(team) == {"Boy": 2, "Grot": 0}
+    got = {op.name: op.default_copies for op in idt.team_operatives("orks", team, variants=True)}
+    assert got == {"Nob": 1, "Boy": 2, "Grot": 0, "Boy - pose 2": 2}
+    idt.save_team_file(team, "orks", ops)  # no value given: the file keeps them
+    assert idt.read_default_copies(team) == {"Boy": 2, "Grot": 0}
+    for bad in ("-1", "1.5", "true", '"2"', "4"):
+        (team / idt.TEAM_FILE).write_text(f'[operatives."Boy"]\nmax = 3\ndefault_copies = {bad}\n')
+        with pytest.raises(ValueError, match="default_copies"):
+            idt.read_default_copies(team)
+    (team / idt.TEAM_FILE).write_text('[operatives."Boy"]\ndefault_copies = 2\n')  # max is 1
+    with pytest.raises(ValueError, match="default_copies"):
+        idt.team_operatives("orks", team)
+
+
+def test_cli_enroll_default_copies(tmp_path, capsys):
+    cfg_file = cli_config(tmp_path)
+    cfg = BoardConfig.load(cfg_file)
+    root = tmp_path / "gallery"
+    shot = tmp_path / "nob.png"
+    cv2.imwrite(str(shot), paint_board(cfg, {"Nob": ((300.0, 300.0), 0.0)}))
+    args = ["enroll", "--team", "orks", "--operative", "Nob", "--gallery-root", str(root), "--config", str(cfg_file), "--images", str(shot)]
+    assert main([*args, "--default-copies", "0"]) == 0
+    assert idt.read_default_copies(root / "orks") == {"Nob": 0}
+    assert "default_copies 0" in capsys.readouterr().out
+    assert main([*args, "--default-copies", "2"]) == 2  # above max
+    assert idt.read_default_copies(root / "orks") == {"Nob": 0}
+    main([*args, "--default-copies", "1"])  # the same photo again: only the value matters
+    assert idt.read_default_copies(root / "orks") == {}
+
+
 def test_gallery_keeps_max_when_it_writes_the_team_file(tmp_path):
     cfg = ident_cfg()
     team = tmp_path / "gallery" / "orks"

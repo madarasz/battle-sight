@@ -1631,13 +1631,14 @@ class LiveSession:
     def _listed(self, slot: int) -> list[idt.Operative]:
         """Operatives in the team list of one side, by maximum wounds (highest
         first): one entry for each copy (`copy` set) of an operative with
-        `max` > 1."""
+        `max` > 1. A new list (`in_play` None) has `default_copies` of each
+        operative."""
         team = self.team_slots[slot]
         if team is None:
             return []
         ops = self._operatives_of(team)
         if self.in_play[slot] is None:
-            out = [replace(op, copy=1) if op.max > 1 else op for op in ops]
+            out = [replace(op, copy=k) if op.max > 1 else op for op in ops for k in range(1, op.default_copies + 1)]
         else:
             by_label = {op.label: op for op in ops}
             out = []
@@ -2550,7 +2551,7 @@ class LiveSession:
         self.teams = [t for t in self.team_slots if t] or None
         if self.scores[slot].tac_op not in self._tac_ops_of(slot):  # not a Tac Op of the new team
             self.scores[slot].tac_op = None
-        self.in_play[slot] = None  # a new team starts with all its operatives
+        self.in_play[slot] = None  # a new team starts with `default_copies` of each operative
         self.gallery, self.gallery_tried = None, False
         self.pipe.set_gallery(None)
         self._update_roster()

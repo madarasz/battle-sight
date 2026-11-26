@@ -1,7 +1,7 @@
 """Battle Sight: augmented reality overlay for Kill Team.
 
     battlesight [--team A [B]] [--source S | --image-source FILE] [--reference FILE]   live app
-    battlesight enroll --team NAME --operative NAME [--base-mm 32] [--wounds 15] [--counts-as ORIGINAL] [--expendable | --not-expendable] [--archetype ARCH ...] [--faction-counter TEXT] [--operative-count N|N-M] [--images PATH...]
+    battlesight enroll --team NAME --operative NAME [--base-mm 32] [--wounds 15] [--counts-as ORIGINAL] [--expendable | --not-expendable] [--default-copies N] [--archetype ARCH ...] [--faction-counter TEXT] [--operative-count N|N-M] [--images PATH...]
     battlesight gallery --team A [B]
     battlesight calibrate [--source S | --images PATH...]
     battlesight image-pipeline PATH... [--reference FILE] [--team A [B]] [--out DIR] [--json FILE|-] [--show]
@@ -253,7 +253,7 @@ def cmd_enroll(args: argparse.Namespace) -> int:
         name = idt.check_name(args.operative, "operative")
         if args.base_mm is not None and args.base_mm not in cfg.bases_diameters_mm:
             raise ValueError(f"--base-mm {args.base_mm:g} is not in [bases] diameters_mm {list(cfg.bases_diameters_mm)}")
-        op = gallery.ensure_operative(team, name, args.base_mm, args.wounds, args.expendable, args.counts_as)
+        op = gallery.ensure_operative(team, name, args.base_mm, args.wounds, args.expendable, args.counts_as, args.default_copies)
         if args.archetype is not None or args.faction_counter is not None or args.operative_count is not None:
             count = args.operative_count
             count = int(count) if count is not None and count.strip().isdigit() else count
@@ -268,6 +268,8 @@ def cmd_enroll(args: argparse.Namespace) -> int:
         print(f"{label}: counts as {' or '.join(op.targets)} (own photos; base size, wounds and name on the screen are the original's) saved in {idt.TEAM_FILE}")
     if args.expendable is not None:
         print(f"{label}: expendable {'yes' if op.expendable else 'no'} saved in {idt.TEAM_FILE}")
+    if args.default_copies is not None:
+        print(f"{label}: default_copies {op.default_copies} saved in {idt.TEAM_FILE}")
     if args.wounds is not None:
         print(f"{label}: maximum wounds {op.wounds} saved in {idt.TEAM_FILE}")
     pipe = Pipeline(cfg, "ident", args.camera)
@@ -769,6 +771,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--wounds", type=int, default=None, metavar="W", help="maximum wounds of the operative; sets or replaces the value in team.toml at the start")
     p.add_argument("--expendable", dest="expendable", action="store_const", const=True, default=None, help="mark the operative as expendable; sets or replaces the value in team.toml at the start")
     p.add_argument("--not-expendable", dest="expendable", action="store_const", const=False, help="clear the expendable mark of the operative")
+    p.add_argument("--default-copies", type=int, default=None, metavar="N", help="copies of the operative in a new team list, 0 to max of team.toml; sets or replaces the value in team.toml at the start")
     p.add_argument("--archetype", nargs="+", choices=idt.ARCHETYPES, default=None, metavar="ARCH", help=f"archetypes of the team ({', '.join(idt.ARCHETYPES)}); replaces the value in team.toml")
     p.add_argument("--operative-count", default=None, metavar="N|N-M", help="count of operatives of the team, a number or a range like 4-6; replaces the value in team.toml, an empty text clears it")
     p.add_argument("--faction-counter", default=None, metavar="TEXT", help="faction counter of the team; replaces the value in team.toml, an empty text clears it")

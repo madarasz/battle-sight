@@ -468,7 +468,14 @@ Boys), write the largest number with `max`. All copies use the same photos:
 base_mm = 32
 wounds = 10
 max = 3
+default_copies = 2
 ```
+
+Use `default_copies` to set how many of an operative the team list has when
+you select the team. The number must not be larger than `max`. Without
+`default_copies`, the list has one. With `0`, the list does not have the
+operative: add it with the **Add operative** button.
+You can also set the number with `--default-copies` in the enroll mode.
 
 When you have more than one model for an operative (for example one painted
 in another way, or in another pose), enroll each model as its own operative
